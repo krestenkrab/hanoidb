@@ -4,12 +4,12 @@
 %% Naive Merge of two b-trees.  A better implementation should iterate leafs, not KV's
 %%
 
--export([merge/3]).
+-export([merge/4]).
 
 -record(state, { out, a_pid, b_pid }).
 
-merge(A,B,C) ->
-    {ok, Out} = fractal_btree_writer:open(C),
+merge(A,B,C, Size) ->
+    {ok, Out} = fractal_btree_writer:open(C, Size),
     Owner = self(),
     PID1 = spawn_link(fun() -> scan(Owner, A) end),
     PID2 = spawn_link(fun() -> scan(Owner, B) end),

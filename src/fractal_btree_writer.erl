@@ -1,5 +1,10 @@
-
 -module(fractal_btree_writer).
+
+%%
+%% Streaming btree writer. Accepts only monotonically increasing keys for put.
+%%
+
+%% TODO: add a bloom filter to the file
 
 -define(NODE_SIZE, 2*1024).
 
@@ -9,7 +14,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--export([open/1, add/3,close/1]).
+-export([open/1, open/2, add/3,close/1]).
 
 -record(node, { level, members=[], size=0 }).
 
@@ -20,14 +25,20 @@
 
                  nodes = [] :: [ #node{} ],
 
-                 name :: string()
+                 name :: string(),
+
+                 bloom
                }).
 
 
 %%% PUBLIC API
 
+open(Name,Size) ->
+    gen_server:start(?MODULE, [Name,Size], []).
+
+
 open(Name) ->
-    gen_server:start(?MODULE, [Name], []).
+    gen_server:start(?MODULE, [Name,2048], []).
 
 
 add(Ref,Key,Data) ->
@@ -39,15 +50,16 @@ close(Ref) ->
 %%%
 
 
-init([Name]) ->
+init([Name,Size]) ->
 
 %    io:format("got name: ~p~n", [Name]),
 
     {ok, IdxFile} = file:open( fractal_btree_util:index_file_name(Name),
                                [raw, exclusive, write, delayed_write]),
-
+    {ok, BloomFilter} = ebloom:new(Size, 0.01, 123),
     {ok, #state{ name=Name,
-                 index_file_pos=0, index_file=IdxFile
+                 index_file_pos=0, index_file=IdxFile,
+                 bloom = BloomFilter
                }}.
 
 handle_cast({add, Key, Data}, State) when is_binary(Key), is_binary(Data) ->
@@ -79,9 +91,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos }=State) ->
+flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, bloom=Ref }=State) ->
 
-    Trailer = << 0:8, LastNodePos:64/unsigned >>,
+    Bloom = ebloom:serialize(Ref),
+    BloomSize = byte_size(Bloom),
+
+    Trailer = << 0:32, Bloom/binary, BloomSize:32/unsigned, LastNodePos:64/unsigned >>,
     IdxFile = State#state.index_file,
 
     ok = file:write(IdxFile, Trailer),
@@ -111,6 +126,8 @@ add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, s
     end,
 
     NewSize = NodeSize + fractal_btree_util:estimate_node_size_increment(List, Key, Value),
+
+    ebloom:insert( State#state.bloom, Key ),
 
     NodeMembers = [{Key,Value} | List],
     if

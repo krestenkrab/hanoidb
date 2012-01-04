@@ -269,7 +269,8 @@ begin_merge(State) ->
     Owner = self(),
 
     spawn_link(fun() ->
-                       {ok, OutCount} = fractal_btree_merger:merge(AFileName, BFileName, XFileName),
+                       {ok, OutCount} = fractal_btree_merger:merge(AFileName, BFileName, XFileName,
+                                                                   State#state.level * 2),
                        Owner ! {merge_done, OutCount, XFileName}
                end),
 

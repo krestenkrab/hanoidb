@@ -5,7 +5,7 @@
 -export([open/1,close/1,lookup/2,fold/3]).
 
 -record(node, { level, members=[] }).
--record(index, {file, root}).
+-record(index, {file, root, bloom}).
 
 open(Name) ->
 
@@ -14,11 +14,15 @@ open(Name) ->
 
     %% read root position
     {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size-8, 8),
+    {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size-12, 4),
+    {ok, BloomData} = file:pread(File, FileInfo#file_info.size-12-BloomSize ,BloomSize),
+
+    {ok, Bloom} = ebloom:deserialize(BloomData),
 
     %% suck in the root
     {ok, Root} = read_node(File, RootPos),
 
-    {ok, #index{file=File, root=Root}}.
+    {ok, #index{file=File, root=Root, bloom=Bloom}}.
 
 
 fold(Fun, Acc0, #index{file=File}) ->
@@ -43,8 +47,13 @@ close(#index{file=File}) ->
     file:close(File).
 
 
-lookup(#index{file=File, root=Node},Key) ->
-    lookup_in_node(File,Node,Key).
+lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
+    case ebloom:contains(Bloom, Key) of
+        true ->
+            lookup_in_node(File,Node,Key);
+        false ->
+            notfound
+    end.
 
 lookup_in_node(_File,#node{level=0,members=Members},Key) ->
     case lists:keyfind(Key,1,Members) of
