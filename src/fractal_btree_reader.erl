@@ -17,7 +17,7 @@ open(Name) ->
     {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size-12, 4),
     {ok, BloomData} = file:pread(File, FileInfo#file_info.size-12-BloomSize ,BloomSize),
 
-    {ok, Bloom} = ebloom:deserialize(BloomData),
+    {ok, Bloom} = ebloom:deserialize(zlib:unzip(BloomData)),
 
     %% suck in the root
     {ok, Root} = read_node(File, RootPos),

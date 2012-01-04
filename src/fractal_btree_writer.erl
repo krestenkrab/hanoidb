@@ -56,7 +56,7 @@ init([Name,Size]) ->
 
     {ok, IdxFile} = file:open( fractal_btree_util:index_file_name(Name),
                                [raw, exclusive, write, delayed_write]),
-    {ok, BloomFilter} = ebloom:new(Size, 0.01, 123),
+    {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
     {ok, #state{ name=Name,
                  index_file_pos=0, index_file=IdxFile,
                  bloom = BloomFilter
@@ -93,7 +93,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, bloom=Ref }=State) ->
 
-    Bloom = ebloom:serialize(Ref),
+    Bloom = zlib:zip(ebloom:serialize(Ref)),
     BloomSize = byte_size(Bloom),
 
     Trailer = << 0:32, Bloom/binary, BloomSize:32/unsigned, LastNodePos:64/unsigned >>,
