@@ -1,0 +1,12 @@
+{application, fractal_btree,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { fractal_btree_app, []}},
+  {env, []}
+ ]}.
