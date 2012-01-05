@@ -128,7 +128,7 @@ main_loop(State = #state{ next=Next }) ->
     Parent = plain_fsm:info(parent),
     receive
         ?REQ(From, {lookup, Key})=Req ->
-	    case do_lookup(Key, [State#state.b, State#state.b, Next]) of
+	    case do_lookup(Key, [State#state.b, State#state.a, Next]) of
 		notfound ->
 		    reply(From, notfound);
 		{found, Result} ->
