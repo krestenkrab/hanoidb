@@ -102,9 +102,7 @@ initialize(State) ->
                     {ok, BT1} = fractal_btree_reader:open(AFileName),
                     {ok, BT2} = fractal_btree_reader:open(BFileName),
 
-                    {ok, MergePID} = begin_merge(State),
-
-                    main_loop(State#state{ a=BT1, b=BT2, merge_pid=MergePID });
+                    check_begin_merge_then_loop(State#state{ a=BT1, b=BT2, merge_pid=MergePID });
 
                 {error, enoent} ->
 
