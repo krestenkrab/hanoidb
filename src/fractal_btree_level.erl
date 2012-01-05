@@ -244,7 +244,7 @@ begin_merge(State) ->
 
     file:delete(XFileName),
 
-    MergePID = spawn_link(fun() ->
+    MergePID = proc_lib:spawn_link(fun() ->
                        {ok, OutCount} = fractal_btree_merger2:merge(AFileName, BFileName, XFileName,
                                                                    1 bsl (State#state.level + 1)),
 
