@@ -211,9 +211,14 @@ main_loop(State = #state{ next=Next }) ->
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
               From, Req, State, fun(S1) -> main_loop(S1) end);
-        {'EXIT', Parent, Reason} ->
-            plain_fsm:parent_EXIT(Reason, State)
 
+        {'EXIT', Parent, Reason} ->
+            plain_fsm:parent_EXIT(Reason, State);
+        {'EXIT', _, normal} ->
+	    %% Probably from a merger_pid - which we may have forgotten in the meantime.
+	    main_loop(State);
+        {'EXIT', Pid, Reason} when Pid == State#state.merge_pid ->
+	    restart_merge_then_loop(State#state{merge_pid=undefined}, Reason)
     end.
 
 do_lookup(_Key, []) ->
@@ -235,6 +240,13 @@ close_if_defined(BT)        -> fractal_btree_reader:close(BT).
 stop_if_defined(undefined) -> ok;
 stop_if_defined(MergePid) when is_pid(MergePid) ->
     erlang:exit(MergePid, shutdown).
+
+
+restart_merge_then_loop(State, Reason) ->
+    XFileName = filename("X",State),
+    error_logger:warning_msg("Merger appears to have failed (reason: ~p). Removing outfile ~s\n", [Reason, XFileName]),
+    file:delete(XFileName),
+    check_begin_merge_then_loop(State).
 
 begin_merge(State) ->
     AFileName = filename("A",State),
