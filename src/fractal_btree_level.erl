@@ -79,7 +79,7 @@ reply({PID,Ref}, Reply) ->
 
 
 initialize(State) ->
-    error_logger:info_msg("in ~p level=~p~n", [self(), State]),
+%    error_logger:info_msg("in ~p level=~p~n", [self(), State]),
 
     AFileName = filename("A",State),
     BFileName = filename("B",State),
@@ -126,7 +126,6 @@ check_begin_merge_then_loop(State) ->
 
 main_loop(State = #state{ next=Next }) ->
     Parent = plain_fsm:info(parent),
-    error_logger:info_msg("in main_loop~n", []),
     receive
         ?REQ(From, {lookup, Key})=Req ->
 	    case do_lookup(Key, [State#state.b, State#state.b, Next]) of
@@ -249,7 +248,7 @@ begin_merge(State) ->
                        {ok, OutCount} = fractal_btree_merger:merge(AFileName, BFileName, XFileName,
                                                                    State#state.level + 1),
 
-                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
+%                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
 
                        Owner ! {merge_done, OutCount, XFileName}
                end),
