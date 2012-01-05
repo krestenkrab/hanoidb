@@ -307,7 +307,7 @@ begin_merge(State) ->
 
     MergePID = spawn_link(fun() ->
                        {ok, OutCount} = fractal_btree_merger:merge(AFileName, BFileName, XFileName,
-                                                                   State#state.level + 1),
+                                                                   1 bsl (State#state.level + 1)),
 
 %                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
 
