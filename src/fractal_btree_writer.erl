@@ -45,7 +45,7 @@ add(Ref,Key,Data) ->
     gen_server:cast(Ref, {add, Key, Data}).
 
 close(Ref) ->
-    gen_server:call(Ref, close).
+    gen_server:call(Ref, close, infinity).
 
 %%%
 
