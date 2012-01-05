@@ -102,7 +102,7 @@ initialize(State) ->
                     {ok, BT1} = fractal_btree_reader:open(AFileName),
                     {ok, BT2} = fractal_btree_reader:open(BFileName),
 
-                    check_begin_merge_then_loop(State#state{ a=BT1, b=BT2, merge_pid=MergePID });
+                    check_begin_merge_then_loop(State#state{ a=BT1, b=BT2 });
 
                 {error, enoent} ->
 
@@ -234,7 +234,7 @@ close_if_defined(undefined) -> ok;
 close_if_defined(BT)        -> fractal_btree_reader:close(BT).
 
 stop_if_defined(undefined) -> ok;
-stop_if_defined(MergePid=) when is_pid(MergePid) ->
+stop_if_defined(MergePid) when is_pid(MergePid) ->
     erlang:exit(MergePid, shutdown).
 
 begin_merge(State) ->
