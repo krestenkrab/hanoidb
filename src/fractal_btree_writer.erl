@@ -54,13 +54,19 @@ init([Name,Size]) ->
 
 %    io:format("got name: ~p~n", [Name]),
 
-    {ok, IdxFile} = file:open( fractal_btree_util:index_file_name(Name),
-                               [raw, exclusive, write, delayed_write]),
-    {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
-    {ok, #state{ name=Name,
-                 index_file_pos=0, index_file=IdxFile,
-                 bloom = BloomFilter
-               }}.
+    case file:open( fractal_btree_util:index_file_name(Name),
+                               [raw, exclusive, write, delayed_write]) of
+        {ok, IdxFile} ->
+            {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
+            {ok, #state{ name=Name,
+                         index_file_pos=0, index_file=IdxFile,
+                         bloom = BloomFilter
+                       }};
+        {error, _}=Error ->
+            error_logger:error_msg("fractal_btree_writer cannot open ~p: ~p~n", [Name, Error]),
+            {stop, Error}
+    end.
+
 
 handle_cast({add, Key, Data}, State) when is_binary(Key), is_binary(Data) ->
     {ok, State2} = add_record(0, Key, Data, State),
