@@ -22,6 +22,7 @@
                  index_file_pos,
 
                  last_node_pos :: pos_integer(),
+                 last_node_size :: pos_integer(),
 
                  nodes = [] :: [ #node{} ],
 
@@ -97,12 +98,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, bloom=Ref }=State) ->
+flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=LastNodeSize, bloom=Ref }=State) ->
 
     Bloom = zlib:zip(ebloom:serialize(Ref)),
     BloomSize = byte_size(Bloom),
 
-    Trailer = << 0:32, Bloom/binary, BloomSize:32/unsigned, LastNodePos:64/unsigned >>,
+    Trailer = << 0:32, Bloom/binary, BloomSize:32/unsigned,  LastNodePos:64/unsigned >>,
     IdxFile = State#state.index_file,
 
     ok = file:write(IdxFile, Trailer),
@@ -155,7 +156,9 @@ close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes]} =
     ok = file:write(State#state.index_file, Data),
 
     {FirstKey, _} = hd(OrderedMembers),
-    add_record(Level+1, FirstKey, NodePos,
+    add_record(Level+1, FirstKey, {NodePos, DataSize},
                State#state{ nodes          = RestNodes,
                             index_file_pos = NodePos + DataSize,
-                            last_node_pos  = NodePos}).
+                            last_node_pos  = NodePos,
+                            last_node_size = DataSize
+                          }).

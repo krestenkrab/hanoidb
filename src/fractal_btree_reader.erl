@@ -37,7 +37,7 @@ fold0(File,Fun,_InnerNode,Acc0) ->
     fold1(File,Fun,Acc0).
 
 fold1(File,Fun,Acc0) ->
-    case read_node(File) of
+    case read_leaf_node(File) of
         eof ->
             Acc0;
         {ok, Node} ->
@@ -50,12 +50,12 @@ first_node(#index{file=File}) ->
             {node, Members}
     end.
 
-next_node(#index{file=File}=Index) ->
-    case read_node(File) of
+next_node(#index{file=File}=_Index) ->
+    case read_leaf_node(File) of
         {ok, #node{level=0, members=Members}} ->
             {node, Members};
-        {ok, #node{level=N}} when N>0 ->
-            next_node(Index);
+%        {ok, #node{level=N}} when N>0 ->
+%            next_node(Index);
         eof ->
             end_of_data
     end.
@@ -82,8 +82,8 @@ lookup_in_node(_File,#node{level=0,members=Members},Key) ->
 
 lookup_in_node(File,#node{members=Members},Key) ->
     case find(Key, Members) of
-        {ok, Pos} ->
-            {ok, Node} = read_node(File, Pos),
+        {ok, {Pos,Size}} ->
+            {ok, Node} = read_node(File, {Pos,Size}),
             lookup_in_node(File, Node, Key);
         notfound ->
             notfound
@@ -100,21 +100,37 @@ find(_, _) ->
     notfound.
 
 
+read_node(File,{Pos,Size}) ->
+    {ok, <<_:32, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
+    fractal_btree_util:decode_index_node(Level, Data);
+
 read_node(File,Pos) ->
 
     {ok, Pos} = file:position(File, Pos),
     Result = read_node(File),
-%    error_logger:info_msg("decoded ~p ~p~n", [Pos, Result]),
+%   error_logger:info_msg("decoded ~p ~p~n", [Pos, Result]),
     Result.
 
 read_node(File) ->
-    {ok, <<Len:32>>} = file:read(File, 4),
+    {ok, <<Len:32, Level:16/unsigned>>} = file:read(File, 6),
     case Len of
         0 -> eof;
         _ ->
-            {ok, Data} = file:read(File, Len),
-            {ok, Node} = fractal_btree_util:decode_index_node(Data),
+            {ok, Data} = file:read(File, Len-2),
+            {ok, Node} = fractal_btree_util:decode_index_node(Level, Data),
             {ok, Node}
     end.
 
+
+read_leaf_node(File) ->
+    case file:read(File, 6) of
+        {ok, <<0:32, _:16>>} ->
+            eof;
+        {ok, <<Len:32, 0:16>>} ->
+            {ok, Data} = file:read(File, Len-2),
+            fractal_btree_util:decode_index_node(0, Data);
+        {ok, <<Len:32, _:16>>} ->
+            {ok, _} = file:position(File, {cur,Len-2}),
+            read_leaf_node(File)
+    end.
 
