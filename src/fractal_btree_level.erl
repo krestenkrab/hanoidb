@@ -202,27 +202,15 @@ main_loop(State = #state{ next=Next }) ->
     error_logger:info_msg("in main_loop~n", []),
     receive
         ?REQ(From, {lookup, Key})=Req ->
-            case fractal_btree_reader:lookup(State#state.b, Key) of
-                {ok, deleted} ->
-                    reply(From, notfound),
-                    main_loop(State);
-                {ok, _}=Reply ->
-                    reply(From, Reply),
-                    main_loop(State);
-                _ ->
-                    case fractal_btree_reader:lookup(State#state.a, Key) of
-                        {ok, deleted} ->
-                            reply(From, notfound);
-                        {ok, _}=Reply ->
-                            reply(From, Reply);
-                        notfound when Next =:= undefined ->
-                            reply(From, notfound);
-                        notfound ->
-                            Next ! Req
-                    end,
-                    main_loop(State)
-            end;
-
+	    case do_lookup(Key, [State#state.b, State#state.b, Next]) of
+		notfound ->
+		    reply(From, notfound);
+		{found, Result} ->
+		    reply(From, {ok, Result});
+		{delegate, DelegatePid} ->
+		    DelegatePid ! Req
+	    end,
+	    main_loop(State);
 
         ?REQ(From, close) ->
             fractal_btree_reader:close(State#state.a),
@@ -295,7 +283,18 @@ main_loop(State = #state{ next=Next }) ->
 
     end.
 
-
+do_lookup(_Key, []) ->
+    notfound;
+do_lookup(_Key, [Pid]) when is_pid(Pid) ->
+    {delegate, Pid};
+do_lookup(Key, [undefined|Rest]) ->
+    do_lookup(Key, Rest);    
+do_lookup(Key, [BT|Rest]) ->
+    case fractal_btree_reader:lookup(BT, Key) of
+	{ok, deleted} -> notfound;
+	{ok, Result}  -> {found, Result};
+	notfound      -> do_lookup(Key, Rest)
+    end.
 
 begin_merge(State) ->
     AFileName = filename("A",State),
