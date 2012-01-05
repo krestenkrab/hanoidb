@@ -128,28 +128,28 @@ main_loop(State = #state{ next=Next }) ->
     Parent = plain_fsm:info(parent),
     receive
         ?REQ(From, {lookup, Key})=Req ->
-	    case do_lookup(Key, [State#state.b, State#state.a, Next]) of
-		notfound ->
-		    reply(From, notfound);
-		{found, Result} ->
-		    reply(From, {ok, Result});
-		{delegate, DelegatePid} ->
-		    DelegatePid ! Req
-	    end,
-	    main_loop(State);
+            case do_lookup(Key, [State#state.b, State#state.a, Next]) of
+                notfound ->
+                    reply(From, notfound);
+                {found, Result} ->
+                    reply(From, {ok, Result});
+                {delegate, DelegatePid} ->
+                    DelegatePid ! Req
+            end,
+            main_loop(State);
 
         ?REQ(From, {inject, FileName}) when State#state.b == undefined ->
-	    if State#state.a == undefined ->
-		    ToFileName = filename("A",State),
-		    SetPos = #state.a;
-	       true ->    
-		    ToFileName = filename("B",State),
-		    SetPos = #state.b
-	    end,
-	    ok = file:rename(FileName, ToFileName),
-	    {ok, BT} = fractal_btree_reader:open(ToFileName),
-	    reply(From, ok),
-	    check_begin_merge_then_loop(setelement(SetPos, State, BT));
+            if State#state.a == undefined ->
+                    ToFileName = filename("A",State),
+                    SetPos = #state.a;
+               true ->
+                    ToFileName = filename("B",State),
+                    SetPos = #state.b
+            end,
+            ok = file:rename(FileName, ToFileName),
+            {ok, BT} = fractal_btree_reader:open(ToFileName),
+            reply(From, ok),
+            check_begin_merge_then_loop(setelement(SetPos, State, BT));
 
         ?REQ(From, close) ->
             close_if_defined(State#state.a),
