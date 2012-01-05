@@ -79,7 +79,7 @@ reply({PID,Ref}, Reply) ->
 
 
 initialize(State) ->
-    error_logger:info_msg("in ~p level=~p~n", [self(), State]),
+%    error_logger:info_msg("in ~p level=~p~n", [self(), State]),
 
 
     AFileName = filename("A",State),
@@ -123,10 +123,10 @@ initialize(State) ->
 
 main_loop0(State = #state{ a=undefined, b=undefined }) ->
     Parent = plain_fsm:info(parent),
-    error_logger:info_msg("in main_loop0~n", []),
+%    error_logger:info_msg("in main_loop0~n", []),
     receive
         ?REQ(From, {lookup, _})=Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [Msg]),
+%            error_logger:info_msg("in main_loop0, msg=~p~n", [Msg]),
             case State#state.next of
                 undefined ->
                     reply(From, notfound);
@@ -136,7 +136,7 @@ main_loop0(State = #state{ a=undefined, b=undefined }) ->
             main_loop0(State);
 
         ?REQ(From, {inject, FileName})=_Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
+%            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
             AFileName = filename("A",State),
             ok = file:rename(FileName, AFileName),
             {ok, BT} = fractal_btree_reader:open(AFileName),
@@ -144,24 +144,24 @@ main_loop0(State = #state{ a=undefined, b=undefined }) ->
             main_loop1(State#state{ a=BT });
 
         ?REQ(From, close)=_Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
+%            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
             reply(From, ok),
             ok;
 
         %% gen_fsm handling
         {system, From, Req}=_Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
+%            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
             plain_fsm:handle_system_msg(
               From, Req, State, fun(S1) -> main_loop0(S1) end);
 
         {'EXIT', Parent, Reason}=_Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
+%            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
             plain_fsm:parent_EXIT(Reason, State)
     end.
 
 main_loop1(State = #state{ a=BT1, b=undefined, next=Next }) ->
     Parent = plain_fsm:info(parent),
-    error_logger:info_msg("in main_loop1~n", []),
+%    error_logger:info_msg("in main_loop1~n", []),
     receive
         ?REQ(From, {lookup, Key})=Req ->
             case fractal_btree_reader:lookup(BT1, Key) of
@@ -199,7 +199,7 @@ main_loop1(State = #state{ a=BT1, b=undefined, next=Next }) ->
 
 main_loop2(State = #state{ next=Next }) ->
     Parent = plain_fsm:info(parent),
-    error_logger:info_msg("in main_loop2~n", []),
+%    error_logger:info_msg("in main_loop2~n", []),
     receive
         ?REQ(From, {lookup, Key})=Req ->
             case fractal_btree_reader:lookup(State#state.b, Key) of
@@ -309,7 +309,7 @@ begin_merge(State) ->
                        {ok, OutCount} = fractal_btree_merger:merge(AFileName, BFileName, XFileName,
                                                                    State#state.level + 1),
 
-                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
+%                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
 
                        Owner ! {merge_done, OutCount, XFileName}
                end),

@@ -147,7 +147,7 @@ do_put(Key, Value, State=#state{ nursery=Tree }) ->
 flush_nursery(State=#state{nursery=Tree, top=Top}) ->
     TreeSize = gb_trees:size( Tree ),
     if TreeSize > 0 ->
-            error_logger:info_msg("flushing to top=~p, alive=~p~n", [Top, erlang:is_process_alive(Top)]),
+%            error_logger:info_msg("flushing to top=~p, alive=~p~n", [Top, erlang:is_process_alive(Top)]),
             FileName = filename:join(State#state.dir, "nursery.data"),
             {ok, BT} = fractal_btree_writer:open(FileName, (1 bsl ?TOP_LEVEL)),
             lists:foreach( fun({Key2,Value2}) ->
