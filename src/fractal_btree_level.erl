@@ -307,7 +307,7 @@ begin_merge(State) ->
 
     MergePID = spawn_link(fun() ->
                        {ok, OutCount} = fractal_btree_merger:merge(AFileName, BFileName, XFileName,
-                                                                   State#state.level + 1),
+                                                                   (1 bsl State#state.level)),
 
 %                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
 
@@ -332,7 +332,4 @@ close_a_and_b(State) ->
 
 filename(PFX, State) ->
     filename:join(State#state.dir, PFX ++ "-" ++ integer_to_list(State#state.level) ++ ".data").
-
-size(State) ->
-    (1 bsl State#state.level).
 
