@@ -156,6 +156,7 @@ flush_nursery(State=#state{nursery=Tree, top=Top}) ->
                            gb_trees:to_list(Tree)),
             ok = fractal_btree_writer:close(BT),
             ok = fractal_btree_level:inject(Top, FileName),
+            {error, enoent} = file:read_file_info(FileName),
             {ok, State#state{ nursery=gb_trees:empty() } };
        true ->
             {ok, State}
