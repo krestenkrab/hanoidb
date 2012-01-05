@@ -83,7 +83,7 @@ merge_test() ->
     ok = fractal_btree_writer:close(BT2),
 
 
-    {Time,{ok,Count}} = timer:tc(fractal_btree_merger, merge, ["test1", "test2", "test3", 10000]),
+    {Time,{ok,Count}} = timer:tc(fractal_btree_merger2, merge, ["test1", "test2", "test3", 10000]),
 
     error_logger:info_msg("time to merge: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 
