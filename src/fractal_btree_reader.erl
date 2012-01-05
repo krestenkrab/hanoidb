@@ -3,6 +3,7 @@
 -include_lib("kernel/include/file.hrl").
 
 -export([open/1,close/1,lookup/2,fold/3]).
+-export([first_node/1,next_node/1]).
 
 -record(node, { level, members=[] }).
 -record(index, {file, root, bloom}).
@@ -41,6 +42,22 @@ fold1(File,Fun,Acc0) ->
             Acc0;
         {ok, Node} ->
             fold0(File,Fun,Node,Acc0)
+    end.
+
+first_node(#index{file=File}) ->
+    case read_node(File, 0) of
+        {ok, #node{level=0, members=Members}} ->
+            {node, Members}
+    end.
+
+next_node(#index{file=File}=Index) ->
+    case read_node(File) of
+        {ok, #node{level=0, members=Members}} ->
+            {node, Members};
+        {ok, #node{level=N}} when N>0 ->
+            next_node(Index);
+        eof ->
+            end_of_data
     end.
 
 close(#index{file=File}) ->
