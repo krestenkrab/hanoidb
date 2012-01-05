@@ -87,12 +87,24 @@ merge_test() ->
 
     error_logger:info_msg("time to merge: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 
-    
     ok = file:delete("test1"),
     ok = file:delete("test2"),
     ok = file:delete("test3"),
 
     ok.
 
+
+tree_test() ->
+
+    application:start(sasl),
+
+    {ok, Tree} = fractal_btree:open("simple"),
+    lists:foldl(fun(N,_) ->
+                        ok = fractal_btree:put(Tree, <<N:128>>, <<"data",N:128>>)
+                end,
+                ok,
+                lists:seq(2,10000,1)),
+
+    ok = fractal_btree:close(Tree).
 
 

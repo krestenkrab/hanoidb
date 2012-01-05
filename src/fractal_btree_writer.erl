@@ -34,11 +34,11 @@
 %%% PUBLIC API
 
 open(Name,Size) ->
-    gen_server:start(?MODULE, [Name,Size], []).
+    gen_server:start_link(?MODULE, [Name,Size], []).
 
 
 open(Name) ->
-    gen_server:start(?MODULE, [Name,2048], []).
+    gen_server:start_link(?MODULE, [Name,2048], []).
 
 
 add(Ref,Key,Data) ->
