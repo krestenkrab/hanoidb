@@ -333,6 +333,3 @@ close_a_and_b(State) ->
 filename(PFX, State) ->
     filename:join(State#state.dir, PFX ++ "-" ++ integer_to_list(State#state.level) ++ ".data").
 
-size(State) ->
-    (1 bsl State#state.level).
-
