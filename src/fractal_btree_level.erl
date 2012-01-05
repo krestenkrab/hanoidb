@@ -95,7 +95,7 @@ initialize(State) ->
             ok = file:rename(CFileName, AFileName),
 
             {ok, BT} = fractal_btree_reader:open(CFileName),
-            main_loop1(State#state{ a= BT, b=undefined });
+            main_loop(State#state{ a= BT, b=undefined });
 
         {error, enoent} ->
             case file:read_file_info(BFileName) of
@@ -105,63 +105,63 @@ initialize(State) ->
 
                     {ok, MergePID} = begin_merge(State),
 
-                    main_loop2(State#state{ a=BT1, b=BT2, merge_pid=MergePID });
+                    main_loop(State#state{ a=BT1, b=BT2, merge_pid=MergePID });
 
                 {error, enoent} ->
 
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
                             {ok, BT1} = fractal_btree_reader:open(AFileName),
-                            main_loop1(State#state{ a=BT1 });
+                            main_loop(State#state{ a=BT1 });
 
                         {error, enoent} ->
-                            main_loop0(State)
+                            main_loop(State)
                     end
             end
     end.
 
 
-main_loop0(State = #state{ a=undefined, b=undefined }) ->
+main_loop(State = #state{ a=undefined, b=undefined }) ->
     Parent = plain_fsm:info(parent),
-    error_logger:info_msg("in main_loop0~n", []),
+    error_logger:info_msg("in main_loop~n", []),
     receive
         ?REQ(From, {lookup, _})=Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [Msg]),
+            error_logger:info_msg("in main_loop, msg=~p~n", [Msg]),
             case State#state.next of
                 undefined ->
                     reply(From, notfound);
                 Next ->
                     Next ! Msg
             end,
-            main_loop0(State);
+            main_loop(State);
 
         ?REQ(From, {inject, FileName})=_Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
+            error_logger:info_msg("in main_loop, msg=~p~n", [_Msg]),
             AFileName = filename("A",State),
             ok = file:rename(FileName, AFileName),
             {ok, BT} = fractal_btree_reader:open(AFileName),
             reply(From, ok),
-            main_loop1(State#state{ a=BT });
+            main_loop(State#state{ a=BT });
 
         ?REQ(From, close)=_Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
+            error_logger:info_msg("in main_loop, msg=~p~n", [_Msg]),
             reply(From, ok),
             ok;
 
         %% gen_fsm handling
         {system, From, Req}=_Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
+            error_logger:info_msg("in main_loop, msg=~p~n", [_Msg]),
             plain_fsm:handle_system_msg(
-              From, Req, State, fun(S1) -> main_loop0(S1) end);
+              From, Req, State, fun(S1) -> main_loop(S1) end);
 
         {'EXIT', Parent, Reason}=_Msg ->
-            error_logger:info_msg("in main_loop0, msg=~p~n", [_Msg]),
+            error_logger:info_msg("in main_loop, msg=~p~n", [_Msg]),
             plain_fsm:parent_EXIT(Reason, State)
-    end.
+    end;
 
-main_loop1(State = #state{ a=BT1, b=undefined, next=Next }) ->
+main_loop(State = #state{ a=BT1, b=undefined, next=Next }) ->
     Parent = plain_fsm:info(parent),
-    error_logger:info_msg("in main_loop1~n", []),
+    error_logger:info_msg("in main_loop~n", []),
     receive
         ?REQ(From, {lookup, Key})=Req ->
             case fractal_btree_reader:lookup(BT1, Key) of
@@ -174,7 +174,7 @@ main_loop1(State = #state{ a=BT1, b=undefined, next=Next }) ->
                 notfound ->
                     Next ! Req
             end,
-            main_loop1(State);
+            main_loop(State);
 
         ?REQ(From, {inject, FileName}) ->
             BFileName = filename("B",State),
@@ -182,7 +182,7 @@ main_loop1(State = #state{ a=BT1, b=undefined, next=Next }) ->
             {ok, BT2} = fractal_btree_reader:open(BFileName),
             reply(From, ok),
             {ok, MergePID} = begin_merge(State),
-            main_loop2(State#state{ b=BT2, merge_pid=MergePID });
+            main_loop(State#state{ b=BT2, merge_pid=MergePID });
 
         ?REQ(From, close) ->
             fractal_btree_reader:close(BT1),
@@ -192,23 +192,23 @@ main_loop1(State = #state{ a=BT1, b=undefined, next=Next }) ->
         %% gen_fsm handling
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
-              From, Req, State, fun(S1) -> main_loop1(S1) end);
+              From, Req, State, fun(S1) -> main_loop(S1) end);
         {'EXIT', Parent, Reason} ->
             plain_fsm:parent_EXIT(Reason, State)
-    end.
+    end;
 
-main_loop2(State = #state{ next=Next }) ->
+main_loop(State = #state{ next=Next }) ->
     Parent = plain_fsm:info(parent),
-    error_logger:info_msg("in main_loop2~n", []),
+    error_logger:info_msg("in main_loop~n", []),
     receive
         ?REQ(From, {lookup, Key})=Req ->
             case fractal_btree_reader:lookup(State#state.b, Key) of
                 {ok, deleted} ->
                     reply(From, notfound),
-                    main_loop2(State);
+                    main_loop(State);
                 {ok, _}=Reply ->
                     reply(From, Reply),
-                    main_loop2(State);
+                    main_loop(State);
                 _ ->
                     case fractal_btree_reader:lookup(State#state.a, Key) of
                         {ok, deleted} ->
@@ -220,7 +220,7 @@ main_loop2(State = #state{ next=Next }) ->
                         notfound ->
                             Next ! Req
                     end,
-                    main_loop2(State)
+                    main_loop(State)
             end;
 
 
@@ -255,7 +255,7 @@ main_loop2(State = #state{ next=Next }) ->
             ok = file:rename(CFileName, AFileName),
             {ok, BT} = fractal_btree_reader:open(AFileName),
 
-            main_loop1(State2#state{ a=BT, b=undefined, merge_pid=undefined });
+            main_loop(State2#state{ a=BT, b=undefined, merge_pid=undefined });
 
         %%
         %% We need to push the output of merging to the next level
@@ -270,7 +270,7 @@ main_loop2(State = #state{ next=Next }) ->
                 end,
 
             MRef = send_request(State1#state.next, {inject, OutFileName}),
-            main_loop2(State1#state{ inject_done_ref = MRef, merge_pid=undefined });
+            main_loop(State1#state{ inject_done_ref = MRef, merge_pid=undefined });
 
         %%
         %% Our successor accepted the inject
@@ -278,7 +278,7 @@ main_loop2(State = #state{ next=Next }) ->
         ?REPLY(MRef, ok) when MRef =:= State#state.inject_done_ref ->
             erlang:demonitor(MRef, [flush]),
             {ok, State2} = close_a_and_b(State),
-            main_loop0(State2#state{ inject_done_ref=undefined });
+            main_loop(State2#state{ inject_done_ref=undefined });
 
         %%
         %% Our successor died!
@@ -289,7 +289,7 @@ main_loop2(State = #state{ next=Next }) ->
         %% gen_fsm handling
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
-              From, Req, State, fun(S1) -> main_loop2(S1) end);
+              From, Req, State, fun(S1) -> main_loop(S1) end);
         {'EXIT', Parent, Reason} ->
             plain_fsm:parent_EXIT(Reason, State)
 
