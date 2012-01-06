@@ -37,7 +37,7 @@ fold0(File,Fun,_InnerNode,Acc0) ->
     fold1(File,Fun,Acc0).
 
 fold1(File,Fun,Acc0) ->
-    case read_leaf_node(File) of
+    case next_leaf_node(File) of
         eof ->
             Acc0;
         {ok, Node} ->
@@ -51,7 +51,7 @@ first_node(#index{file=File}) ->
     end.
 
 next_node(#index{file=File}=_Index) ->
-    case read_leaf_node(File) of
+    case next_leaf_node(File) of
         {ok, #node{level=0, members=Members}} ->
             {node, Members};
 %        {ok, #node{level=N}} when N>0 ->
@@ -122,7 +122,7 @@ read_node(File) ->
     end.
 
 
-read_leaf_node(File) ->
+next_leaf_node(File) ->
     case file:read(File, 6) of
         {ok, <<0:32, _:16>>} ->
             eof;
@@ -131,6 +131,6 @@ read_leaf_node(File) ->
             fractal_btree_util:decode_index_node(0, Data);
         {ok, <<Len:32, _:16>>} ->
             {ok, _} = file:position(File, {cur,Len-2}),
-            read_leaf_node(File)
+            next_leaf_node(File)
     end.
 
