@@ -69,7 +69,7 @@ open_levels(Dir) ->
                     {?TOP_LEVEL, ?TOP_LEVEL},
                     Files),
 
-    error_logger:info_msg("found files ... {~p,~p}~n", [MinLevel, MaxLevel]),
+%    error_logger:info_msg("found level files ... {~p,~p}~n", [MinLevel, MaxLevel]),
 
     %% remove old nursery file
     file:delete(filename:join(Dir,"nursery.data")),
@@ -103,8 +103,8 @@ handle_cast(Info,State) ->
 
 
 %% premature delete -> cleanup
-terminate(Reason,State) ->
-    error_logger:info_msg("got terminate(~p,~p)~n", [Reason,State]),
+terminate(_Reason,_State) ->
+    % error_logger:info_msg("got terminate(~p,~p)~n", [Reason,State]),
     % flush_nursery(State),
     ok.
 
@@ -135,7 +135,6 @@ handle_call({lookup, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) whe
 handle_call(close, _From, State) ->
     {ok, State2} = flush_nursery(State),
     {stop, normal, ok, State2}.
-
 
 
 do_put(Key, Value, State=#state{ nursery=Tree }) ->
