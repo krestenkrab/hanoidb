@@ -14,6 +14,12 @@ compile:
 clean:
 	@$(REBAR) clean
 
+eunit: compile clean-test-btrees
+	@$(REBAR) eunit skip_deps=true
+
+clean-test-btrees:
+	rm -fr .eunit/Btree_*
+
 plt: compile
 	$(DIALYZER) --build_plt --output_plt .fractal_btree.plt \
 		-pa deps/plain_fsm/ebin \
