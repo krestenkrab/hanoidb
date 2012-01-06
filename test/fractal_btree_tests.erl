@@ -96,7 +96,7 @@ prop_dict_agree() ->
 
 test_tree() ->
 
-    application:start(sasl),
+%%    application:start(sasl),
 
     {ok, Tree} = fractal_btree:open("simple"),
     lists:foldl(fun(N,_) ->
