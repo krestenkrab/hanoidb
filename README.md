@@ -7,18 +7,18 @@ This Erlang-based storage engine provides a scalable alternative to Basho Bitcas
 - Operations-friendly "append-only" storage (allows you to backup live system)
 - The cost of merging (evicting stale key/values) is amortized into insertion, so you don't need to schedule merge to happen at off-peak hours. 
 - Supports range queries (and thus potentially Riak 2i.)
-- Keys are not kept in memory (unlike Bitcask.)
-- 100% pure Erlang code
+- Unlike Bitcask and InnoDB, you don't need a boat load of RAM
+- All in 100 lines of pure Erlang code
 
 Once we're a bit more stable, we'll provide a Riak backend.
 
 ## How It Works
 
-If there are N records, there are in log<sub>2</sub>(N)  levels (each an individual B-tree in a file).  Level #0 has 1 record, level #1 has 2 records, #2 has 4 records, #3 has 8 records, #5 has 16 records, and so on.  I.e. level #n has 2<sup>n</sup> records.
+If there are N records, there are in log<sub>2</sub>(N)  levels (each an individual B-tree in a file).  Level #0 has 1 record, level #1 has 2 records, #2 has 4 records, and so on.  I.e. level #n has 2<sup>n</sup> records.
 
 In "stable state", each level is either full or empty; so if there are e.g. 20 records stored, then levels #5 and #2 are full; the other ones are empty.
 
-You can read more about Fractal Trees at [Tokutek](http://www.tokutek.com/2011/11/how-fractal-trees-work-at-mit-today/), a company providing a MySQL backend based on Fractal Trees.
+You can read more about Fractal Trees at [Tokutek](http://www.tokutek.com/2011/11/how-fractal-trees-work-at-mit-today/), a company providing a MySQL backend based on Fractal Trees.  I have not tried it, but it looks truly amazing.
 
 ### Lookup
 Lookup is quite simple: starting at level #0, the sought for Key is searched in the B-tree there.  If nothing is found, search continues to the next level.  So if there are *N* levels, then *N* disk-based B-tree lookups are performed.  Each lookup is "guarded" by a bloom filter to improve the likelihood that disk-based searches are only done when likely to succeed.
@@ -43,7 +43,7 @@ With Fractal B-Trees; back-pressure is provided by the injection mechanism, whic
 
 OK, I've told you a lie.  In practice, it is not practical to create a new file for each insert (injection at level #0), so we allows you to define the "top level" to be a number higher that #0; currently defaulting to #6 (32 records).  That means that you take the amortization "hit" for ever 32 inserts.
 
-Trouble is that merging does in fact not have completely linear I/O complexity, because reading from a small file that was recently written is faster that reading from a file that was written a long time ago (because of OS-level caching); thus doing a merge at level #*N+1* often is more than twice as slow as doing a merge at level #*N*.  Because of this, sustained insert pressure may produce a situation where the system blocks while merging, though it does require an extremely high level of inserts.  We're considering ways to alleviate this.
+A further trouble is that merging does in fact not have completely linear I/O complexity, because reading from a small file that was recently written is faster that reading from a file that was written a long time ago (because of OS-level caching); thus doing a merge at level #*N+1*  is sometimes more than twice as slow as doing a merge at level #*N*.  Because of this, sustained insert pressure may produce a situation where the system blocks while merging, though it does require an extremely high level of inserts.  We're considering ways to alleviate this.
 
 Merging can be going on concurrently at each level (in preparation for an injection to the next level), which lets you utilize available multi-core capacity to merge.  
 
