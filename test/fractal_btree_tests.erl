@@ -1,100 +1,100 @@
 -module(fractal_btree_tests).
 
 -ifdef(TEST).
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-behaviour(proper_statem).
+
 -compile(export_all).
 
-simple_test() ->
+-export([command/1, initial_state/0,
+         next_state/3, postcondition/3,
+         precondition/2]).
 
-    {ok, BT} = fractal_btree_writer:open("testdata"),
-    ok = fractal_btree_writer:add(BT, <<"A">>, <<"Avalue">>),
-    ok = fractal_btree_writer:add(BT, <<"B">>, <<"Bvalue">>),
-    ok = fractal_btree_writer:close(BT),
+-record(state, { open = dict:new(),
+                 closed = dict:new() }).
+-define(SERVER, fractal_btree_drv).
 
-    {ok, IN} = fractal_btree_reader:open("testdata"),
-    {ok, <<"Avalue">>} = fractal_btree_reader:lookup(IN, <<"A">>),
-    ok = fractal_btree_reader:close(IN),
+full_test_() ->
+    {setup,
+     spawn,
+     fun () -> ok end,
+     fun (_) -> ok end,
+     [{timeout, 120, ?_test(test_proper())},
+      ?_test(test_tree())]}.
 
-    ok = file:delete("testdata").
+qc_opts() -> [{numtests, 400}].
 
-
-simple1_test() ->
-
-    {ok, BT} = fractal_btree_writer:open("testdata"),
-
-    Max = 30*1024,
-    Seq = lists:seq(0, Max),
-
-    {Time1,_} = timer:tc(
-                  fun() ->
-                          lists:foreach(
-                            fun(Int) ->
-                                    ok = fractal_btree_writer:add(BT, <<Int:128>>, <<"valuevalue/", Int:128>>)
-                            end,
-                            Seq),
-                          ok = fractal_btree_writer:close(BT)
-                  end,
-                  []),
-
-    error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
-
-    {ok, IN} = fractal_btree_reader:open("testdata"),
-    {ok, <<"valuevalue/", 2048:128>>} = fractal_btree_reader:lookup(IN, <<2048:128>>),
+test_proper() ->
+    [?assertEqual([], proper:module(?MODULE, qc_opts()))].
 
 
-    {Time2,Count} = timer:tc(
-                      fun() -> fractal_btree_reader:fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
-                                                         N+1
-                                                 end,
-                                                 0,
-                                                 IN)
-                      end,
-                      []),
+initial_state() ->
+    #state { }.
 
-    error_logger:info_msg("time to scan: ~p/sec~n", [1000000/(Time2/Max)]),
+g_btree_name() ->
+    ?LET(I, integer(1,10),
+         "Btree_" ++ integer_to_list(I)).
 
-    Max = Count-1,
+cmd_close_args(#state { open = Open }) ->
+    oneof(dict:fetch_keys(Open)).
 
+cmd_put_args(#state { open = Open }) ->
+    ?LET({Name, Key, Value},
+         {oneof(dict:fetch_keys(Open)), binary(), binary()},
+         [Name, Key, Value]).
 
-    ok = fractal_btree_reader:close(IN),
+command(#state { open = Open} = S) ->
+    frequency(
+      [ {100, {call, ?SERVER, open, [g_btree_name()]}} ] ++
+      [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
+          || dict:size(Open) > 0]).
 
-    ok = file:delete("testdata").
+precondition(#state { open = Open }, {call, ?SERVER, put, [Name, K, V]}) ->
+    dict:is_key(Name, Open);
+precondition(#state { open = Open }, {call, ?SERVER, open, [Name]}) ->
+    not (dict:is_key(Name, Open)).
 
+next_state(#state { open = Open} = S, _Res,
+           {call, ?SERVER, put, [Name, Key, Value]}) ->
+    S#state { open = dict:update(Name,
+                                 fun(Dict) ->
+                                         dict:store(Key, Value, Dict)
+                                 end,
+                                 Open)};
+next_state(#state { open = Open} = S, _Res, {call, ?SERVER, open, [Name]}) ->
+    S#state { open = dict:store(Name, dict:new(), Open) }.
 
-merge_test() ->
-
-    {ok, BT1} = fractal_btree_writer:open("test1"),
-    lists:foldl(fun(N,_) ->
-                        ok = fractal_btree_writer:add(BT1, <<N:128>>, <<"data",N:128>>)
-                end,
-                ok,
-                lists:seq(1,10000,2)),
-    ok = fractal_btree_writer:close(BT1),
-
-
-    {ok, BT2} = fractal_btree_writer:open("test2"),
-    lists:foldl(fun(N,_) ->
-                        ok = fractal_btree_writer:add(BT2, <<N:128>>, <<"data",N:128>>)
-                end,
-                ok,
-                lists:seq(2,5001,1)),
-    ok = fractal_btree_writer:close(BT2),
-
-
-    {Time,{ok,Count}} = timer:tc(fractal_btree_merger2, merge, ["test1", "test2", "test3", 10000]),
-
-    error_logger:info_msg("time to merge: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
-
-    ok = file:delete("test1"),
-    ok = file:delete("test2"),
-    ok = file:delete("test3"),
-
-    ok.
+postcondition(_S, {call, ?SERVER, put, [_Name, _Key, _Value]}, ok) ->
+    true;
+postcondition(_S, {call, ?SERVER, open, [_Name]}, ok) ->
+    true;
+postcondition(_, _, _) ->
+    false.
 
 
-tree_test() ->
+prop_dict_agree() ->
+    ?FORALL(Cmds, commands(?MODULE),
+            ?TRAPEXIT(
+               begin
+                   fractal_btree_drv:start_link(),
+                    {History,State,Result} = run_commands(?MODULE, Cmds),
+                   fractal_btree_drv:stop(),
+                    ?WHENFAIL(io:format("History: ~w\nState: ~w\nResult: ~w\n",
+                                        [History,State,Result]),
+                              aggregate(command_names(Cmds), Result =:= ok))
+                end)).
+
+%% ----------------------------------------------------------------------
+
+
+
+%% UNIT TESTS -----------------------------------------------------------------
+
+
+test_tree() ->
 
     application:start(sasl),
 
