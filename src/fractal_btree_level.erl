@@ -85,6 +85,9 @@ initialize(State) ->
     BFileName = filename("B",State),
     CFileName = filename("C",State),
 
+    %% remove old merge file
+    file:delete( filename("X",State)),
+
     case file:read_file_info(CFileName) of
         {ok, _} ->
 

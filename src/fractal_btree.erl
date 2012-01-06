@@ -41,6 +41,7 @@ init([Dir]) ->
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
             {ok, TopLevel} = open_levels(Dir);
+            %% TODO: recover nursery
 
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
@@ -69,6 +70,9 @@ open_levels(Dir) ->
                     Files),
 
     error_logger:info_msg("found files ... {~p,~p}~n", [MinLevel, MaxLevel]),
+
+    %% remove old nursery file
+    file:delete(filename:join(Dir,"nursery.data")),
 
     TopLevel =
         lists:foldl( fun(LevelNo, Prev) ->
