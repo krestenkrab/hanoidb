@@ -69,7 +69,7 @@ init([Name,Size]) ->
     end.
 
 
-handle_cast({add, Key, Data}, State) when is_binary(Key), is_binary(Data) ->
+handle_cast({add, Key, Data}, State) when is_binary(Key), (is_binary(Data) orelse Data == deleted)->
     {ok, State2} = add_record(0, Key, Data, State),
     {noreply, State2}.
 
