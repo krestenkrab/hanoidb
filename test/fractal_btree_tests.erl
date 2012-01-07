@@ -23,9 +23,10 @@ full_test_() ->
      fun () -> ok end,
      fun (_) -> ok end,
      [{timeout, 120, ?_test(test_proper())},
+      ?_test(test_tree_simple_1()),
       ?_test(test_tree())]}.
 
-qc_opts() -> [{numtests, 400}].
+qc_opts() -> [{numtests, 800}].
 
 test_proper() ->
     [?assertEqual([], proper:module(?MODULE, qc_opts()))].
@@ -46,17 +47,39 @@ cmd_put_args(#state { open = Open }) ->
          {oneof(dict:fetch_keys(Open)), binary(), binary()},
          [Name, Key, Value]).
 
+non_empty_btree(Open) ->
+    ?SUCHTHAT(Name, union(dict:fetch_keys(Open)),
+              dict:size(dict:fetch(Name, Open)) > 0).
+
+cmd_lookup_args(#state { open = Open}) ->
+    ?LET(Name, non_empty_btree(Open),
+         ?LET(Key, oneof(dict:fetch_keys(dict:fetch(Name, Open))),
+              [Name, Key])).
+
+count_dicts(Open) ->
+    Dicts = [ V || {_, V} <- dict:to_list(Open)],
+    lists:sum([dict:size(D) || D <- Dicts]).
+
 command(#state { open = Open} = S) ->
     frequency(
       [ {100, {call, ?SERVER, open, [g_btree_name()]}} ] ++
       [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
-          || dict:size(Open) > 0]).
+        || dict:size(Open) > 0] ++
+      [ {1500, {call, ?SERVER, lookup_exist, cmd_lookup_args(S)}}
+        || dict:size(Open) > 0, count_dicts(Open) > 0]).
 
+precondition(#state { open = _Open }, {call, ?SERVER, lookup_exist,
+                                       [_Name, _K]}) ->
+    %% No need to quantify since we limit this to validity in the
+    %% command/1 generator
+    true;
 precondition(#state { open = Open }, {call, ?SERVER, put, [Name, K, V]}) ->
     dict:is_key(Name, Open);
 precondition(#state { open = Open }, {call, ?SERVER, open, [Name]}) ->
     not (dict:is_key(Name, Open)).
 
+next_state(S, _Res, {call, ?SERVER, lookup_exist, [_Name, _Key]}) ->
+    S;
 next_state(#state { open = Open} = S, _Res,
            {call, ?SERVER, put, [Name, Key, Value]}) ->
     S#state { open = dict:update(Name,
@@ -67,6 +90,11 @@ next_state(#state { open = Open} = S, _Res,
 next_state(#state { open = Open} = S, _Res, {call, ?SERVER, open, [Name]}) ->
     S#state { open = dict:store(Name, dict:new(), Open) }.
 
+postcondition(#state { open = Open },
+              {call, ?SERVER, lookup_exist, [Name, Key]}, {ok, Value}) ->
+    V = dict:fetch(Key, dict:fetch(Name, Open)),
+    io:format("~p == ~p~n", [V, Value]),
+    V == Value;
 postcondition(_S, {call, ?SERVER, put, [_Name, _Key, _Value]}, ok) ->
     true;
 postcondition(_S, {call, ?SERVER, open, [_Name]}, ok) ->
@@ -74,6 +102,13 @@ postcondition(_S, {call, ?SERVER, open, [_Name]}, ok) ->
 postcondition(_, _, _) ->
     false.
 
+cleanup_test_trees(#state { open = Open}) ->
+    [cleanup_tree(N) || N <- dict:fetch_keys(Open)].
+
+cleanup_tree(Tree) ->
+    {ok, FileNames} = file:list_dir(Tree),
+    [ok = file:delete(filename:join([Tree, Fname])) || Fname <- FileNames],
+    file:del_dir(Tree).
 
 prop_dict_agree() ->
     ?FORALL(Cmds, commands(?MODULE),
@@ -82,6 +117,7 @@ prop_dict_agree() ->
                    fractal_btree_drv:start_link(),
                     {History,State,Result} = run_commands(?MODULE, Cmds),
                    fractal_btree_drv:stop(),
+                   cleanup_test_trees(State),
                     ?WHENFAIL(io:format("History: ~w\nState: ~w\nResult: ~w\n",
                                         [History,State,Result]),
                               aggregate(command_names(Cmds), Result =:= ok))
@@ -92,6 +128,11 @@ prop_dict_agree() ->
 
 
 %% UNIT TESTS -----------------------------------------------------------------
+
+test_tree_simple_1() ->
+    {ok, Tree} = fractal_btree:open("simple"),
+    ok = fractal_btree:put(Tree, <<>>, <<"data", 77:128>>),
+    {ok, <<"data", 77:128>>} = fractal_btree:lookup(Tree, <<>>).
 
 
 test_tree() ->
