@@ -37,25 +37,40 @@ test_proper() ->
 %% Generators
 %% ----------------------------------------------------------------------
 
+-define(NUM_TREES, 10).
+
 %% Generate a name for a btree
 g_btree_name() ->
-    ?LET(I, integer(1,10),
-         "Btree_" ++ integer_to_list(I)).
+    ?LET(I, integer(1,?NUM_TREES),
+         btree_name(I)).
 
 %% Pick a name of a non-empty Btree
 non_empty_btree(Open) ->
     ?SUCHTHAT(Name, union(dict:fetch_keys(Open)),
               dict:size(dict:fetch(Name, Open)) > 0).
 
+btree_name(I) ->
+    "Btree_" ++ integer_to_list(I).
+
 %% Statem test
 %% ----------------------------------------------------------------------
 initial_state() ->
-    #state { }.
+    ClosedBTrees = lists:foldl(fun(N, Closed) ->
+                                       dict:store(btree_name(N),
+                                                  dict:new(),
+                                                  Closed)
+                               end,
+                               dict:new(),
+                               lists:seq(1,?NUM_TREES)),
+    #state { closed=ClosedBTrees }.
 
 
-command(#state { open = Open} = S) ->
+command(#state { open = Open, closed = Closed } = S) ->
     frequency(
-      [ {20, {call, ?SERVER, open, [g_btree_name()]}} ] ++
+      [ {20, {call, ?SERVER, open, [oneof(dict:fetch_keys(Closed))]}}
+        || dict:size(Closed) > 0] ++
+      [ {20, {call, ?SERVER, close, [oneof(dict:fetch_keys(Open))]}}
+        || dict:size(Open) > 0] ++
       [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
         || dict:size(Open) > 0] ++
       [ {1500, {call, ?SERVER, lookup_exist, cmd_lookup_args(S)}}
@@ -74,8 +89,11 @@ precondition(#state { open = _Open }, {call, ?SERVER, lookup_exist,
     true;
 precondition(#state { open = Open }, {call, ?SERVER, put, [Name, _K, _V]}) ->
     dict:is_key(Name, Open);
-precondition(#state { open = Open }, {call, ?SERVER, open, [Name]}) ->
-    not (dict:is_key(Name, Open)).
+precondition(#state { open = Open, closed = Closed }, {call, ?SERVER, open, [Name]}) ->
+    (not (dict:is_key(Name, Open))) and (dict:is_key(Name, Closed));
+precondition(#state { open = Open, closed = Closed }, {call, ?SERVER, close, [Name]}) ->
+    (dict:is_key(Name, Open)) and (not dict:is_key(Name, Closed)).
+
 
 %% Next state manipulation (abstract / concrete)
 next_state(S, _Res, {call, ?SERVER, lookup_exist, [_Name, _Key]}) ->
@@ -94,8 +112,12 @@ next_state(#state { open = Open} = S, _Res,
                                          dict:store(Key, Value, Dict)
                                  end,
                                  Open)};
-next_state(#state { open = Open} = S, _Res, {call, ?SERVER, open, [Name]}) ->
-    S#state { open = dict:store(Name, dict:new(), Open) }.
+next_state(#state { open = Open, closed=Closed} = S, _Res, {call, ?SERVER, open, [Name]}) ->
+    S#state { open   = dict:store(Name, dict:fetch(Name, Closed) , Open),
+              closed = dict:erase(Name, Closed) };
+next_state(#state { open = Open, closed=Closed} = S, _Res, {call, ?SERVER, close, [Name]}) ->
+    S#state { closed = dict:store(Name, dict:fetch(Name, Open) , Closed),
+              open   = dict:erase(Name, Open) }.
 
 %% Postcondition check (concrete)
 postcondition(#state { open = Open },
@@ -106,6 +128,8 @@ postcondition(_S, {call, ?SERVER, delete_exist, [_Name, _Key]}, ok) ->
 postcondition(_S, {call, ?SERVER, put, [_Name, _Key, _Value]}, ok) ->
     true;
 postcondition(_S, {call, ?SERVER, open, [_Name]}, ok) ->
+    true;
+postcondition(_S, {call, ?SERVER, close, [_Name]}, ok) ->
     true;
 postcondition(_, _, _) ->
     false.

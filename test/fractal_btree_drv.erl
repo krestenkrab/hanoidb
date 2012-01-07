@@ -9,7 +9,7 @@
 -export([
          delete_exist/2,
          lookup_exist/2,
-         open/1,
+         open/1, close/1,
          put/3,
          stop/0]).
 
@@ -39,6 +39,9 @@ delete_exist(N, K) ->
 open(N) ->
     call({open, N}).
 
+close(N) ->
+    call({close, N}).
+
 put(N, K, V) ->
     call({put, N, K, V}).
 
@@ -54,6 +57,14 @@ handle_call({open, N}, _, #state { btrees = D} = State) ->
     case fractal_btree:open(N) of
         {ok, Tree} ->
             {reply, ok, State#state { btrees = dict:store(N, Tree, D)}};
+        Otherwise ->
+            {reply, {error, Otherwise}, State}
+    end;
+handle_call({close, N}, _, #state { btrees = D} = State) ->
+    Tree = dict:fetch(N, D),
+    case fractal_btree:close(Tree) of
+        ok ->
+            {reply, ok, State#state { btrees = dict:erase(N, D)}};
         Otherwise ->
             {reply, {error, Otherwise}, State}
     end;
