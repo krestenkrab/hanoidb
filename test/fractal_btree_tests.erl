@@ -132,7 +132,8 @@ prop_dict_agree() ->
 test_tree_simple_1() ->
     {ok, Tree} = fractal_btree:open("simple"),
     ok = fractal_btree:put(Tree, <<>>, <<"data", 77:128>>),
-    {ok, <<"data", 77:128>>} = fractal_btree:lookup(Tree, <<>>).
+    {ok, <<"data", 77:128>>} = fractal_btree:lookup(Tree, <<>>),
+    ok = fractal_btree:close(Tree).
 
 
 test_tree() ->
