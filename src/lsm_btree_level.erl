@@ -1,7 +1,7 @@
--module(fractal_btree_level).
+-module(lsm_btree_level).
 
 %%
-%% Manages a "pair" of fractal_index (or rathern, 0, 1 or 2), and governs
+%% Manages a "pair" of lsm_index (or rathern, 0, 1 or 2), and governs
 %% the process of injecting/merging parent trees into this pair.
 %%
 
@@ -96,14 +96,14 @@ initialize(State) ->
             file:delete(BFileName),
             ok = file:rename(CFileName, AFileName),
 
-            {ok, BT} = fractal_btree_reader:open(CFileName),
+            {ok, BT} = lsm_btree_reader:open(CFileName),
             main_loop(State#state{ a= BT, b=undefined });
 
         {error, enoent} ->
             case file:read_file_info(BFileName) of
                 {ok, _} ->
-                    {ok, BT1} = fractal_btree_reader:open(AFileName),
-                    {ok, BT2} = fractal_btree_reader:open(BFileName),
+                    {ok, BT1} = lsm_btree_reader:open(AFileName),
+                    {ok, BT2} = lsm_btree_reader:open(BFileName),
 
                     check_begin_merge_then_loop(State#state{ a=BT1, b=BT2 });
 
@@ -111,7 +111,7 @@ initialize(State) ->
 
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
-                            {ok, BT1} = fractal_btree_reader:open(AFileName),
+                            {ok, BT1} = lsm_btree_reader:open(AFileName),
                             main_loop(State#state{ a=BT1 });
 
                         {error, enoent} ->
@@ -150,7 +150,7 @@ main_loop(State = #state{ next=Next }) ->
                     SetPos = #state.b
             end,
             ok = file:rename(FileName, ToFileName),
-            {ok, BT} = fractal_btree_reader:open(ToFileName),
+            {ok, BT} = lsm_btree_reader:open(ToFileName),
             reply(From, ok),
             check_begin_merge_then_loop(setelement(SetPos, State, BT));
 
@@ -177,7 +177,7 @@ main_loop(State = #state{ next=Next }) ->
             % then, rename C to A, and open it
             AFileName = filename("A",State2),
             ok = file:rename(CFileName, AFileName),
-            {ok, BT} = fractal_btree_reader:open(AFileName),
+            {ok, BT} = lsm_btree_reader:open(AFileName),
 
             main_loop(State2#state{ a=BT, b=undefined, merge_pid=undefined });
 
@@ -231,14 +231,14 @@ do_lookup(_Key, [Pid]) when is_pid(Pid) ->
 do_lookup(Key, [undefined|Rest]) ->
     do_lookup(Key, Rest);    
 do_lookup(Key, [BT|Rest]) ->
-    case fractal_btree_reader:lookup(BT, Key) of
+    case lsm_btree_reader:lookup(BT, Key) of
 	{ok, deleted} -> notfound;
 	{ok, Result}  -> {found, Result};
 	notfound      -> do_lookup(Key, Rest)
     end.
 
 close_if_defined(undefined) -> ok;
-close_if_defined(BT)        -> fractal_btree_reader:close(BT).
+close_if_defined(BT)        -> lsm_btree_reader:close(BT).
 
 stop_if_defined(undefined) -> ok;
 stop_if_defined(MergePid) when is_pid(MergePid) ->
@@ -260,7 +260,7 @@ begin_merge(State) ->
     file:delete(XFileName),
 
     MergePID = proc_lib:spawn_link(fun() ->
-                       {ok, OutCount} = fractal_btree_merger2:merge(AFileName, BFileName, XFileName,
+                       {ok, OutCount} = lsm_btree_merger2:merge(AFileName, BFileName, XFileName,
                                                                    1 bsl (State#state.level + 1),
                                                                    State#state.next =:= undefined),
 %                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
@@ -275,8 +275,8 @@ close_a_and_b(State) ->
     AFileName = filename("A",State),
     BFileName = filename("B",State),
 
-    ok = fractal_btree_reader:close(State#state.a),
-    ok = fractal_btree_reader:close(State#state.b),
+    ok = lsm_btree_reader:close(State#state.a),
+    ok = lsm_btree_reader:close(State#state.b),
 
     ok = file:delete(AFileName),
     ok = file:delete(BFileName),

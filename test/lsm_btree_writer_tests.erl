@@ -1,4 +1,4 @@
--module(fractal_btree_writer_tests).
+-module(lsm_btree_writer_tests).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -9,21 +9,21 @@
 
 simple_test() ->
 
-    {ok, BT} = fractal_btree_writer:open("testdata"),
-    ok = fractal_btree_writer:add(BT, <<"A">>, <<"Avalue">>),
-    ok = fractal_btree_writer:add(BT, <<"B">>, <<"Bvalue">>),
-    ok = fractal_btree_writer:close(BT),
+    {ok, BT} = lsm_btree_writer:open("testdata"),
+    ok = lsm_btree_writer:add(BT, <<"A">>, <<"Avalue">>),
+    ok = lsm_btree_writer:add(BT, <<"B">>, <<"Bvalue">>),
+    ok = lsm_btree_writer:close(BT),
 
-    {ok, IN} = fractal_btree_reader:open("testdata"),
-    {ok, <<"Avalue">>} = fractal_btree_reader:lookup(IN, <<"A">>),
-    ok = fractal_btree_reader:close(IN),
+    {ok, IN} = lsm_btree_reader:open("testdata"),
+    {ok, <<"Avalue">>} = lsm_btree_reader:lookup(IN, <<"A">>),
+    ok = lsm_btree_reader:close(IN),
 
     ok = file:delete("testdata").
 
 
 simple1_test() ->
 
-    {ok, BT} = fractal_btree_writer:open("testdata"),
+    {ok, BT} = lsm_btree_writer:open("testdata"),
 
     Max = 30*1024,
     Seq = lists:seq(0, Max),
@@ -32,21 +32,21 @@ simple1_test() ->
                   fun() ->
                           lists:foreach(
                             fun(Int) ->
-                                    ok = fractal_btree_writer:add(BT, <<Int:128>>, <<"valuevalue/", Int:128>>)
+                                    ok = lsm_btree_writer:add(BT, <<Int:128>>, <<"valuevalue/", Int:128>>)
                             end,
                             Seq),
-                          ok = fractal_btree_writer:close(BT)
+                          ok = lsm_btree_writer:close(BT)
                   end,
                   []),
 
     error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
 
-    {ok, IN} = fractal_btree_reader:open("testdata"),
-    {ok, <<"valuevalue/", 2048:128>>} = fractal_btree_reader:lookup(IN, <<2048:128>>),
+    {ok, IN} = lsm_btree_reader:open("testdata"),
+    {ok, <<"valuevalue/", 2048:128>>} = lsm_btree_reader:lookup(IN, <<2048:128>>),
 
 
     {Time2,Count} = timer:tc(
-                      fun() -> fractal_btree_reader:fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
+                      fun() -> lsm_btree_reader:fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
                                                          N+1
                                                  end,
                                                  0,
@@ -59,6 +59,6 @@ simple1_test() ->
     Max = Count-1,
 
 
-    ok = fractal_btree_reader:close(IN),
+    ok = lsm_btree_reader:close(IN),
 
     ok = file:delete("testdata").

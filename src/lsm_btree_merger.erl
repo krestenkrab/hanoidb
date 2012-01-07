@@ -1,4 +1,4 @@
--module(fractal_btree_merger).
+-module(lsm_btree_merger).
 
 %%
 %% Naive Merge of two b-trees.  A better implementation should iterate leafs, not KV's
@@ -9,7 +9,7 @@
 -record(state, { out, a_pid, b_pid }).
 
 merge(A,B,C, Size) ->
-    {ok, Out} = fractal_btree_writer:open(C, Size),
+    {ok, Out} = lsm_btree_writer:open(C, Size),
     Owner = self(),
     PID1 = spawn_link(fun() -> scan(Owner, A) end),
     PID2 = spawn_link(fun() -> scan(Owner, B) end),
@@ -18,20 +18,20 @@ merge(A,B,C, Size) ->
     {ok, Count} = receive_both(undefined, undefined, #state{ out=Out, a_pid=PID1, b_pid=PID2 }, 0),
 
     %% finish stream tree
-    ok = fractal_btree_writer:close(Out),
+    ok = lsm_btree_writer:close(Out),
 
     {ok, Count}.
 
 
 scan(SendTo,FileName) ->
     %% yes, we need a separate file to scan it, since pread doesn't do read-ahead
-    {ok, File} = fractal_btree_reader:open(FileName),
-    fractal_btree_reader:fold(fun(K,V,_) ->
+    {ok, File} = lsm_btree_reader:open(FileName),
+    lsm_btree_reader:fold(fun(K,V,_) ->
                               SendTo ! {ok, self(), K, V}
                       end,
                       ok,
                       File),
-    fractal_btree_reader:close(File),
+    lsm_btree_reader:close(File),
     SendTo ! {eod, self()},
     ok.
 
@@ -44,7 +44,7 @@ receive_both(undefined, BVal, #state{a_pid=PID1}=State, Count) ->
         {eod, PID1} ->
             case BVal of
                 {Key2, Value2} ->
-                    fractal_btree_writer:add(State#state.out, Key2, Value2),
+                    lsm_btree_writer:add(State#state.out, Key2, Value2),
                     receive_bonly(State, Count+1);
 
                 undefined ->
@@ -58,23 +58,23 @@ receive_both({Key1,Value1}=AValue, undefined, #state{ b_pid=PID2 }=State, Count)
             receive_both(AValue, {Key2,Value2}, State, Count);
 
         {eod, PID2} ->
-            ok = fractal_btree_writer:add(State#state.out, Key1, Value1),
+            ok = lsm_btree_writer:add(State#state.out, Key1, Value1),
             receive_aonly(State, Count+1)
     end;
 
 receive_both(AValue={Key1,Value1}, BValue={Key2,Value2}, State, Count) ->
 
     if Key1 < Key2 ->
-            ok = fractal_btree_writer:add(State#state.out, Key1, Value1),
+            ok = lsm_btree_writer:add(State#state.out, Key1, Value1),
             receive_both(undefined, BValue, State, Count+1);
 
        Key2 < Key1 ->
-            ok = fractal_btree_writer:add(State#state.out, Key2, Value2),
+            ok = lsm_btree_writer:add(State#state.out, Key2, Value2),
             receive_both(AValue, undefined, State, Count+1);
 
        Key1 == Key2 ->
             %% TODO: eliminate tombstones, right now they just bubble down
-            ok = fractal_btree_writer:add(State#state.out, Key2, Value2),
+            ok = lsm_btree_writer:add(State#state.out, Key2, Value2),
             receive_both(undefined, undefined, State, Count+1)
     end.
 
@@ -84,7 +84,7 @@ receive_both(AValue={Key1,Value1}, BValue={Key2,Value2}, State, Count) ->
 receive_aonly(#state{a_pid=PID1}=State, Count) ->
     receive
         {ok, PID1, Key1, Value1} ->
-            ok = fractal_btree_writer:add(State#state.out,
+            ok = lsm_btree_writer:add(State#state.out,
                                          Key1,
                                          Value1),
             receive_aonly(State, Count+1);
@@ -98,7 +98,7 @@ receive_aonly(#state{a_pid=PID1}=State, Count) ->
 receive_bonly(#state{b_pid=PID2}=State, Count) ->
     receive
         {ok, PID2, Key2, Value2} ->
-            ok = fractal_btree_writer:add(State#state.out,
+            ok = lsm_btree_writer:add(State#state.out,
                                          Key2,
                                          Value2),
             receive_bonly(State, Count+1);

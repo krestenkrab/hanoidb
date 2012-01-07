@@ -1,4 +1,4 @@
--module(fractal_btree_reader).
+-module(lsm_btree_reader).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -156,7 +156,7 @@ find(_, _) ->
 
 read_node(File,{Pos,Size}) ->
     {ok, <<_:32, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
-    fractal_btree_util:decode_index_node(Level, Data);
+    lsm_btree_util:decode_index_node(Level, Data);
 
 read_node(File,Pos) ->
 
@@ -171,7 +171,7 @@ read_node(File) ->
         0 -> eof;
         _ ->
             {ok, Data} = file:read(File, Len-2),
-            {ok, Node} = fractal_btree_util:decode_index_node(Level, Data),
+            {ok, Node} = lsm_btree_util:decode_index_node(Level, Data),
             {ok, Node}
     end.
 
@@ -182,7 +182,7 @@ next_leaf_node(File) ->
             eof;
         {ok, <<Len:32, 0:16>>} ->
             {ok, Data} = file:read(File, Len-2),
-            fractal_btree_util:decode_index_node(0, Data);
+            lsm_btree_util:decode_index_node(0, Data);
         {ok, <<Len:32, _:16>>} ->
             {ok, _} = file:position(File, {cur,Len-2}),
             next_leaf_node(File)

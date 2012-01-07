@@ -1,4 +1,4 @@
--module(fractal_btree_app).
+-module(lsm_btree_app).
 
 -behaviour(application).
 
@@ -10,7 +10,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    fractal_btree_sup:start_link().
+    lsm_btree_sup:start_link().
 
 stop(_State) ->
     ok.

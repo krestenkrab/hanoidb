@@ -1,5 +1,5 @@
-%% @Doc Drive a set of fractal BTrees
--module(fractal_btree_drv).
+%% @Doc Drive a set of lsm BTrees
+-module(lsm_btree_drv).
 
 -behaviour(gen_server).
 
@@ -54,7 +54,7 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({open, N}, _, #state { btrees = D} = State) ->
-    case fractal_btree:open(N) of
+    case lsm_btree:open(N) of
         {ok, Tree} ->
             {reply, ok, State#state { btrees = dict:store(N, Tree, D)}};
         Otherwise ->
@@ -62,7 +62,7 @@ handle_call({open, N}, _, #state { btrees = D} = State) ->
     end;
 handle_call({close, N}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    case fractal_btree:close(Tree) of
+    case lsm_btree:close(Tree) of
         ok ->
             {reply, ok, State#state { btrees = dict:erase(N, D)}};
         Otherwise ->
@@ -70,7 +70,7 @@ handle_call({close, N}, _, #state { btrees = D} = State) ->
     end;
 handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    case fractal_btree:put(Tree, K, V) of
+    case lsm_btree:put(Tree, K, V) of
         ok ->
             {reply, ok, State};
         Other ->
@@ -78,11 +78,11 @@ handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     end;
 handle_call({delete_exist, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    Reply = fractal_btree:delete(Tree, K),
+    Reply = lsm_btree:delete(Tree, K),
     {reply, Reply, State};
 handle_call({lookup_exist, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    Reply = fractal_btree:lookup(Tree, K),
+    Reply = lsm_btree:lookup(Tree, K),
     {reply, Reply, State};
 handle_call(stop, _, State) ->
     cleanup_trees(State),
@@ -108,7 +108,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% @todo directory cleanup
 cleanup_trees(#state { btrees = BTs }) ->
     dict:fold(fun(_Name, Tree, ok) ->
-                      fractal_btree:close(Tree)
+                      lsm_btree:close(Tree)
               end,
               ok,
               BTs).

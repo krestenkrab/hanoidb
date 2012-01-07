@@ -1,4 +1,4 @@
--module(fractal_btree).
+-module(lsm_btree).
 
 -behavior(gen_server).
 
@@ -45,7 +45,7 @@ init([Dir]) ->
 
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
-            {ok, TopLevel} = fractal_btree_level:open(Dir, ?TOP_LEVEL, undefined)
+            {ok, TopLevel} = lsm_btree_level:open(Dir, ?TOP_LEVEL, undefined)
     end,
 
     {ok, #state{ top=TopLevel, dir=Dir }}.
@@ -76,7 +76,7 @@ open_levels(Dir) ->
 
     TopLevel =
         lists:foldl( fun(LevelNo, Prev) ->
-                             {ok, Level} = fractal_btree_level:open(Dir,LevelNo,Prev),
+                             {ok, Level} = lsm_btree_level:open(Dir,LevelNo,Prev),
                              Level
                      end,
                      undefined,
@@ -128,7 +128,7 @@ handle_call({lookup, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) whe
         {value, Value} when is_binary(Value) ->
             {reply, {ok, Value}, State};
         none ->
-            Reply = fractal_btree_level:lookup(Top, Key),
+            Reply = lsm_btree_level:lookup(Top, Key),
             {reply, Reply, State}
     end;
 
@@ -152,13 +152,13 @@ flush_nursery(State=#state{nursery=Tree, top=Top}) ->
     if TreeSize > 0 ->
 %            error_logger:info_msg("flushing to top=~p, alive=~p~n", [Top, erlang:is_process_alive(Top)]),
             FileName = filename:join(State#state.dir, "nursery.data"),
-            {ok, BT} = fractal_btree_writer:open(FileName, (1 bsl ?TOP_LEVEL)),
+            {ok, BT} = lsm_btree_writer:open(FileName, (1 bsl ?TOP_LEVEL)),
             lists:foreach( fun({Key2,Value2}) ->
-                                   ok = fractal_btree_writer:add(BT, Key2, Value2)
+                                   ok = lsm_btree_writer:add(BT, Key2, Value2)
                            end,
                            gb_trees:to_list(Tree)),
-            ok = fractal_btree_writer:close(BT),
-            ok = fractal_btree_level:inject(Top, FileName),
+            ok = lsm_btree_writer:close(BT),
+            ok = lsm_btree_level:inject(Top, FileName),
             {error, enoent} = file:read_file_info(FileName),
             {ok, State#state{ nursery=gb_trees:empty() } };
        true ->

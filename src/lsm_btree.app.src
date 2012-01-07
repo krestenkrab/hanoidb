@@ -1,4 +1,4 @@
-{application, fractal_btree,
+{application, lsm_btree,
  [
   {description, ""},
   {vsn, "1"},
@@ -7,6 +7,6 @@
                   kernel,
                   stdlib
                  ]},
-  {mod, { fractal_btree_app, []}},
+  {mod, { lsm_btree_app, []}},
   {env, []}
  ]}.

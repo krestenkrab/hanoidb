@@ -1,5 +1,5 @@
 
--module(fractal_btree_sup).
+-module(lsm_btree_sup).
 
 -behaviour(supervisor).
 

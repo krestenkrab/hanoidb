@@ -1,4 +1,4 @@
--module(fractal_btree_util).
+-module(lsm_btree_util).
 
 -compile(export_all).
 

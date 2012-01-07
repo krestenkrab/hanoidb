@@ -1,4 +1,4 @@
--module(fractal_btree_tests).
+-module(lsm_btree_tests).
 
 -ifdef(TEST).
 -ifdef(TRIQ).
@@ -22,7 +22,7 @@
 
 -record(state, { open = dict:new(),
                  closed = dict:new() }).
--define(SERVER, fractal_btree_drv).
+-define(SERVER, lsm_btree_drv).
 
 full_test_() ->
     {setup,
@@ -152,9 +152,9 @@ prop_dict_agree() ->
     ?FORALL(Cmds, commands(?MODULE),
             ?TRAPEXIT(
                begin
-                   fractal_btree_drv:start_link(),
+                   lsm_btree_drv:start_link(),
                     {History,State,Result} = run_commands(?MODULE, Cmds),
-                   fractal_btree_drv:stop(),
+                   lsm_btree_drv:stop(),
                    cleanup_test_trees(State),
                     ?WHENFAIL(io:format("History: ~w\nState: ~w\nResult: ~w\n",
                                         [History,State,Result]),
@@ -164,30 +164,30 @@ prop_dict_agree() ->
 %% UNIT TESTS
 %% ----------------------------------------------------------------------
 test_tree_simple_1() ->
-    {ok, Tree} = fractal_btree:open("simple"),
-    ok = fractal_btree:put(Tree, <<>>, <<"data", 77:128>>),
-    {ok, <<"data", 77:128>>} = fractal_btree:lookup(Tree, <<>>),
-    ok = fractal_btree:close(Tree).
+    {ok, Tree} = lsm_btree:open("simple"),
+    ok = lsm_btree:put(Tree, <<>>, <<"data", 77:128>>),
+    {ok, <<"data", 77:128>>} = lsm_btree:lookup(Tree, <<>>),
+    ok = lsm_btree:close(Tree).
 
 test_tree_simple_2() ->
-    {ok, Tree} = fractal_btree:open("simple"),
-    ok = fractal_btree:put(Tree, <<"ã">>, <<"µ">>),
-    ok = fractal_btree:delete(Tree, <<"ã">>),
-    ok = fractal_btree:close(Tree).
+    {ok, Tree} = lsm_btree:open("simple"),
+    ok = lsm_btree:put(Tree, <<"ã">>, <<"µ">>),
+    ok = lsm_btree:delete(Tree, <<"ã">>),
+    ok = lsm_btree:close(Tree).
 
 test_tree() ->
 
 %%    application:start(sasl),
 
-    {ok, Tree} = fractal_btree:open("simple"),
+    {ok, Tree} = lsm_btree:open("simple"),
     lists:foldl(fun(N,_) ->
-                        ok = fractal_btree:put(Tree,
+                        ok = lsm_btree:put(Tree,
                                                <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
                 lists:seq(2,10000,1)),
 
-    ok = fractal_btree:close(Tree).
+    ok = lsm_btree:close(Tree).
 
 %% Command processing
 %% ----------------------------------------------------------------------
