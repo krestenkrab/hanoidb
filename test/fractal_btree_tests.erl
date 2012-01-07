@@ -22,10 +22,12 @@ full_test_() ->
      spawn,
      fun () -> ok end,
      fun (_) -> ok end,
-     [{timeout, 120, ?_test(test_proper())},
+     [
+      {timeout, 120, ?_test(test_proper())},
       ?_test(test_tree_simple_1()),
       ?_test(test_tree_simple_2()),
-      ?_test(test_tree())]}.
+      ?_test(test_tree())
+     ]}.
 
 qc_opts() -> [{numtests, 800}].
 
@@ -129,12 +131,14 @@ prop_dict_agree() ->
 test_tree_simple_1() ->
     {ok, Tree} = fractal_btree:open("simple"),
     ok = fractal_btree:put(Tree, <<>>, <<"data", 77:128>>),
-    {ok, <<"data", 77:128>>} = fractal_btree:lookup(Tree, <<>>).
+    {ok, <<"data", 77:128>>} = fractal_btree:lookup(Tree, <<>>),
+    ok = fractal_btree:close(Tree).
 
 test_tree_simple_2() ->
     {ok, Tree} = fractal_btree:open("simple"),
     ok = fractal_btree:put(Tree, <<"ã">>, <<"µ">>),
-    ok = fractal_btree:delete(Tree, <<"ã">>).
+    ok = fractal_btree:delete(Tree, <<"ã">>),
+    ok = fractal_btree:close(Tree).
 
 test_tree() ->
 
