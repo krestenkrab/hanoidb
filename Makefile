@@ -18,7 +18,7 @@ eunit: compile clean-test-btrees
 	@$(REBAR) eunit skip_deps=true
 
 clean-test-btrees:
-	rm -fr .eunit/Btree_*
+	rm -fr .eunit/Btree_* .eunit/simple
 
 plt: compile
 	$(DIALYZER) --build_plt --output_plt .fractal_btree.plt \

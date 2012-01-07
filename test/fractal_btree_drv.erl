@@ -6,7 +6,9 @@
 %% API
 -export([start_link/0]).
 
--export([open/1,
+-export([
+         lookup_exist/2,
+         open/1,
          put/3,
          stop/0]).
 
@@ -26,6 +28,9 @@ start_link() ->
 
 call(X) ->
     gen_server:call(?SERVER, X, infinity).
+
+lookup_exist(N, K) ->
+    call({lookup_exist, N, K}).
 
 open(N) ->
     call({open, N}).
@@ -56,7 +61,12 @@ handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
         Other ->
             {reply, {error, Other}, State}
     end;
+handle_call({lookup_exist, N, K}, _, #state { btrees = D} = State) ->
+    Tree = dict:fetch(N, D),
+    Reply = fractal_btree:lookup(Tree, K),
+    {reply, Reply, State};
 handle_call(stop, _, State) ->
+    cleanup_trees(State),
     {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -68,8 +78,7 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, State) ->
-    cleanup_trees(State),
+terminate(_Reason, _State) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
