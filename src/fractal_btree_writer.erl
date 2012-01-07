@@ -98,7 +98,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=LastNodeSize, bloom=Ref }=State) ->
+flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Ref }=State) ->
 
     Bloom = zlib:zip(ebloom:serialize(Ref)),
     BloomSize = byte_size(Bloom),
