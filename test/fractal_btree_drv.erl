@@ -7,6 +7,7 @@
 -export([start_link/0]).
 
 -export([
+         delete_exist/2,
          lookup_exist/2,
          open/1,
          put/3,
@@ -31,6 +32,9 @@ call(X) ->
 
 lookup_exist(N, K) ->
     call({lookup_exist, N, K}).
+
+delete_exist(N, K) ->
+    call({delete_exist, N, K}).
 
 open(N) ->
     call({open, N}).
@@ -61,6 +65,10 @@ handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
         Other ->
             {reply, {error, Other}, State}
     end;
+handle_call({delete_exist, N, K}, _, #state { btrees = D} = State) ->
+    Tree = dict:fetch(N, D),
+    Reply = fractal_btree:delete(Tree, K),
+    {reply, Reply, State};
 handle_call({lookup_exist, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
     Reply = fractal_btree:lookup(Tree, K),
