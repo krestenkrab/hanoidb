@@ -265,14 +265,9 @@ cleanup_tree(Tree) ->
 %% Various Helper routines
 %% ----------------------------------------------------------------------
 
-%% @todo optimize this call. You can fast-exit as soon as you know
-%% there is a non-empty dict.
 open_dicts_with_keys(#state { open = Open}) ->
-    keysum_of_dicts(Open) > 0.
-
-keysum_of_dicts(DictOfDict) ->
-    Dicts = [ V || {_, V} <- dict:to_list(DictOfDict)],
-    lists:sum([dict:size(D) || D <- Dicts]).
+    lists:any(fun({_, D}) -> dict:size(D) > 0 end,
+              dict:to_list(Open)).
 
 open_dicts(#state { open = Open}) ->
     dict:size(Open) > 0.
