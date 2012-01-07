@@ -67,10 +67,13 @@ g_fail_key() ->
     ?LET(T, choose(1,999999999999),
          term_to_binary(T)).
 
+g_open_tree(Open) ->
+    oneof(dict:fetch_keys(Open)).
+
 %% Pick a name of a non-empty Btree
-non_empty_btree(Open) ->
-    TreesWithKeys = dict:filter(fun(_K, D) -> dict:size(D) > 0 end, Open),
-    oneof(dict:fetch_keys(TreesWithKeys)).
+g_non_empty_btree(Open) ->
+    ?LET(TreesWithKeys, dict:filter(fun(_K, D) -> dict:size(D) > 0 end, Open),
+         oneof(dict:fetch_keys(TreesWithKeys))).
 
 g_existing_key(Name, Open) ->
     oneof(dict:fetch_keys(dict:fetch(Name, Open))).
@@ -106,8 +109,8 @@ command(#state { open = Open, closed = Closed } = S) ->
         || open_dicts(S)] ++
       [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
         || open_dicts(S)] ++
-      %% [ {1500, {call, ?SERVER, lookup_fail,  cmd_lookup_fail_args(S)}}
-      %%   || open_dicts(S)] ++
+      [ {1500, {call, ?SERVER, lookup_fail, cmd_lookup_fail_args(S)}}
+        || open_dicts(S)] ++
       [ {1500, {call, ?SERVER, lookup_exist, cmd_lookup_args(S)}}
         || open_dicts(S), open_dicts_with_keys(S)] ++
       [ {500, {call, ?SERVER, delete_exist, cmd_delete_args(S)}}
@@ -161,7 +164,7 @@ next_state(#state { open = Open, closed=Closed} = S, _Res, {call, ?SERVER, close
               open   = dict:erase(Name, Open) }.
 
 %% Postcondition check (concrete)
-postcondition(S,
+postcondition(_S,
               {call, ?SERVER, lookup_fail, [_Name, _Key]}, notfound) ->
     true;
 postcondition(#state { open = Open },
@@ -234,17 +237,17 @@ cmd_put_args(#state { open = Open }) ->
 
 
 cmd_lookup_fail_args(#state { open = Open}) ->
-    ?LET(Name, non_empty_btree(Open),
+    ?LET(Name, g_open_tree(Open),
          ?LET(Key, g_non_existing_key(Name, Open),
               [Name, Key])).
 
 cmd_lookup_args(#state { open = Open}) ->
-    ?LET(Name, non_empty_btree(Open),
+    ?LET(Name, g_non_empty_btree(Open),
          ?LET(Key, g_existing_key(Name, Open),
               [Name, Key])).
 
 cmd_delete_args(#state { open = Open}) ->
-    ?LET(Name, non_empty_btree(Open),
+    ?LET(Name, g_non_empty_btree(Open),
          ?LET(Key, g_existing_key(Name, Open),
               [Name, Key])).
 
