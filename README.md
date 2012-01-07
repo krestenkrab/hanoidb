@@ -8,7 +8,7 @@ This Erlang-based storage engine provides a scalable alternative to Basho Bitcas
 - The cost of merging (evicting stale key/values) is amortized into insertion, so you don't need to schedule merge to happen at off-peak hours. 
 - Supports range queries (and thus potentially Riak 2i.)
 - Unlike Bitcask and InnoDB, you don't need a boat load of RAM
-- All in 100 lines of pure Erlang code
+- All in 1000 lines of pure Erlang code
 
 Once we're a bit more stable, we'll provide a Riak backend.
 
