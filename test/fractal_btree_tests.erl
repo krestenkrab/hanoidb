@@ -62,7 +62,7 @@ count_dicts(Open) ->
 
 command(#state { open = Open} = S) ->
     frequency(
-      [ {100, {call, ?SERVER, open, [g_btree_name()]}} ] ++
+      [ {20, {call, ?SERVER, open, [g_btree_name()]}} ] ++
       [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
         || dict:size(Open) > 0] ++
       [ {1500, {call, ?SERVER, lookup_exist, cmd_lookup_args(S)}}
