@@ -55,10 +55,35 @@ g_btree_name() ->
     ?LET(I, choose(1,?NUM_TREES),
          btree_name(I)).
 
+%% Generate a key for the Tree
+g_key() ->
+    binary().
+
+%% Generate a value for the Tree
+g_value() ->
+    binary().
+
+g_fail_key() ->
+    ?LET(T, choose(1,999999999999),
+         term_to_binary(T)).
+
+g_open_tree(Open) ->
+    oneof(dict:fetch_keys(Open)).
+
 %% Pick a name of a non-empty Btree
-non_empty_btree(Open) ->
-    ?SUCHTHAT(Name, oneof(dict:fetch_keys(Open)),
-              dict:size(dict:fetch(Name, Open)) > 0).
+g_non_empty_btree(Open) ->
+    ?LET(TreesWithKeys, dict:filter(fun(_K, D) -> dict:size(D) > 0 end, Open),
+         oneof(dict:fetch_keys(TreesWithKeys))).
+
+g_existing_key(Name, Open) ->
+    oneof(dict:fetch_keys(dict:fetch(Name, Open))).
+
+g_non_existing_key(Name, Open) ->
+    ?SUCHTHAT(Key, g_fail_key(),
+              begin
+                  D = dict:fetch(Name, Open),
+                  not dict:is_key(Key, D)
+              end).
 
 btree_name(I) ->
     "Btree_" ++ integer_to_list(I).
@@ -79,20 +104,26 @@ initial_state() ->
 command(#state { open = Open, closed = Closed } = S) ->
     frequency(
       [ {20, {call, ?SERVER, open, [oneof(dict:fetch_keys(Closed))]}}
-        || dict:size(Closed) > 0] ++
+        || closed_dicts(S)] ++
       [ {20, {call, ?SERVER, close, [oneof(dict:fetch_keys(Open))]}}
-        || dict:size(Open) > 0] ++
+        || open_dicts(S)] ++
       [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
-        || dict:size(Open) > 0] ++
+        || open_dicts(S)] ++
+      [ {1500, {call, ?SERVER, lookup_fail, cmd_lookup_fail_args(S)}}
+        || open_dicts(S)] ++
       [ {1500, {call, ?SERVER, lookup_exist, cmd_lookup_args(S)}}
-        || dict:size(Open) > 0, count_dicts(Open) > 0] ++
+        || open_dicts(S), open_dicts_with_keys(S)] ++
       [ {500, {call, ?SERVER, delete_exist, cmd_delete_args(S)}}
-        || dict:size(Open) > 0, count_dicts(Open) > 0 ]).
+        || open_dicts(S), open_dicts_with_keys(S)]).
 
 %% Precondition (abstract)
 precondition(#state { open = _Open}, {call, ?SERVER, delete_exist,
                                      [_Name, _K]}) ->
     %% No need to check since we limit this in the command/1 generator
+    true;
+precondition(#state { open = _Open }, {call, ?SERVER, lookup_fail,
+                                       [_Name, _K]}) ->
+    %% We can always try to look up some non-existing key
     true;
 precondition(#state { open = _Open }, {call, ?SERVER, lookup_exist,
                                        [_Name, _K]}) ->
@@ -107,6 +138,8 @@ precondition(#state { open = Open, closed = Closed }, {call, ?SERVER, close, [Na
 
 
 %% Next state manipulation (abstract / concrete)
+next_state(S, _Res, {call, ?SERVER, lookup_fail, [_Name, _Key]}) ->
+    S;
 next_state(S, _Res, {call, ?SERVER, lookup_exist, [_Name, _Key]}) ->
     S;
 next_state(#state { open = Open} = S, _Res,
@@ -131,6 +164,9 @@ next_state(#state { open = Open, closed=Closed} = S, _Res, {call, ?SERVER, close
               open   = dict:erase(Name, Open) }.
 
 %% Postcondition check (concrete)
+postcondition(_S,
+              {call, ?SERVER, lookup_fail, [_Name, _Key]}, notfound) ->
+    true;
 postcondition(#state { open = Open },
               {call, ?SERVER, lookup_exist, [Name, Key]}, {ok, Value}) ->
     dict:fetch(Key, dict:fetch(Name, Open)) == Value;
@@ -196,18 +232,23 @@ cmd_close_args(#state { open = Open }) ->
 
 cmd_put_args(#state { open = Open }) ->
     ?LET({Name, Key, Value},
-         {oneof(dict:fetch_keys(Open)), binary(), binary()},
+         {oneof(dict:fetch_keys(Open)), g_key(), g_value()},
          [Name, Key, Value]).
 
 
+cmd_lookup_fail_args(#state { open = Open}) ->
+    ?LET(Name, g_open_tree(Open),
+         ?LET(Key, g_non_existing_key(Name, Open),
+              [Name, Key])).
+
 cmd_lookup_args(#state { open = Open}) ->
-    ?LET(Name, non_empty_btree(Open),
-         ?LET(Key, oneof(dict:fetch_keys(dict:fetch(Name, Open))),
+    ?LET(Name, g_non_empty_btree(Open),
+         ?LET(Key, g_existing_key(Name, Open),
               [Name, Key])).
 
 cmd_delete_args(#state { open = Open}) ->
-    ?LET(Name, non_empty_btree(Open),
-         ?LET(Key, oneof(dict:fetch_keys(dict:fetch(Name, Open))),
+    ?LET(Name, g_non_empty_btree(Open),
+         ?LET(Key, g_existing_key(Name, Open),
               [Name, Key])).
 
 
@@ -224,8 +265,14 @@ cleanup_tree(Tree) ->
 %% Various Helper routines
 %% ----------------------------------------------------------------------
 
-%% @todo optimize this call. You can fast-exit as soon as you know
-%% there is a non-empty dict.
-count_dicts(Open) ->
-    Dicts = [ V || {_, V} <- dict:to_list(Open)],
-    lists:sum([dict:size(D) || D <- Dicts]).
+open_dicts_with_keys(#state { open = Open}) ->
+    lists:any(fun({_, D}) -> dict:size(D) > 0 end,
+              dict:to_list(Open)).
+
+open_dicts(#state { open = Open}) ->
+    dict:size(Open) > 0.
+
+closed_dicts(#state { closed = Closed}) ->
+    dict:size(Closed) > 0.
+
+
