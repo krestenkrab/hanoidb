@@ -1,11 +1,18 @@
 -module(fractal_btree_tests).
 
 -ifdef(TEST).
+-ifdef(TRIQ).
+-include_lib("triq/include/triq.hrl").
+-include_lib("triq/include/triq_statem.hrl").
+-else.
 -include_lib("proper/include/proper.hrl").
+-endif.
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-ifdef(PROPER).
 -behaviour(proper_statem).
+-endif.
 
 -compile(export_all).
 
@@ -23,16 +30,20 @@ full_test_() ->
      fun () -> ok end,
      fun (_) -> ok end,
      [
-      {timeout, 120, ?_test(test_proper())},
+      {timeout, 120, ?_test(test_qc())},
       ?_test(test_tree_simple_1()),
       ?_test(test_tree_simple_2()),
       ?_test(test_tree())
      ]}.
 
+-ifdef(TRIQ).
+test_qc() ->
+    [?assertEqual(true, triq:module(?MODULE))].
+-else.
 qc_opts() -> [{numtests, 800}].
-
-test_proper() ->
+test_qc() ->
     [?assertEqual([], proper:module(?MODULE, qc_opts()))].
+-endif.
 
 %% Generators
 %% ----------------------------------------------------------------------
@@ -41,12 +52,12 @@ test_proper() ->
 
 %% Generate a name for a btree
 g_btree_name() ->
-    ?LET(I, integer(1,?NUM_TREES),
+    ?LET(I, choose(1,?NUM_TREES),
          btree_name(I)).
 
 %% Pick a name of a non-empty Btree
 non_empty_btree(Open) ->
-    ?SUCHTHAT(Name, union(dict:fetch_keys(Open)),
+    ?SUCHTHAT(Name, oneof(dict:fetch_keys(Open)),
               dict:size(dict:fetch(Name, Open)) > 0).
 
 btree_name(I) ->
@@ -147,7 +158,7 @@ prop_dict_agree() ->
                    cleanup_test_trees(State),
                     ?WHENFAIL(io:format("History: ~w\nState: ~w\nResult: ~w\n",
                                         [History,State,Result]),
-                              aggregate(command_names(Cmds), Result =:= ok))
+                              Result =:= ok)
                 end)).
 
 %% UNIT TESTS
