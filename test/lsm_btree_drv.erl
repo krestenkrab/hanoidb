@@ -9,6 +9,7 @@
 -export([
          delete_exist/2,
          lookup_exist/2,
+         lookup_fail/2,
          open/1, close/1,
          put/3,
          stop/0]).
@@ -31,7 +32,10 @@ call(X) ->
     gen_server:call(?SERVER, X, infinity).
 
 lookup_exist(N, K) ->
-    call({lookup_exist, N, K}).
+    call({lookup, N, K}).
+
+lookup_fail(N, K) ->
+    call({lookup, N, K}).
 
 delete_exist(N, K) ->
     call({delete_exist, N, K}).
@@ -80,7 +84,7 @@ handle_call({delete_exist, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
     Reply = lsm_btree:delete(Tree, K),
     {reply, Reply, State};
-handle_call({lookup_exist, N, K}, _, #state { btrees = D} = State) ->
+handle_call({lookup, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
     Reply = lsm_btree:lookup(Tree, K),
     {reply, Reply, State};
