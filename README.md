@@ -2,7 +2,9 @@
 
 # LSM B-Tree Storage
 
-This Erlang-based storage engine may eventually provide an alternative to Basho Bitcask and Google's LevelDB.  Of those two, `lsm_btree` is closer to LevelDB in operational characteristics, except it uses fewer file descriptors than LevelDB, is not as performant, but it is implemented in just ~1000 lines of Erlang.  For some the benefit of having a clean and simple Erlang implementation make it worth it.
+This Erlang-based storage engine implements &ldquo;Log-structured merge-trees&rdquo; &mdash; a storage structure described in [this paper](http://staff.ustc.edu.cn/~jpq/paper/flash/1996-The%20Log-Structured%20Merge-Tree%20%28LSM-Tree%29.pdf).
+
+The storage engine may eventually provide an alternative to Basho Bitcask and Google's LevelDB.  Of those two, `lsm_btree` is closer to LevelDB in operational characteristics, except it uses fewer file descriptors than LevelDB, is not as performant, but it is implemented in just ~1000 lines of Erlang.  For some the benefit of having a clean and simple Erlang implementation make it worth it.
 
 Here's the bullet list:
 
