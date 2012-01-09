@@ -24,7 +24,7 @@
                  last_node_pos :: pos_integer(),
                  last_node_size :: pos_integer(),
 
-                 nodes = [] :: [ #node{} ],
+                 nodes = [] :: [ #node{} ], % B-tree stack
 
                  name :: string(),
 
@@ -121,9 +121,11 @@ flush_nodes(State) ->
     {ok, State2} = close_node(State),
     flush_nodes(State2).
 
-add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode |RestNodes] }=State) ->
+add_record(Level, Key, Value,
+	   #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode |RestNodes] }=State) ->
+    %% The top-of-stack node is at the level we wish to insert at.
 
-    %% assert that keys are increasing
+    %% Assert that keys are increasing:
     case List of
         [] -> ok;
         [{PrevKey,_}|_] ->
@@ -148,6 +150,7 @@ add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, s
     end;
 
 add_record(Level, Key, Value, #state{ nodes=Nodes }=State) ->
+    %% There is no top-of-stack node, or it is not at the level we wish to insert at.
     add_record(Level, Key, Value, State#state{ nodes = [ #node{ level=Level, members=[] } | Nodes ] }).
 
 
