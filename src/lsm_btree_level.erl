@@ -1,5 +1,7 @@
 -module(lsm_btree_level).
 
+-include("lsm_btree.hrl").
+
 %%
 %% Manages a "pair" of lsm_index (or rathern, 0, 1 or 2), and governs
 %% the process of injecting/merging parent trees into this pair.
@@ -229,10 +231,10 @@ do_lookup(_Key, []) ->
 do_lookup(_Key, [Pid]) when is_pid(Pid) ->
     {delegate, Pid};
 do_lookup(Key, [undefined|Rest]) ->
-    do_lookup(Key, Rest);    
+    do_lookup(Key, Rest);
 do_lookup(Key, [BT|Rest]) ->
     case lsm_btree_reader:lookup(BT, Key) of
-	{ok, deleted} -> notfound;
+	{ok, ?TOMBSTONE} -> notfound;
 	{ok, Result}  -> {found, Result};
 	notfound      -> do_lookup(Key, Rest)
     end.

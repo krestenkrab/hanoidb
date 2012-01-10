@@ -31,3 +31,12 @@ encode_index_node(Level, KVList) ->
 decode_index_node(Level, <<Data/binary>>) ->
     KVList = erlang:binary_to_term(Data), %zlib:unzip(Data)),
     {ok, {node, Level, KVList}}.
+
+
+file_exists(FileName) ->
+    case file:read_file_info(FileName) of
+        {ok, _} ->
+            true;
+        {error, enoent} ->
+            false
+    end.

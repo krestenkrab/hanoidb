@@ -1,12 +1,12 @@
 -module(lsm_btree_writer).
 
+-include("lsm_btree.hrl").
+
 %%
 %% Streaming btree writer. Accepts only monotonically increasing keys for put.
 %%
 
-%% TODO: add a bloom filter to the file
-
--define(NODE_SIZE, 2*1024).
+-define(NODE_SIZE, 32*1024).
 
 -behavior(gen_server).
 
@@ -69,7 +69,7 @@ init([Name,Size]) ->
     end.
 
 
-handle_cast({add, Key, Data}, State) when is_binary(Key), (is_binary(Data) orelse Data == deleted)->
+handle_cast({add, Key, Data}, State) when is_binary(Key), (is_binary(Data) orelse Data == ?TOMBSTONE)->
     {ok, State2} = add_record(0, Key, Data, State),
     {noreply, State2}.
 
@@ -107,6 +107,9 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
     IdxFile = State#state.index_file,
 
     ok = file:write(IdxFile, Trailer),
+
+    ok = file:datasync(IdxFile),
+
     ok = file:close(IdxFile),
 
     {ok, State#state{ index_file=undefined }};
