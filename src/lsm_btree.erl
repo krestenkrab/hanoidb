@@ -5,7 +5,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--export([open/1, close/1, lookup/2, delete/2, put/3]).
+-export([open/1, close/1, lookup/2, delete/2, put/3, range/3, fold_range/5]).
 
 -include("lsm_btree.hrl").
 -include_lib("kernel/include/file.hrl").
@@ -30,6 +30,20 @@ delete(Ref,Key) when is_binary(Key) ->
 put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
     gen_server:call(Ref, {put, Key, Value}).
 
+range(Ref,FromKey,ToKey) when is_binary(FromKey), is_binary(ToKey) ->
+    gen_server:call(Ref, {range, self(), FromKey, ToKey}).
+
+fold_range(Ref,Fun,Acc0,FromKey,ToKey) ->
+    {ok, PID} = range(Ref,FromKey,ToKey),
+    receive_fold_range(PID,Fun,Acc0).
+
+receive_fold_range(PID,Fun,Acc0) ->
+    receive
+        {fold_result, PID, K,V} ->
+            receive_fold_range(PID, Fun, Fun(K,V,Acc0));
+        {fold_done, PID} ->
+            Acc0
+    end.
 
 
 init([Dir]) ->
@@ -110,6 +124,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
+handle_call({range, Sender, FromKey, ToKey}, _From, State=#state{ top=TopLevel }) ->
+    Result = lsm_btree_level:range_fold(TopLevel, Sender, FromKey, ToKey),
+    {reply, Result, State};
+
 handle_call({put, Key, Value}, _From, State) when is_binary(Key), is_binary(Value) ->
     {ok, State2} = do_put(Key, Value, State),
     {reply, ok, State2};
@@ -132,7 +150,6 @@ handle_call({lookup, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) whe
 handle_call(close, _From, State) ->
     {ok, State2} = flush_nursery(State),
     {stop, normal, ok, State2}.
-
 
 do_put(Key, Value, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = lsm_btree_nursery:add_maybe_flush(Key, Value, Nursery, Top),

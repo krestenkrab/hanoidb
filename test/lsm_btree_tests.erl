@@ -222,8 +222,45 @@ test_tree() ->
                 end,
                 ok,
                 lists:seq(2,10000,1)),
+    lists:foldl(fun(N,_) ->
+                        ok = lsm_btree:put(Tree,
+                                               <<N:128>>, <<"data",N:128>>)
+                end,
+                ok,
+                lists:seq(4000,6000,1)),
+
+
+    {Time,{ok,Count}} = timer:tc(?MODULE, run_fold, [Tree,1000,9000]),
+
+    error_logger:info_msg("time to fold: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
+
 
     ok = lsm_btree:close(Tree).
+
+run_fold(Tree,From,To) ->
+    {ok, PID} = lsm_btree:range(Tree, <<From:128>>, <<(To+1):128>>),
+    lists:foreach(fun(N) ->
+                          receive
+                              {fold_result, _, <<N:128>>,_} -> ok
+                          after 1000 ->
+                                  error_logger:info_msg("timed out on #~p~n", [N])
+                          end
+                  end,
+                  lists:seq(From,To,1)),
+    receive
+        {fold_result, _, <<N:128>>,_} ->
+            error_logger:info_msg("got fold key #~p! ~n", [N])
+    after 0 -> ok
+    end,
+    receive
+        {fold_done, _} -> ok
+    after 1000 ->
+            error_logger:info_msg("timed out on fond_done! ~n", [])
+    end,
+    {ok, To-From}.
+
+
+
 
 %% Command processing
 %% ----------------------------------------------------------------------

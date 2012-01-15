@@ -16,12 +16,12 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/3, lookup/2, inject/2, close/1]).
+-export([open/3, lookup/2, inject/2, close/1, range_fold/4]).
 
 -include_lib("kernel/include/file.hrl").
 
 -record(state, {
-          a, b, next, dir, level, inject_done_ref, merge_pid
+          a, b, next, dir, level, inject_done_ref, merge_pid, folding = 0
           }).
 
 %%%%% PUBLIC OPERATIONS
@@ -43,6 +43,11 @@ inject(Ref, FileName) ->
 close(Ref) ->
     call(Ref, close).
 
+range_fold(Ref, SendTo, From, To) ->
+    {ok, FoldWorkerPID} = lsm_btree_fold_worker:start(SendTo),
+    {ok, Folders} = call(Ref, {init_range_fold, FoldWorkerPID, From, To, []}),
+    FoldWorkerPID ! {initialize, Folders},
+    {ok, FoldWorkerPID}.
 
 %%%%% INTERNAL
 
@@ -89,6 +94,10 @@ initialize(State) ->
 
     %% remove old merge file
     file:delete( filename("X",State)),
+
+    %% remove old fold files (hard links to A/B used during fold)
+    file:delete( filename("AF",State)),
+    file:delete( filename("BF",State)),
 
     case file:read_file_info(CFileName) of
         {ok, _} ->
@@ -162,6 +171,44 @@ main_loop(State = #state{ next=Next }) ->
             stop_if_defined(State#state.merge_pid),
             reply(From, ok),
             ok;
+
+        ?REQ(From, {init_range_fold, WorkerPID, FromKey, ToKey, List}) when State#state.folding == 0 ->
+
+            case {State#state.a, State#state.b} of
+                {undefined, undefined} ->
+                    NewFolding = 0,
+                    NextList = List;
+
+                {_, undefined} ->
+                    NewFolding = 1,
+                    ok = file:make_link(filename("A", State), filename("AF", State)),
+                    {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, FromKey, ToKey),
+                    NextList = [PID0|List];
+
+                {_, _} ->
+                    NewFolding = 2,
+
+                    ok = file:make_link(filename("A", State), filename("AF", State)),
+                    {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, FromKey, ToKey),
+
+                    ok = file:make_link(filename("B", State), filename("BF", State)),
+                    {ok, PID1} = start_range_fold(filename("BF",State), WorkerPID, FromKey, ToKey),
+
+                    NextList = [PID1,PID0|List]
+            end,
+
+            case Next of
+                undefined ->
+                    reply(From, {ok, lists:reverse(NextList)});
+                _ ->
+                    Next ! ?REQ(From, {init_range_fold, WorkerPID, FromKey, ToKey, NextList})
+            end,
+
+            main_loop(State#state{ folding = NewFolding });
+
+        {range_fold_done, _PID, FoldFileName} ->
+            ok = file:delete(FoldFileName),
+            main_loop(State#state{ folding = State#state.folding-1 });
 
         %%
         %% The outcome of merging resulted in a file with less than
@@ -289,3 +336,27 @@ close_a_and_b(State) ->
 filename(PFX, State) ->
     filename:join(State#state.dir, PFX ++ "-" ++ integer_to_list(State#state.level) ++ ".data").
 
+
+start_range_fold(FileName, WorkerPID, FromKey, ToKey) ->
+    Owner = self(),
+    PID =
+        proc_lib:spawn( fun() ->
+                                erlang:link(WorkerPID),
+                                {ok, File} = lsm_btree_reader:open(FileName),
+                                lsm_btree_reader:range_fold(fun(Key,Value,_) ->
+                                                                    WorkerPID ! {level_result, self(), Key, Value},
+                                                                    ok
+                                                            end,
+                                                            ok,
+                                                            File,
+                                                            FromKey, ToKey),
+
+                                %% tell fold merge worker we're done
+                                WorkerPID ! {level_done, self()},
+
+                                erlang:unlink(WorkerPID),
+
+                                %% this will release the pinning of the fold file
+                                Owner  ! {range_fold_done, self(), FileName}
+                        end ),
+    {ok, PID}.
