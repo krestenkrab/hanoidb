@@ -5,7 +5,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--export([open/1, close/1, lookup/2, delete/2, put/3, range/3, fold_range/5]).
+-export([open/1, close/1, lookup/2, delete/2, put/3, async_range/3, fold_range/5]).
 
 -include("lsm_btree.hrl").
 -include_lib("kernel/include/file.hrl").
@@ -30,11 +30,11 @@ delete(Ref,Key) when is_binary(Key) ->
 put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
     gen_server:call(Ref, {put, Key, Value}).
 
-range(Ref,FromKey,ToKey) when is_binary(FromKey), is_binary(ToKey) ->
-    gen_server:call(Ref, {range, self(), FromKey, ToKey}).
+async_range(Ref,FromKey,ToKey) when is_binary(FromKey), is_binary(ToKey) ->
+    gen_server:call(Ref, {async_range, self(), FromKey, ToKey}).
 
 fold_range(Ref,Fun,Acc0,FromKey,ToKey) ->
-    {ok, PID} = range(Ref,FromKey,ToKey),
+    {ok, PID} = async_range(Ref,FromKey,ToKey),
     receive_fold_range(PID,Fun,Acc0).
 
 receive_fold_range(PID,Fun,Acc0) ->
@@ -124,7 +124,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-handle_call({range, Sender, FromKey, ToKey}, _From, State=#state{ top=TopLevel }) ->
+handle_call({async_range, Sender, FromKey, ToKey}, _From, State=#state{ top=TopLevel }) ->
     Result = lsm_btree_level:range_fold(TopLevel, Sender, FromKey, ToKey),
     {reply, Result, State};
 

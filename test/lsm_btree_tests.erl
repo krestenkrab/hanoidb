@@ -238,22 +238,22 @@ test_tree() ->
     ok = lsm_btree:close(Tree).
 
 run_fold(Tree,From,To) ->
-    {ok, PID} = lsm_btree:range(Tree, <<From:128>>, <<(To+1):128>>),
+    {ok, PID} = lsm_btree:async_range(Tree, <<From:128>>, <<(To+1):128>>),
     lists:foreach(fun(N) ->
                           receive
-                              {fold_result, _, <<N:128>>,_} -> ok
+                              {fold_result, PID, <<N:128>>,_} -> ok
                           after 1000 ->
                                   error_logger:info_msg("timed out on #~p~n", [N])
                           end
                   end,
                   lists:seq(From,To,1)),
     receive
-        {fold_result, _, <<N:128>>,_} ->
+        {fold_result, PID, <<N:128>>,_} ->
             error_logger:info_msg("got fold key #~p! ~n", [N])
     after 0 -> ok
     end,
     receive
-        {fold_done, _} -> ok
+        {fold_done, PID} -> ok
     after 1000 ->
             error_logger:info_msg("timed out on fond_done! ~n", [])
     end,
