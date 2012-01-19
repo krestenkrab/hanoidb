@@ -30,10 +30,10 @@ full_test_() ->
      fun () -> ok end,
      fun (_) -> ok end,
      [
-      {timeout, 120, ?_test(test_qc())},
       ?_test(test_tree_simple_1()),
       ?_test(test_tree_simple_2()),
-      ?_test(test_tree())
+      ?_test(test_tree()),
+      {timeout, 120, ?_test(test_qc())}
      ]}.
 
 -ifdef(TRIQ).
@@ -213,9 +213,9 @@ test_tree_simple_2() ->
 
 test_tree() ->
 
-%%    application:start(sasl),
+    application:start(sasl),
 
-    {ok, Tree} = lsm_btree:open("simple"),
+    {ok, Tree} = lsm_btree:open("simple2"),
     lists:foldl(fun(N,_) ->
                         ok = lsm_btree:put(Tree,
                                                <<N:128>>, <<"data",N:128>>)
@@ -229,8 +229,9 @@ test_tree() ->
                 ok,
                 lists:seq(4000,6000,1)),
 
+    lsm_btree:delete(Tree, <<1500:128>>),
 
-    {Time,{ok,Count}} = timer:tc(?MODULE, run_fold, [Tree,1000,9000]),
+    {Time,{ok,Count}} = timer:tc(?MODULE, run_fold, [Tree,1000,2000]),
 
     error_logger:info_msg("time to fold: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 
@@ -238,25 +239,25 @@ test_tree() ->
     ok = lsm_btree:close(Tree).
 
 run_fold(Tree,From,To) ->
-    {ok, PID} = lsm_btree:async_range(Tree, <<From:128>>, <<(To+1):128>>),
-    lists:foreach(fun(N) ->
+    {ok, PID} = lsm_btree:sync_range(Tree, <<From:128>>, <<(To+1):128>>),
+    lists:foreach(fun(1500) -> ok;
+                     (N) ->
                           receive
                               {fold_result, PID, <<N:128>>,_} -> ok
-                          after 1000 ->
+                          after 100 ->
                                   error_logger:info_msg("timed out on #~p~n", [N])
                           end
                   end,
                   lists:seq(From,To,1)),
     receive
-        {fold_result, PID, <<N:128>>,_} ->
-            error_logger:info_msg("got fold key #~p! ~n", [N])
-    after 0 -> ok
-    end,
-    receive
         {fold_done, PID} -> ok
     after 1000 ->
-            error_logger:info_msg("timed out on fond_done! ~n", [])
+            error_logger:info_msg("timed out on fold_done! ~n", [])
     end,
+
+    %% we should now have no spurious messages
+    {messages,[]} = erlang:process_info(self(),messages),
+
     {ok, To-From}.
 
 

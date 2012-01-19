@@ -16,12 +16,12 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/3, lookup/2, inject/2, close/1, range_fold/4]).
+-export([open/3, lookup/2, inject/2, close/1, async_range/4, sync_range/4]).
 
 -include_lib("kernel/include/file.hrl").
 
 -record(state, {
-          a, b, next, dir, level, inject_done_ref, merge_pid, folding = 0
+          a, b, next, dir, level, inject_done_ref, merge_pid, folding = []
           }).
 
 %%%%% PUBLIC OPERATIONS
@@ -48,9 +48,16 @@ close(Ref) ->
     end.
 
 
-range_fold(Ref, SendTo, From, To) ->
-    {ok, FoldWorkerPID} = lsm_btree_fold_worker:start(SendTo),
-    {ok, Folders} = call(Ref, {init_range_fold, FoldWorkerPID, From, To, []}),
+
+async_range(Ref, FoldWorkerPID, From, To) ->
+    proc_lib:spawn(fun() ->
+                           {ok, Folders} = call(Ref, {init_range_fold, FoldWorkerPID, From, To, []}),
+                           FoldWorkerPID ! {initialize, Folders}
+                   end),
+    {ok, FoldWorkerPID}.
+
+sync_range(Ref, FoldWorkerPID, From, To) ->
+    {ok, Folders} = call(Ref, {sync_range_fold, FoldWorkerPID, From, To, []}),
     FoldWorkerPID ! {initialize, Folders},
     {ok, FoldWorkerPID}.
 
@@ -77,7 +84,6 @@ receive_reply(MRef) ->
             erlang:demonitor(MRef, [flush]),
             Reply;
 		{'DOWN', MRef, _, _, Reason} ->
-            error_logger:info_msg("Level dies, reason=~p~n", [Reason]),
 		    exit(Reason)
     end.
 
@@ -185,29 +191,28 @@ main_loop(State = #state{ next=Next }) ->
             end,
             ok;
 
-        ?REQ(From, {init_range_fold, WorkerPID, FromKey, ToKey, List}) when State#state.folding == 0 ->
+        ?REQ(From, {init_range_fold, WorkerPID, FromKey, ToKey, List}) when State#state.folding == [] ->
 
             case {State#state.a, State#state.b} of
                 {undefined, undefined} ->
-                    NewFolding = 0,
+                    NewFolding = [],
                     NextList = List;
 
                 {_, undefined} ->
-                    NewFolding = 1,
                     ok = file:make_link(filename("A", State), filename("AF", State)),
                     {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, FromKey, ToKey),
-                    NextList = [PID0|List];
+                    NextList = [PID0|List],
+                    NewFolding = [PID0];
 
                 {_, _} ->
-                    NewFolding = 2,
-
                     ok = file:make_link(filename("A", State), filename("AF", State)),
                     {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, FromKey, ToKey),
 
                     ok = file:make_link(filename("B", State), filename("BF", State)),
                     {ok, PID1} = start_range_fold(filename("BF",State), WorkerPID, FromKey, ToKey),
 
-                    NextList = [PID1,PID0|List]
+                    NextList = [PID1,PID0|List],
+                    NewFolding = [PID1,PID0]
             end,
 
             case Next of
@@ -219,9 +224,40 @@ main_loop(State = #state{ next=Next }) ->
 
             main_loop(State#state{ folding = NewFolding });
 
-        {range_fold_done, _PID, FoldFileName} ->
+        {range_fold_done, PID, [_,$F|_]=FoldFileName} ->
             ok = file:delete(FoldFileName),
-            main_loop(State#state{ folding = State#state.folding-1 });
+            main_loop(State#state{ folding = lists:delete(PID,State#state.folding) });
+
+        ?REQ(From, {sync_range_fold, WorkerPID, FromKey, ToKey, List}) ->
+
+            case {State#state.a, State#state.b} of
+                {undefined, undefined} ->
+                    RefList = List;
+
+                {_, undefined} ->
+                    ARef = erlang:make_ref(),
+                    ok = do_range_fold(State#state.a, WorkerPID, ARef, FromKey, ToKey),
+                    RefList = [ARef|List];
+
+                {_, _} ->
+                    BRef = erlang:make_ref(),
+                    ok = do_range_fold(State#state.b, WorkerPID, BRef, FromKey, ToKey),
+
+                    ARef = erlang:make_ref(),
+                    ok = do_range_fold(State#state.a, WorkerPID, ARef, FromKey, ToKey),
+
+                    RefList = [ARef,BRef|List]
+            end,
+
+            case Next of
+                undefined ->
+                    reply(From, {ok, lists:reverse(RefList)});
+                _ ->
+                    Next ! ?REQ(From, {sync_range_fold, WorkerPID, FromKey, ToKey, RefList})
+            end,
+
+            main_loop(State);
+
 
         %%
         %% The outcome of merging resulted in a file with less than
@@ -280,10 +316,16 @@ main_loop(State = #state{ next=Next }) ->
         {'EXIT', Parent, Reason} ->
             plain_fsm:parent_EXIT(Reason, State);
         {'EXIT', _, normal} ->
-	    %% Probably from a merger_pid - which we may have forgotten in the meantime.
-	    main_loop(State);
+            %% Probably from a merger_pid - which we may have forgotten in the meantime.
+            main_loop(State);
         {'EXIT', Pid, Reason} when Pid == State#state.merge_pid ->
-	    restart_merge_then_loop(State#state{merge_pid=undefined}, Reason)
+            restart_merge_then_loop(State#state{merge_pid=undefined}, Reason);
+        {'EXIT', PID, _} when [PID] == tl(State#state.folding);
+                              hd(State#state.folding) == PID ->
+            main_loop(State#state{ folding = lists:delete(PID,State#state.folding) });
+        {'EXIT', PID, Reason} ->
+            error_logger:info_msg("got unexpected exit ~p from ~p~n", [Reason, PID])
+
     end.
 
 do_lookup(_Key, []) ->
@@ -356,20 +398,24 @@ start_range_fold(FileName, WorkerPID, FromKey, ToKey) ->
         proc_lib:spawn( fun() ->
                                 erlang:link(WorkerPID),
                                 {ok, File} = lsm_btree_reader:open(FileName),
-                                lsm_btree_reader:range_fold(fun(Key,Value,_) ->
-                                                                    WorkerPID ! {level_result, self(), Key, Value},
-                                                                    ok
-                                                            end,
-                                                            ok,
-                                                            File,
-                                                            FromKey, ToKey),
-
-                                %% tell fold merge worker we're done
-                                WorkerPID ! {level_done, self()},
-
+                                do_range_fold(File, WorkerPID, self(), FromKey, ToKey),
                                 erlang:unlink(WorkerPID),
 
                                 %% this will release the pinning of the fold file
                                 Owner  ! {range_fold_done, self(), FileName}
                         end ),
     {ok, PID}.
+
+do_range_fold(BT, WorkerPID, Self, FromKey, ToKey) ->
+    lsm_btree_reader:range_fold(fun(Key,Value,_) ->
+                                        WorkerPID ! {level_result, Self, Key, Value},
+                                        ok
+                                end,
+                                ok,
+                                BT,
+                                FromKey, ToKey),
+
+    %% tell fold merge worker we're done
+    WorkerPID ! {level_done, Self},
+
+    ok.

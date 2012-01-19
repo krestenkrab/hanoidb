@@ -33,29 +33,35 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
+-include("lsm_btree.hrl").
+
 -record(state, {sendto}).
 
 start(SendTo) ->
-    PID = plain_fsm:spawn_link(?MODULE,
-                               fun() ->
-                                       process_flag(trap_exit,true),
-                                       initialize(#state{sendto=SendTo})
-                               end),
+    PID = plain_fsm:spawn(?MODULE,
+                          fun() ->
+                                  process_flag(trap_exit,true),
+                                  initialize(#state{sendto=SendTo}, [])
+                          end),
     {ok, PID}.
 
 
-initialize(State) ->
+initialize(State, PrefixFolders) ->
 
     Parent = plain_fsm:info(parent),
     receive
+        {prefix, [_]=Folders} ->
+            initialize(State, Folders);
+
         {initialize, Folders} ->
-            Initial = [ {PID,undefined} || PID <- Folders ],
-            fill(State, Initial, Folders);
+
+            Initial = [ {PID,undefined} || PID <- (PrefixFolders ++ Folders) ],
+            fill(State, Initial, PrefixFolders ++ Folders);
 
         %% gen_fsm handling
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
-              From, Req, State, fun(S1) -> initialize(S1) end);
+              From, Req, State, fun(S1) -> initialize(S1, PrefixFolders) end);
 
         {'EXIT', Parent, Reason} ->
             plain_fsm:parent_EXIT(Reason, State)
@@ -86,31 +92,31 @@ fill(State, Values, [PID|Rest]=PIDs) ->
                     fill(State, Values, PIDs)
             end
 
-
     end.
 
 emit_next(State, []) ->
     State#state.sendto ! {fold_done, self()},
     ok;
 
-emit_next(State, [{PID,{Key,Value}}]) ->
-    State#state.sendto ! {fold_result, self(), Key, Value},
-    fill(State, [{PID,undefined}], [PID]);
-
 emit_next(State, [{FirstPID,FirstKV}|Rest]=Values) ->
 
     {{FoundKey, FoundValue}, FillFrom} =
-        lists:foldl(fun({P,{K1,V1}}, {{K2,_},_}) when K1 < K2 ->
-                            {{K1,V1},[P]};
-                       ({P,{K,_}}, {{K,V},List}) ->
-                            {{K,V}, [P|List]};
+        lists:foldl(fun({P,{K1,_}=KV}, {{K2,_},_}) when K1 < K2 ->
+                            {KV,[P]};
+                       ({P,{K,_}}, {{K,_}=KV,List}) ->
+                            {KV, [P|List]};
                        (_, Found) ->
                             Found
                     end,
                     {FirstKV,[FirstPID]},
                     Rest),
 
-    State#state.sendto ! {fold_result, self(), FoundKey, FoundValue},
+    case FoundValue of
+        ?TOMBSTONE ->
+            ok;
+        _ ->
+            State#state.sendto ! {fold_result, self(), FoundKey, FoundValue}
+    end,
 
     fill(State, Values, FillFrom).
 
