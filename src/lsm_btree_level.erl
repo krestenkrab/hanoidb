@@ -41,7 +41,12 @@ inject(Ref, FileName) ->
     Result.
 
 close(Ref) ->
-    call(Ref, close).
+    try
+        call(Ref, close)
+    catch
+        exit:{noproc,_} -> ok
+    end.
+
 
 range_fold(Ref, SendTo, From, To) ->
     {ok, FoldWorkerPID} = lsm_btree_fold_worker:start(SendTo),
@@ -170,6 +175,14 @@ main_loop(State = #state{ next=Next }) ->
             close_if_defined(State#state.b),
             stop_if_defined(State#state.merge_pid),
             reply(From, ok),
+
+            %% this is synchronous all the way down, because our
+            %% caller is monitoring *this* proces, and thus the
+            %% rpc would fail when we fall off the cliff
+            if Next == undefined -> ok;
+               true ->
+                    lsm_btree_level:close(Next)
+            end,
             ok;
 
         ?REQ(From, {init_range_fold, WorkerPID, FromKey, ToKey, List}) when State#state.folding == 0 ->

@@ -19,7 +19,12 @@ open(Dir) ->
     gen_server:start(?MODULE, [Dir], []).
 
 close(Ref) ->
-    gen_server:call(Ref, close).
+    try
+        gen_server:call(Ref, close)
+    catch
+        exit:{noproc,_} -> ok
+    end.
+
 
 lookup(Ref,Key) when is_binary(Key) ->
     gen_server:call(Ref, {lookup, Key}).
@@ -147,9 +152,16 @@ handle_call({lookup, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) whe
             {reply, Reply, State}
     end;
 
-handle_call(close, _From, State) ->
-    {ok, State2} = flush_nursery(State),
-    {stop, normal, ok, State2}.
+handle_call(close, _From, State=#state{top=Top}) ->
+    try
+        {ok, State2} = flush_nursery(State),
+        ok = lsm_btree_level:close(Top),
+        {stop, normal, ok, State2}
+    catch
+        E:R ->
+            error_logger:info_msg("exception from close ~p:~p~n", [E,R]),
+            {stop, normal, ok, State}
+    end.
 
 do_put(Key, Value, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = lsm_btree_nursery:add_maybe_flush(Key, Value, Nursery, Top),
