@@ -2,9 +2,9 @@
 
 # LSM B-Tree Storage
 
-This Erlang-based storage engine implements &ldquo;Log-structured merge-trees&rdquo; &mdash; a storage structure described in [this paper](http://staff.ustc.edu.cn/~jpq/paper/flash/1996-The%20Log-Structured%20Merge-Tree%20%28LSM-Tree%29.pdf).
+This erlang-based storage engine implements a structure somewhat like LSM-trees (Log-Structured Merge Trees).  The notes below describe how this storage engine work; I have not done extensive studies as how it differs from other storage mechanisms, but a brief brows through available online resources on LSM-trees and Fractal Trees indicates that this storage engine is quite different in several respects.
 
-The storage engine may eventually provide an alternative to Basho Bitcask and Google's LevelDB.  Of those two, `lsm_btree` is closer to LevelDB in operational characteristics, except it uses fewer file descriptors than LevelDB, is not as performant, but it is implemented in just ~1000 lines of Erlang.  For some the benefit of having a clean and simple Erlang implementation make it worth it.
+The storage engine may eventually provide an alternative backend for Basho's Riak.  Of the existing backends, `lsm_btree` is closest to LevelDB in operational characteristics, but it is implemented in just ~1000 lines of Erlang.  
 
 Here's the bullet list:
 
@@ -12,22 +12,19 @@ Here's the bullet list:
 - Reasonably fast reads (N records are stored in log<sub>2</sub>(N) B-trees),
 - Operations-friendly "append-only" storage (allows you to backup live system, and crash-recovery is very simple)
 - The cost of evicting stale key/values is amortized into insertion, so you don't need to schedule merge to happen at off-peak hours. 
-- Will support range queries (and thus eventually Riak 2i.)
+- Supports range queries (and thus eventually Riak 2i.)
 - Doesn't need a boat load of RAM
 - All in 1000 lines of pure Erlang code
 
 Once we're a bit more stable, we'll provide a Riak backend.
 
-### LSM B-Trees vs. Fractal Trees
-LSM B-Trees bear some resemblance with so-called "Fractal Trees&reg;", but LSM B-Trees are much simpler.  For instance, our LSM B-Tree does not use any in-place updating (in a Fractal Tree, inner nodes have a buffer space which is updated-in place); also we use bloom filters rather than fractional cascading to speed up multiple B-tree lookups.  From published online documents, it does indeed look like fractal trees can be *much* faster (I have not run any performance tests myself).
-
-You can read more about Fractal Trees in this slide deck from [Tokutek](http://www.tokutek.com/2011/11/how-fractal-trees-work-at-mit-today/), a company providing a MySQL backend based on Fractal Trees.  They also own some patents related to fractal trees.  I have not tried their TokuDB, but it looks truly amazing; I recommend that you try it out if you're hitting the limits of your current MySQL setup.
-
 ## How a LSM-BTree Works
 
 If there are N records, there are in log<sub>2</sub>(N)  levels (each being a plain B-tree in a file named "A-*level*.data").  The file `A-0.data` has 1 record, `A-1.data` has 2 records, `A-2.data` has 4 records, and so on: `A-n.data` has 2<sup>n</sup> records.
 
-In "stable state", each level file is either full (there) or empty (not there); so if there are e.g. 20 records stored, then there are only data in filed `A-2.data` (4 records) and `A-5.data` (16 records).
+In "stable state", each level file is either full (there) or empty (not there); so if there are e.g. 20 records stored, then there are only data in filed `A-2.data` (4 records) and `A-4.data` (16 records).
+
+OK, I've told you a lie.  In practice, it is not practical to create a new file for each insert (injection at level #0), so we allows you to define the "top level" to be a number higher that #0; currently defaulting to #5 (32 records).  That means that you take the amortization "hit" for ever 32 inserts.
 
 ### Lookup
 Lookup is quite simple: starting at `A-0.data`, the sought for Key is searched in the B-tree there.  If nothing is found, search continues to the next data file.  So if there are *N* levels, then *N* disk-based B-tree lookups are performed.  Each lookup is "guarded" by a bloom filter to improve the likelihood that disk-based searches are only done when likely to succeed.
@@ -55,12 +52,15 @@ The really clever thing about this storage mechanism is that merging is guarante
 
 With LSM B-Trees; back-pressure is provided by the injection mechanism, which only returns when an injection is complete.  Thus, every 2nd insert needs to wait for level #0 to finish the required merging; which - assuming merging has linear I/O complexity - is enough to guarantee that the merge mechanism can keep up at higher-numbered levels.  
 
-OK, I've told you a lie.  In practice, it is not practical to create a new file for each insert (injection at level #0), so we allows you to define the "top level" to be a number higher that #0; currently defaulting to #6 (32 records).  That means that you take the amortization "hit" for ever 32 inserts.
-
 A further trouble is that merging does in fact not have completely linear I/O complexity, because reading from a small file that was recently written is faster that reading from a file that was written a long time ago (because of OS-level caching); thus doing a merge at level #*N+1*  is sometimes more than twice as slow as doing a merge at level #*N*.  Because of this, sustained insert pressure may produce a situation where the system blocks while merging, though it does require an extremely high level of inserts.  We're considering ways to alleviate this.
 
 Merging can be going on concurrently at each level (in preparation for an injection to the next level), which lets you utilize available multi-core capacity to merge.  
 
+
+### LSM B-Trees vs. Fractal Trees
+LSM B-Trees bear some resemblance with so-called "Fractal Trees&reg;", but LSM B-Trees are much simpler.  For instance, our LSM B-Tree does not use any in-place updating (in a Fractal Tree, inner nodes have a buffer space which is updated-in place); also we use bloom filters rather than fractional cascading to speed up multiple B-tree lookups.  From published online documents, it does indeed look like fractal trees can be *much* faster (I have not run any performance tests myself).
+
+You can read more about Fractal Trees in this slide deck from [Tokutek](http://www.tokutek.com/2011/11/how-fractal-trees-work-at-mit-today/), a company providing a MySQL backend based on Fractal Trees.  They also own some patents related to fractal trees.  I have not tried their TokuDB, but it looks truly amazing; I recommend that you try it out if you're hitting the limits of your current MySQL setup.
 
 
 
