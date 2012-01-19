@@ -88,7 +88,8 @@ handle_call({lookup, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
     Reply = lsm_btree:lookup(Tree, K),
     {reply, Reply, State};
-handle_call(stop, _, State) ->
+handle_call(stop, _, #state{ btrees = D } = State ) ->
+    [ lsm_btree:close(Tree) || {_,Tree} <- dict:to_list(D) ],
     cleanup_trees(State),
     {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
