@@ -364,7 +364,7 @@ begin_merge(State) ->
     file:delete(XFileName),
 
     MergePID = proc_lib:spawn_link(fun() ->
-                       {ok, OutCount} = lsm_btree_merger2:merge(AFileName, BFileName, XFileName,
+                       {ok, OutCount} = lsm_btree_merger:merge(AFileName, BFileName, XFileName,
                                                                    1 bsl (State#state.level + 1),
                                                                    State#state.next =:= undefined),
 %                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),

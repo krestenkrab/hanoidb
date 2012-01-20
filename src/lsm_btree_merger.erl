@@ -1,4 +1,4 @@
--module(lsm_btree_merger2).
+-module(lsm_btree_merger).
 
 %%
 %% Merging two BTrees
