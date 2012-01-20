@@ -44,7 +44,8 @@ close(Ref) ->
     try
         call(Ref, close)
     catch
-        exit:{noproc,_} -> ok
+        exit:{noproc,_} -> ok;
+        exit:noproc -> ok
     end.
 
 

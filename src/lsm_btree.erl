@@ -22,7 +22,8 @@ close(Ref) ->
     try
         gen_server:call(Ref, close)
     catch
-        exit:{noproc,_} -> ok
+        exit:{noproc,_} -> ok;
+        exit:noproc -> ok
     end.
 
 
