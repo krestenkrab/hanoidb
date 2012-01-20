@@ -1,6 +1,7 @@
 -module(lsm_btree_reader).
 
 -include_lib("kernel/include/file.hrl").
+-include("lsm_btree.hrl").
 
 -export([open/1,close/1,lookup/2,fold/3,range_fold/5]).
 -export([first_node/1,next_node/1]).
@@ -44,7 +45,8 @@ fold1(File,Fun,Acc0) ->
             fold0(File,Fun,Node,Acc0)
     end.
 
-range_fold(Fun, Acc0, #index{file=File,root=Root}, FromKey, ToKey) ->
+range_fold(Fun, Acc0, #index{file=File,root=Root}, FromKey0, ToKey) ->
+    FromKey = if FromKey0 == undefined -> <<>>; true -> FromKey0 end,
     case lookup_node(File,FromKey,Root,0) of
         {ok, {Pos,_}} ->
             file:position(File, Pos),
@@ -63,7 +65,7 @@ do_range_fold(Fun, Acc0, File, FromKey, ToKey) ->
 
         {ok, #node{members=Members}} ->
             Acc1 =
-                lists:foldl(fun({Key,Value}, Acc) when Key >= FromKey, Key < ToKey ->
+                lists:foldl(fun({Key,Value}, Acc) when ?KEY_IN_RANGE(Key, FromKey, ToKey) ->
                                     Fun(Key, Value, Acc);
                                (_,Acc) ->
                                     Acc
@@ -72,7 +74,7 @@ do_range_fold(Fun, Acc0, File, FromKey, ToKey) ->
                             Members),
 
             case lists:last(Members) of
-                {LastKey,_} when LastKey < ToKey ->
+                {LastKey,_} when LastKey < ToKey; ToKey == undefined ->
                     do_range_fold(Fun, Acc1, File, FromKey, ToKey);
                 _ ->
                     Acc1

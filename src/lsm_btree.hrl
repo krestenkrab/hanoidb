@@ -6,3 +6,7 @@
 
 -define(TOMBSTONE, 'deleted').
 
+-define(KEY_IN_RANGE(Key,FromKey,ToKey),
+        (((FromKey == undefined) orelse (FromKey =< Key))
+         and
+         ((ToKey == undefined) orelse (Key < ToKey)))).
