@@ -263,7 +263,7 @@ main_loop(State = #state{ next=Next }) ->
         %% The outcome of merging resulted in a file with less than
         %% level #entries, so we keep it at this level
         %%
-        {merge_done, Count, OutFileName} when Count =< (1 bsl State#state.level) ->
+        {merge_done, Count, OutFileName} when Count =< ?BTREE_SIZE(State#state.level) ->
 
             % first, rename the tmp file to C, so recovery will pick it up
             CFileName = filename("C",State),
@@ -365,7 +365,7 @@ begin_merge(State) ->
 
     MergePID = proc_lib:spawn_link(fun() ->
                        {ok, OutCount} = lsm_btree_merger:merge(AFileName, BFileName, XFileName,
-                                                                   1 bsl (State#state.level + 1),
+                                                                   ?BTREE_SIZE(State#state.level + 1),
                                                                    State#state.next =:= undefined),
 %                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
 
