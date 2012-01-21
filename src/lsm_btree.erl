@@ -23,7 +23,9 @@ close(Ref) ->
         gen_server:call(Ref, close)
     catch
         exit:{noproc,_} -> ok;
-        exit:noproc -> ok
+        exit:noproc -> ok;
+        %% Handle the case where the monitor triggers
+        exit:{normal, _} -> ok
     end.
 
 
