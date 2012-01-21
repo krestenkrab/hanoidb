@@ -79,7 +79,8 @@ handle_call({close, N}, _, #state { btrees = D} = State) ->
 handle_call({sync_range, Name, LoKey, HiKey}, _From,
             #state { btrees = D} = State) ->
     Tree = dict:fetch(Name, D),
-    Result = lsm_btree:sync_range(Tree, LoKey, HiKey),
+    {ok, Ref} = lsm_btree:sync_range(Tree, LoKey, HiKey),
+    Result = sync_range_gather(Ref),
     {reply, Result, State};
 handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
@@ -128,3 +129,15 @@ cleanup_trees(#state { btrees = BTs }) ->
               BTs).
 
 
+sync_range_gather(Ref) ->
+    sync_range_gather(Ref, []).
+
+sync_range_gather(Ref, Acc) ->
+    receive
+        {fold_result, Ref, K, V} ->
+            sync_range_gather(Ref, [{K, V} | Acc]);
+        {fold_done, Ref} ->
+            {ok, Acc}
+    after 3000 ->
+            {error, timeout}
+    end.

@@ -33,6 +33,8 @@ full_test_() ->
      [
       ?_test(test_tree_simple_1()),
       ?_test(test_tree_simple_2()),
+      ?_test(test_tree_simple_3()),
+      ?_test(test_tree_simple_4()),
       ?_test(test_tree()),
       {timeout, 120, ?_test(test_qc())}
      ]}.
@@ -120,8 +122,8 @@ command(#state { open = Open, closed = Closed } = S) ->
         || open_dicts(S), open_dicts_with_keys(S)]
       ++ [ {500, {call, ?SERVER, delete_exist, cmd_delete_args(S)}}
            || open_dicts(S), open_dicts_with_keys(S)]
-      %% ++ [ {250, {call, ?SERVER, sync_range, cmd_sync_range_args(S)}}
-      %%      || open_dicts(S), open_dicts_with_keys(S)]
+      ++ [ {250, {call, ?SERVER, sync_range, cmd_sync_range_args(S)}}
+           || open_dicts(S), open_dicts_with_keys(S)]
      ).
 
 %% Precondition (abstract)
@@ -178,8 +180,9 @@ next_state(#state { open = Open, closed=Closed} = S, _Res,
 %% Postcondition check (concrete)
 postcondition(#state { open = Open},
               {call, ?SERVER, sync_range, [Tree, K1, K2]}, {ok, Result}) ->
-    TDict = dict:fetch(Tree, Open),
-    dict_range_query(TDict, K1, K2) == Result;
+    #tree { elements = TDict } = dict:fetch(Tree, Open),
+    lists:sort(dict_range_query(TDict, K1, K2))
+        == lists:sort(Result);
 postcondition(_S,
               {call, ?SERVER, lookup_fail, [_Name, _Key]}, notfound) ->
     true;
@@ -228,8 +231,28 @@ test_tree_simple_2() ->
     ok = lsm_btree:delete(Tree, <<"ã">>),
     ok = lsm_btree:close(Tree).
 
-test_tree() ->
+test_tree_simple_3() ->
+    {ok, Tree} = lsm_btree:open("simple"),
+    ok = lsm_btree:put(Tree, <<"X">>, <<"Y">>),
+    {ok, Ref} = lsm_btree:sync_range(Tree, <<"X">>, <<"X">>),
+    ?assertEqual(ok,
+                 receive
+                     {fold_done, Ref} -> ok
+                 after 1000 -> {error, timeout}
+                 end),
+    ok = lsm_btree:close(Tree).
 
+test_tree_simple_4() ->
+    Key = <<56,11,62,42,35,163,16,100,9,224,8,228,130,94,198,2,126,117,243,
+            1,122,175,79,159,212,177,30,153,71,91,85,233,41,199,190,58,3,
+            173,220,9>>,
+    Value = <<212,167,12,6,105,152,17,80,243>>,
+    {ok, Tree} = lsm_btree:open("simple"),
+    ok = lsm_btree:put(Tree, Key, Value),
+    ?assertEqual({ok, Value}, lsm_btree:lookup(Tree, Key)),
+    ok = lsm_btree:close(Tree).
+
+test_tree() ->
     application:start(sasl),
 
     {ok, Tree} = lsm_btree:open("simple2"),
@@ -314,13 +337,19 @@ cmd_sync_range_args(#state { open = Open }) ->
 
 %% Context management
 %% ----------------------------------------------------------------------
-cleanup_test_trees(#state { open = Open}) ->
-    [cleanup_tree(N) || N <- dict:fetch_keys(Open)].
+cleanup_test_trees(#state { open = Open, closed = Closed }) ->
+    [cleanup_tree(N) || N <- dict:fetch_keys(Open)],
+    [cleanup_tree(N) || N <- dict:fetch_keys(Closed)].
 
 cleanup_tree(Tree) ->
-    {ok, FileNames} = file:list_dir(Tree),
-    [ok = file:delete(filename:join([Tree, Fname])) || Fname <- FileNames],
-    file:del_dir(Tree).
+    case file:list_dir(Tree) of
+        {error, enoent} ->
+            ok;
+        {ok, FileNames} ->
+            [ok = file:delete(filename:join([Tree, Fname]))
+             || Fname <- FileNames],
+            file:del_dir(Tree)
+    end.
 
 %% Various Helper routines
 %% ----------------------------------------------------------------------
