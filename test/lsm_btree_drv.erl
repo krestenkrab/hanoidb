@@ -12,6 +12,7 @@
          lookup_fail/2,
          open/1, close/1,
          put/3,
+         sync_range/3,
          stop/0]).
 
 %% gen_server callbacks
@@ -49,6 +50,9 @@ close(N) ->
 put(N, K, V) ->
     call({put, N, K, V}).
 
+sync_range(T, LK, HK) ->
+    call({sync_range, T, LK, HK}).
+
 stop() ->
     call(stop).
 
@@ -72,6 +76,11 @@ handle_call({close, N}, _, #state { btrees = D} = State) ->
         Otherwise ->
             {reply, {error, Otherwise}, State}
     end;
+handle_call({sync_range, Name, LoKey, HiKey}, _From,
+            #state { btrees = D} = State) ->
+    Tree = dict:fetch(Name, D),
+    Result = lsm_btree:sync_range(Tree, LoKey, HiKey),
+    {reply, Result, State};
 handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
     case lsm_btree:put(Tree, K, V) of

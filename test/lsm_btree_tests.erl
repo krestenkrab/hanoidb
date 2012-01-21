@@ -20,6 +20,7 @@
          next_state/3, postcondition/3,
          precondition/2]).
 
+-record(tree, { elements = dict:new() }).
 -record(state, { open = dict:new(),
                  closed = dict:new() }).
 -define(SERVER, lsm_btree_drv).
@@ -72,16 +73,20 @@ g_open_tree(Open) ->
 
 %% Pick a name of a non-empty Btree
 g_non_empty_btree(Open) ->
-    ?LET(TreesWithKeys, dict:filter(fun(_K, D) -> dict:size(D) > 0 end, Open),
+    ?LET(TreesWithKeys, dict:filter(fun(_K, #tree { elements = D}) ->
+                                            dict:size(D) > 0
+                                    end,
+                                    Open),
          oneof(dict:fetch_keys(TreesWithKeys))).
 
 g_existing_key(Name, Open) ->
-    oneof(dict:fetch_keys(dict:fetch(Name, Open))).
+    #tree { elements = Elems } = dict:fetch(Name, Open),
+    oneof(dict:fetch_keys(Elems)).
 
 g_non_existing_key(Name, Open) ->
     ?SUCHTHAT(Key, g_fail_key(),
               begin
-                  D = dict:fetch(Name, Open),
+                  #tree { elements = D } = dict:fetch(Name, Open),
                   not dict:is_key(Key, D)
               end).
 
@@ -93,7 +98,7 @@ btree_name(I) ->
 initial_state() ->
     ClosedBTrees = lists:foldl(fun(N, Closed) ->
                                        dict:store(btree_name(N),
-                                                  dict:new(),
+                                                  #tree { },
                                                   Closed)
                                end,
                                dict:new(),
@@ -103,41 +108,43 @@ initial_state() ->
 
 command(#state { open = Open, closed = Closed } = S) ->
     frequency(
-      [ {20, {call, ?SERVER, open, [oneof(dict:fetch_keys(Closed))]}}
-        || closed_dicts(S)] ++
-      [ {20, {call, ?SERVER, close, [oneof(dict:fetch_keys(Open))]}}
-        || open_dicts(S)] ++
-      [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
-        || open_dicts(S)] ++
-      [ {1500, {call, ?SERVER, lookup_fail, cmd_lookup_fail_args(S)}}
-        || open_dicts(S)] ++
-      [ {1500, {call, ?SERVER, lookup_exist, cmd_lookup_args(S)}}
-        || open_dicts(S), open_dicts_with_keys(S)] ++
-      [ {500, {call, ?SERVER, delete_exist, cmd_delete_args(S)}}
-        || open_dicts(S), open_dicts_with_keys(S)]).
+         [ {20, {call, ?SERVER, open, [oneof(dict:fetch_keys(Closed))]}}
+        || closed_dicts(S)]
+      ++ [ {20, {call, ?SERVER, close, [oneof(dict:fetch_keys(Open))]}}
+        || open_dicts(S)]
+      ++ [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
+        || open_dicts(S)]
+      ++ [ {1500, {call, ?SERVER, lookup_fail, cmd_lookup_fail_args(S)}}
+        || open_dicts(S)]
+      ++ [ {1500, {call, ?SERVER, lookup_exist, cmd_lookup_args(S)}}
+        || open_dicts(S), open_dicts_with_keys(S)]
+      ++ [ {500, {call, ?SERVER, delete_exist, cmd_delete_args(S)}}
+           || open_dicts(S), open_dicts_with_keys(S)]
+      %% ++ [ {250, {call, ?SERVER, sync_range, cmd_sync_range_args(S)}}
+      %%      || open_dicts(S), open_dicts_with_keys(S)]
+     ).
 
 %% Precondition (abstract)
-precondition(#state { open = _Open}, {call, ?SERVER, delete_exist,
-                                     [_Name, _K]}) ->
-    %% No need to check since we limit this in the command/1 generator
-    true;
-precondition(#state { open = _Open }, {call, ?SERVER, lookup_fail,
-                                       [_Name, _K]}) ->
-    %% We can always try to look up some non-existing key
-    true;
-precondition(#state { open = _Open }, {call, ?SERVER, lookup_exist,
-                                       [_Name, _K]}) ->
-    %% No need to check since we limit this in the command/1 generator
-    true;
+precondition(S, {call, ?SERVER, sync_range, [_Tree, _K1, _K2]}) ->
+    open_dicts(S) andalso open_dicts_with_keys(S);
+precondition(S, {call, ?SERVER, delete_exist, [_Name, _K]}) ->
+    open_dicts(S) andalso open_dicts_with_keys(S);
+precondition(S, {call, ?SERVER, lookup_fail, [_Name, _K]}) ->
+    open_dicts(S);
+precondition(S, {call, ?SERVER, lookup_exist, [_Name, _K]}) ->
+    open_dicts(S) andalso open_dicts_with_keys(S);
 precondition(#state { open = Open }, {call, ?SERVER, put, [Name, _K, _V]}) ->
     dict:is_key(Name, Open);
-precondition(#state { open = Open, closed = Closed }, {call, ?SERVER, open, [Name]}) ->
+precondition(#state { open = Open, closed = Closed },
+             {call, ?SERVER, open, [Name]}) ->
     (not (dict:is_key(Name, Open))) and (dict:is_key(Name, Closed));
-precondition(#state { open = Open, closed = Closed }, {call, ?SERVER, close, [Name]}) ->
+precondition(#state { open = Open, closed = Closed },
+             {call, ?SERVER, close, [Name]}) ->
     (dict:is_key(Name, Open)) and (not dict:is_key(Name, Closed)).
 
-
 %% Next state manipulation (abstract / concrete)
+next_state(S, _Res, {call, ?SERVER, sync_range, [_Tree, _K1, _K2]}) ->
+    S;
 next_state(S, _Res, {call, ?SERVER, lookup_fail, [_Name, _Key]}) ->
     S;
 next_state(S, _Res, {call, ?SERVER, lookup_exist, [_Name, _Key]}) ->
@@ -145,31 +152,41 @@ next_state(S, _Res, {call, ?SERVER, lookup_exist, [_Name, _Key]}) ->
 next_state(#state { open = Open} = S, _Res,
            {call, ?SERVER, delete_exist, [Name, Key]}) ->
     S#state { open = dict:update(Name,
-                                 fun(Dict) ->
-                                         dict:erase(Key, Dict)
+                                 fun(#tree { elements = Dict}) ->
+                                         #tree { elements =
+                                                     dict:erase(Key, Dict)} 
                                  end,
                                  Open)};
 next_state(#state { open = Open} = S, _Res,
            {call, ?SERVER, put, [Name, Key, Value]}) ->
-    S#state { open = dict:update(Name,
-                                 fun(Dict) ->
-                                         dict:store(Key, Value, Dict)
-                                 end,
-                                 Open)};
-next_state(#state { open = Open, closed=Closed} = S, _Res, {call, ?SERVER, open, [Name]}) ->
+    S#state { open = dict:update(
+                       Name,
+                       fun(#tree { elements = Dict}) ->
+                               #tree { elements =
+                                           dict:store(Key, Value, Dict) }
+                       end,
+                       Open)};
+next_state(#state { open = Open, closed=Closed} = S,
+           _Res, {call, ?SERVER, open, [Name]}) ->
     S#state { open   = dict:store(Name, dict:fetch(Name, Closed) , Open),
               closed = dict:erase(Name, Closed) };
-next_state(#state { open = Open, closed=Closed} = S, _Res, {call, ?SERVER, close, [Name]}) ->
+next_state(#state { open = Open, closed=Closed} = S, _Res,
+           {call, ?SERVER, close, [Name]}) ->
     S#state { closed = dict:store(Name, dict:fetch(Name, Open) , Closed),
               open   = dict:erase(Name, Open) }.
 
 %% Postcondition check (concrete)
+postcondition(#state { open = Open},
+              {call, ?SERVER, sync_range, [Tree, K1, K2]}, {ok, Result}) ->
+    TDict = dict:fetch(Tree, Open),
+    dict_range_query(TDict, K1, K2) == Result;
 postcondition(_S,
               {call, ?SERVER, lookup_fail, [_Name, _Key]}, notfound) ->
     true;
 postcondition(#state { open = Open },
               {call, ?SERVER, lookup_exist, [Name, Key]}, {ok, Value}) ->
-    dict:fetch(Key, dict:fetch(Name, Open)) == Value;
+    #tree { elements = Elems } = dict:fetch(Name, Open),
+    dict:fetch(Key, Elems) == Value;
 postcondition(_S, {call, ?SERVER, delete_exist, [_Name, _Key]}, ok) ->
     true;
 postcondition(_S, {call, ?SERVER, put, [_Name, _Key, _Value]}, ok) ->
@@ -289,6 +306,11 @@ cmd_delete_args(#state { open = Open}) ->
          ?LET(Key, g_existing_key(Name, Open),
               [Name, Key])).
 
+cmd_sync_range_args(#state { open = Open }) ->
+    ?LET(Tree, g_non_empty_btree(Open),
+         ?LET({K1, K2}, {g_existing_key(Tree, Open),
+                         g_existing_key(Tree, Open)},
+              [Tree, K1, K2])).
 
 %% Context management
 %% ----------------------------------------------------------------------
@@ -304,7 +326,9 @@ cleanup_tree(Tree) ->
 %% ----------------------------------------------------------------------
 
 open_dicts_with_keys(#state { open = Open}) ->
-    lists:any(fun({_, D}) -> dict:size(D) > 0 end,
+    lists:any(fun({_, #tree { elements = D}}) ->
+                         dict:size(D) > 0
+              end,
               dict:to_list(Open)).
 
 open_dicts(#state { open = Open}) ->
@@ -312,5 +336,10 @@ open_dicts(#state { open = Open}) ->
 
 closed_dicts(#state { closed = Closed}) ->
     dict:size(Closed) > 0.
+
+dict_range_query(Dict, LowKey, HighKey) ->
+    [{K, V} || {K, V} <- dict:to_list(Dict),
+               K >= LowKey,
+               K < HighKey].
 
 
