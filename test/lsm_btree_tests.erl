@@ -35,7 +35,7 @@ full_test_() ->
       ?_test(test_tree_simple_2()),
       ?_test(test_tree_simple_3()),
       ?_test(test_tree_simple_4()),
-      ?_test(test_tree()),
+      {timeout, 30, ?_test(test_tree())},
       {timeout, 120, ?_test(test_qc())}
      ]}.
 
@@ -268,8 +268,6 @@ test_tree_simple_4() ->
     ok = lsm_btree:close(Tree).
 
 test_tree() ->
-    application:start(sasl),
-
     {ok, Tree} = lsm_btree:open("simple2"),
     lists:foldl(fun(N,_) ->
                         ok = lsm_btree:put(Tree,
