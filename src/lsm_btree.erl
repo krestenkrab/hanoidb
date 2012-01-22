@@ -9,6 +9,7 @@
 
 -include("lsm_btree.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("include/lsm_btree.hrl").
 
 -record(state, { top, nursery, dir }).
 
@@ -38,17 +39,35 @@ delete(Ref,Key) when is_binary(Key) ->
 put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
     gen_server:call(Ref, {put, Key, Value}).
 
-sync_range(Ref,FromKey,ToKey) when FromKey == undefined orelse is_binary(FromKey),
+sync_range(Ref, #btree_range{}=Range) ->
+    gen_server:call(Ref, {sync_range, self(), Range}).
+
+sync_range(Ref,undefined,ToKey) ->
+    sync_range(Ref, <<>>, ToKey);
+sync_range(Ref,FromKey,ToKey) when is_binary(FromKey),
                                     ToKey == undefined orelse is_binary(ToKey) ->
-    gen_server:call(Ref, {sync_range, self(), FromKey, ToKey}).
+    sync_range(Ref, #btree_range{ from_key = FromKey,
+                                  from_inclusive = true,
+                                  to_key = ToKey,
+                                  to_inclusive = false,
+                                  limit = undefined }).
 
 sync_fold_range(Ref,Fun,Acc0,FromKey,ToKey) ->
     {ok, PID} = sync_range(Ref,FromKey,ToKey),
     receive_fold_range(PID,Fun,Acc0).
 
-async_range(Ref,FromKey,ToKey) when FromKey == undefined orelse is_binary(FromKey),
+async_range(Ref, #btree_range{}=Range) ->
+    gen_server:call(Ref, {async_range, self(), Range}).
+
+async_range(Ref,undefined,ToKey) ->
+    async_range(Ref, <<>>, ToKey);
+async_range(Ref,FromKey,ToKey) when is_binary(FromKey),
                                     ToKey == undefined orelse is_binary(ToKey) ->
-    gen_server:call(Ref, {async_range, self(), FromKey, ToKey}).
+    async_range(Ref, #btree_range{ from_key = FromKey,
+                                   from_inclusive = true,
+                                   to_key = ToKey,
+                                   to_inclusive = false,
+                                   limit = undefined }).
 
 async_fold_range(Ref,Fun,Acc0,FromKey,ToKey) ->
     {ok, PID} = async_range(Ref,FromKey,ToKey),
@@ -141,16 +160,16 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-handle_call({async_range, Sender, FromKey, ToKey}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
+handle_call({async_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
     {ok, FoldWorkerPID} = lsm_btree_fold_worker:start(Sender),
-    lsm_btree_nursery:do_level_fold(Nursery, FoldWorkerPID, FromKey, ToKey),
-    Result = lsm_btree_level:async_range(TopLevel, FoldWorkerPID, FromKey, ToKey),
+    lsm_btree_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
+    Result = lsm_btree_level:async_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
-handle_call({sync_range, Sender, FromKey, ToKey}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
+handle_call({sync_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
     {ok, FoldWorkerPID} = lsm_btree_fold_worker:start(Sender),
-    lsm_btree_nursery:do_level_fold(Nursery, FoldWorkerPID, FromKey, ToKey),
-    Result = lsm_btree_level:sync_range(TopLevel, FoldWorkerPID, FromKey, ToKey),
+    lsm_btree_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
+    Result = lsm_btree_level:sync_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
 handle_call({put, Key, Value}, _From, State) when is_binary(Key), is_binary(Value) ->

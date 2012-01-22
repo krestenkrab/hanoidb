@@ -16,7 +16,7 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/3, lookup/2, inject/2, close/1, async_range/4, sync_range/4]).
+-export([open/3, lookup/2, inject/2, close/1, async_range/3, sync_range/3]).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -50,15 +50,15 @@ close(Ref) ->
 
 
 
-async_range(Ref, FoldWorkerPID, From, To) ->
+async_range(Ref, FoldWorkerPID, Range) ->
     proc_lib:spawn(fun() ->
-                           {ok, Folders} = call(Ref, {init_range_fold, FoldWorkerPID, From, To, []}),
+                           {ok, Folders} = call(Ref, {init_range_fold, FoldWorkerPID, Range, []}),
                            FoldWorkerPID ! {initialize, Folders}
                    end),
     {ok, FoldWorkerPID}.
 
-sync_range(Ref, FoldWorkerPID, From, To) ->
-    {ok, Folders} = call(Ref, {sync_range_fold, FoldWorkerPID, From, To, []}),
+sync_range(Ref, FoldWorkerPID, Range) ->
+    {ok, Folders} = call(Ref, {sync_range_fold, FoldWorkerPID, Range, []}),
     FoldWorkerPID ! {initialize, Folders},
     {ok, FoldWorkerPID}.
 
@@ -192,7 +192,7 @@ main_loop(State = #state{ next=Next }) ->
             end,
             ok;
 
-        ?REQ(From, {init_range_fold, WorkerPID, FromKey, ToKey, List}) when State#state.folding == [] ->
+        ?REQ(From, {init_range_fold, WorkerPID, Range, List}) when State#state.folding == [] ->
 
             case {State#state.a, State#state.b} of
                 {undefined, undefined} ->
@@ -201,16 +201,16 @@ main_loop(State = #state{ next=Next }) ->
 
                 {_, undefined} ->
                     ok = file:make_link(filename("A", State), filename("AF", State)),
-                    {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, FromKey, ToKey),
+                    {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, Range),
                     NextList = [PID0|List],
                     NewFolding = [PID0];
 
                 {_, _} ->
                     ok = file:make_link(filename("A", State), filename("AF", State)),
-                    {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, FromKey, ToKey),
+                    {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, Range),
 
                     ok = file:make_link(filename("B", State), filename("BF", State)),
-                    {ok, PID1} = start_range_fold(filename("BF",State), WorkerPID, FromKey, ToKey),
+                    {ok, PID1} = start_range_fold(filename("BF",State), WorkerPID, Range),
 
                     NextList = [PID1,PID0|List],
                     NewFolding = [PID1,PID0]
@@ -220,7 +220,7 @@ main_loop(State = #state{ next=Next }) ->
                 undefined ->
                     reply(From, {ok, lists:reverse(NextList)});
                 _ ->
-                    Next ! ?REQ(From, {init_range_fold, WorkerPID, FromKey, ToKey, NextList})
+                    Next ! ?REQ(From, {init_range_fold, WorkerPID, Range, NextList})
             end,
 
             main_loop(State#state{ folding = NewFolding });
@@ -229,7 +229,7 @@ main_loop(State = #state{ next=Next }) ->
             ok = file:delete(FoldFileName),
             main_loop(State#state{ folding = lists:delete(PID,State#state.folding) });
 
-        ?REQ(From, {sync_range_fold, WorkerPID, FromKey, ToKey, List}) ->
+        ?REQ(From, {sync_range_fold, WorkerPID, Range, List}) ->
 
             case {State#state.a, State#state.b} of
                 {undefined, undefined} ->
@@ -237,15 +237,15 @@ main_loop(State = #state{ next=Next }) ->
 
                 {_, undefined} ->
                     ARef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.a, WorkerPID, ARef, FromKey, ToKey),
+                    ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
                     RefList = [ARef|List];
 
                 {_, _} ->
                     BRef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.b, WorkerPID, BRef, FromKey, ToKey),
+                    ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
 
                     ARef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.a, WorkerPID, ARef, FromKey, ToKey),
+                    ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
 
                     RefList = [ARef,BRef|List]
             end,
@@ -254,7 +254,7 @@ main_loop(State = #state{ next=Next }) ->
                 undefined ->
                     reply(From, {ok, lists:reverse(RefList)});
                 _ ->
-                    Next ! ?REQ(From, {sync_range_fold, WorkerPID, FromKey, ToKey, RefList})
+                    Next ! ?REQ(From, {sync_range_fold, WorkerPID, Range, RefList})
             end,
 
             main_loop(State);
@@ -393,13 +393,13 @@ filename(PFX, State) ->
     filename:join(State#state.dir, PFX ++ "-" ++ integer_to_list(State#state.level) ++ ".data").
 
 
-start_range_fold(FileName, WorkerPID, FromKey, ToKey) ->
+start_range_fold(FileName, WorkerPID, Range) ->
     Owner = self(),
     PID =
         proc_lib:spawn( fun() ->
                                 erlang:link(WorkerPID),
                                 {ok, File} = lsm_btree_reader:open(FileName, sequential),
-                                do_range_fold(File, WorkerPID, self(), FromKey, ToKey),
+                                do_range_fold(File, WorkerPID, self(), Range),
                                 erlang:unlink(WorkerPID),
 
                                 %% this will release the pinning of the fold file
@@ -407,14 +407,14 @@ start_range_fold(FileName, WorkerPID, FromKey, ToKey) ->
                         end ),
     {ok, PID}.
 
-do_range_fold(BT, WorkerPID, Self, FromKey, ToKey) ->
+do_range_fold(BT, WorkerPID, Self, Range) ->
     lsm_btree_reader:range_fold(fun(Key,Value,_) ->
                                         WorkerPID ! {level_result, Self, Key, Value},
                                         ok
                                 end,
                                 ok,
                                 BT,
-                                FromKey, ToKey),
+                                Range),
 
     %% tell fold merge worker we're done
     WorkerPID ! {level_done, Self},

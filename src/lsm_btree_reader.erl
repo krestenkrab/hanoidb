@@ -1,9 +1,10 @@
 -module(lsm_btree_reader).
 
 -include_lib("kernel/include/file.hrl").
+-include("include/lsm_btree.hrl").
 -include("lsm_btree.hrl").
 
--export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/5]).
+-export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4]).
 -export([first_node/1,next_node/1]).
 
 -record(node, { level, members=[] }).
@@ -56,37 +57,36 @@ fold1(File,Fun,Acc0) ->
             fold0(File,Fun,Node,Acc0)
     end.
 
-range_fold(Fun, Acc0, #index{file=File,root=Root}, FromKey0, ToKey) ->
-    FromKey = if FromKey0 == undefined -> <<>>; true -> FromKey0 end,
-    case lookup_node(File,FromKey,Root,0) of
+range_fold(Fun, Acc0, #index{file=File,root=Root}, Range) ->
+    case lookup_node(File,Range#btree_range.from_key,Root,0) of
         {ok, {Pos,_}} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, FromKey, ToKey);
+            do_range_fold(Fun, Acc0, File, Range);
         {ok, Pos} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, FromKey, ToKey);
+            do_range_fold(Fun, Acc0, File, Range);
         none ->
             Acc0
     end.
 
-do_range_fold(Fun, Acc0, File, FromKey, ToKey) ->
+do_range_fold(Fun, Acc0, File, Range) ->
     case next_leaf_node(File) of
         eof ->
             Acc0;
 
         {ok, #node{members=Members}} ->
             Acc1 =
-                lists:foldl(fun({Key,Value}, Acc) when ?KEY_IN_RANGE(Key, FromKey, ToKey) ->
+                lists:foldl(fun({Key,Value}, Acc) when ?KEY_IN_RANGE(Key, Range) ->
                                     Fun(Key, Value, Acc);
-                               (_,Acc) ->
+                               (_, Acc)->
                                     Acc
                             end,
                             Acc0,
                             Members),
 
             case lists:last(Members) of
-                {LastKey,_} when LastKey < ToKey; ToKey == undefined ->
-                    do_range_fold(Fun, Acc1, File, FromKey, ToKey);
+                {LastKey,_} when (LastKey /= Range#btree_range.to_key) andalso ?KEY_IN_TO_RANGE(LastKey, Range) ->
+                    do_range_fold(Fun, Acc1, File, Range);
                 _ ->
                     Acc1
             end

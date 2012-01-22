@@ -1,8 +1,9 @@
 -module(lsm_btree_nursery).
 
 -export([new/1, recover/2, add/3, finish/2, lookup/2, add_maybe_flush/4]).
--export([do_level_fold/4]).
+-export([do_level_fold/3]).
 
+-include("include/lsm_btree.hrl").
 -include("lsm_btree.hrl").
 -include_lib("kernel/include/file.hrl").
 
@@ -156,13 +157,16 @@ add_maybe_flush(Key, Value, Nursery=#nursery{ dir=Dir }, Top) ->
             lsm_btree_nursery:new(Dir)
     end.
 
-do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, FromKey, ToKey) ->
+do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, KeyRange) ->
     Ref = erlang:make_ref(),
     FoldWorkerPID ! {prefix, [Ref]},
-    lists:foreach(fun({Key,Value}) when ?KEY_IN_RANGE(Key,FromKey,ToKey) ->
-                          FoldWorkerPID ! {level_result, Ref, Key, Value};
-                     (_) ->
-                          ok
+    lists:foreach(fun({Key,Value}) ->
+                          case ?KEY_IN_RANGE(Key,KeyRange) of
+                              true ->
+                                  FoldWorkerPID ! {level_result, Ref, Key, Value};
+                              false ->
+                                  ok
+                          end
                   end,
                   gb_trees:to_list(Cache)),
     FoldWorkerPID ! {level_done, Ref},
