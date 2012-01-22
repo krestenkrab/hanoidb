@@ -16,8 +16,8 @@
 -define(LOCAL_WRITER, true).
 
 merge(A,B,C, Size, IsLastLevel) ->
-    {ok, BT1} = lsm_btree_reader:open(A),
-    {ok, BT2} = lsm_btree_reader:open(B),
+    {ok, BT1} = lsm_btree_reader:open(A, sequential),
+    {ok, BT2} = lsm_btree_reader:open(B, sequential),
     case ?LOCAL_WRITER of
         true ->
             {ok, Out} = lsm_btree_writer:init([C, Size]);

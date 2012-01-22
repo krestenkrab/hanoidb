@@ -119,14 +119,14 @@ initialize(State) ->
             file:delete(BFileName),
             ok = file:rename(CFileName, AFileName),
 
-            {ok, BT} = lsm_btree_reader:open(CFileName),
+            {ok, BT} = lsm_btree_reader:open(CFileName, random),
             main_loop(State#state{ a= BT, b=undefined });
 
         {error, enoent} ->
             case file:read_file_info(BFileName) of
                 {ok, _} ->
-                    {ok, BT1} = lsm_btree_reader:open(AFileName),
-                    {ok, BT2} = lsm_btree_reader:open(BFileName),
+                    {ok, BT1} = lsm_btree_reader:open(AFileName, random),
+                    {ok, BT2} = lsm_btree_reader:open(BFileName, random),
 
                     check_begin_merge_then_loop(State#state{ a=BT1, b=BT2 });
 
@@ -134,7 +134,7 @@ initialize(State) ->
 
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
-                            {ok, BT1} = lsm_btree_reader:open(AFileName),
+                            {ok, BT1} = lsm_btree_reader:open(AFileName, random),
                             main_loop(State#state{ a=BT1 });
 
                         {error, enoent} ->
@@ -173,7 +173,7 @@ main_loop(State = #state{ next=Next }) ->
                     SetPos = #state.b
             end,
             ok = file:rename(FileName, ToFileName),
-            {ok, BT} = lsm_btree_reader:open(ToFileName),
+            {ok, BT} = lsm_btree_reader:open(ToFileName, random),
             reply(From, ok),
             check_begin_merge_then_loop(setelement(SetPos, State, BT));
 
@@ -276,7 +276,7 @@ main_loop(State = #state{ next=Next }) ->
             % then, rename C to A, and open it
             AFileName = filename("A",State2),
             ok = file:rename(CFileName, AFileName),
-            {ok, BT} = lsm_btree_reader:open(AFileName),
+            {ok, BT} = lsm_btree_reader:open(AFileName, random),
 
             main_loop(State2#state{ a=BT, b=undefined, merge_pid=undefined });
 
@@ -398,7 +398,7 @@ start_range_fold(FileName, WorkerPID, FromKey, ToKey) ->
     PID =
         proc_lib:spawn( fun() ->
                                 erlang:link(WorkerPID),
-                                {ok, File} = lsm_btree_reader:open(FileName),
+                                {ok, File} = lsm_btree_reader:open(FileName, sequential),
                                 do_range_fold(File, WorkerPID, self(), FromKey, ToKey),
                                 erlang:unlink(WorkerPID),
 

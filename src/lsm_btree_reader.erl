@@ -3,15 +3,26 @@
 -include_lib("kernel/include/file.hrl").
 -include("lsm_btree.hrl").
 
--export([open/1,close/1,lookup/2,fold/3,range_fold/5]).
+-export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/5]).
 -export([first_node/1,next_node/1]).
 
 -record(node, { level, members=[] }).
 -record(index, {file, root, bloom}).
 
 open(Name) ->
+    open(Name, random).
 
-    {ok, File} = file:open(Name, [raw,read,read_ahead,binary]),
+%% this is how to open a btree for sequential scanning (merge, fold)
+open(Name, sequential) ->
+    {ok, File} = file:open(Name, [raw,read,{read_ahead, 1024 * 512},binary]),
+    open2(Name, File);
+
+%% this is how to open a btree for random access
+open(Name, random) ->
+    {ok, File} = file:open(Name, [raw,read,binary]),
+    open2(Name, File).
+
+open2(Name, File) ->
     {ok, FileInfo} = file:read_file_info(Name),
 
     %% read root position

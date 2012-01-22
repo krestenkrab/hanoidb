@@ -56,7 +56,7 @@ init([Name,Size]) ->
 %    io:format("got name: ~p~n", [Name]),
 
     case file:open( lsm_btree_util:index_file_name(Name),
-                               [raw, exclusive, write, delayed_write]) of
+                               [raw, exclusive, write, {delayed_write, 512 * 1024, 2000}]) of
         {ok, IdxFile} ->
             {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
             {ok, #state{ name=Name,
