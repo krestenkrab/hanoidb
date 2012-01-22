@@ -13,6 +13,7 @@
          open/1, close/1,
          put/3,
          sync_range/3,
+         sync_fold_range/5,
          stop/0]).
 
 %% gen_server callbacks
@@ -53,6 +54,9 @@ put(N, K, V) ->
 sync_range(T, LK, HK) ->
     call({sync_range, T, LK, HK}).
 
+sync_fold_range(T, Fun, Acc0, LK, HK) ->
+    call({sync_fold_range, T, Fun, Acc0, LK, HK}).
+
 stop() ->
     call(stop).
 
@@ -82,6 +86,12 @@ handle_call({sync_range, Name, LoKey, HiKey}, _From,
     {ok, Ref} = lsm_btree:sync_range(Tree, LoKey, HiKey),
     Result = sync_range_gather(Ref),
     {reply, Result, State};
+handle_call({sync_fold_range, Name, Fun, Acc0, LoKey, HiKey},
+            _From,
+            #state { btrees = D } = State) ->
+    Tree = dict:fetch(Name, D),
+    Result = lsm_btree:sync_fold_range(Tree, Fun, Acc0, LoKey, HiKey),
+    {reply, Result, State};
 handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
     case lsm_btree:put(Tree, K, V) of
@@ -100,7 +110,6 @@ handle_call({lookup, N, K}, _, #state { btrees = D} = State) ->
     {reply, Reply, State};
 handle_call(stop, _, #state{ btrees = D } = State ) ->
     [ lsm_btree:close(Tree) || {_,Tree} <- dict:to_list(D) ],
-    cleanup_trees(State),
     {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -119,16 +128,6 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%%===================================================================
-
-%% @todo directory cleanup
-cleanup_trees(#state { btrees = BTs }) ->
-    dict:fold(fun(_Name, Tree, ok) ->
-                      lsm_btree:close(Tree)
-              end,
-              ok,
-              BTs).
-
-
 sync_range_gather(Ref) ->
     sync_range_gather(Ref, []).
 
