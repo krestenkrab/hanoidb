@@ -92,6 +92,9 @@ g_non_existing_key(Name, Open) ->
                   not dict:is_key(Key, D)
               end).
 
+g_fold_operation() ->
+    oneof([{fun (K, V, Acc) -> [{K, V} | Acc] end, []}]).
+
 btree_name(I) ->
     "Btree_" ++ integer_to_list(I).
 
@@ -122,11 +125,15 @@ command(#state { open = Open, closed = Closed } = S) ->
         || open_dicts(S), open_dicts_with_keys(S)]
       ++ [ {500, {call, ?SERVER, delete_exist, cmd_delete_args(S)}}
            || open_dicts(S), open_dicts_with_keys(S)]
-      ++ [ {250, {call, ?SERVER, sync_range, cmd_sync_range_args(S)}}
+      ++ [ {125, {call, ?SERVER, sync_fold_range, cmd_sync_fold_range_args(S)}}
+           || open_dicts(S), open_dicts_with_keys(S)]
+      ++ [ {125, {call, ?SERVER, sync_range, cmd_sync_range_args(S)}}
            || open_dicts(S), open_dicts_with_keys(S)]
      ).
 
 %% Precondition (abstract)
+precondition(S, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, _K1, _K2]}) ->
+    open_dicts(S) andalso open_dicts_with_keys(S);
 precondition(S, {call, ?SERVER, sync_range, [_Tree, _K1, _K2]}) ->
     open_dicts(S) andalso open_dicts_with_keys(S);
 precondition(S, {call, ?SERVER, delete_exist, [_Name, _K]}) ->
@@ -145,6 +152,8 @@ precondition(#state { open = Open, closed = Closed },
     (dict:is_key(Name, Open)) and (not dict:is_key(Name, Closed)).
 
 %% Next state manipulation (abstract / concrete)
+next_state(S, _Res, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, _K1, _K2]}) ->
+    S;
 next_state(S, _Res, {call, ?SERVER, sync_range, [_Tree, _K1, _K2]}) ->
     S;
 next_state(S, _Res, {call, ?SERVER, lookup_fail, [_Name, _Key]}) ->
@@ -179,6 +188,11 @@ next_state(#state { open = Open, closed=Closed} = S, _Res,
 
 %% Postcondition check (concrete)
 postcondition(#state { open = Open},
+              {call, ?SERVER, sync_fold_range, [Tree, F, A0, K1, K2]}, Result) ->
+    #tree { elements = TDict } = dict:fetch(Tree, Open),
+    lists:sort(dict_range_query(TDict, F, A0, K1, K2))
+        == lists:sort(Result);
+postcondition(#state { open = Open},
               {call, ?SERVER, sync_range, [Tree, K1, K2]}, {ok, Result}) ->
     #tree { elements = TDict } = dict:fetch(Tree, Open),
     lists:sort(dict_range_query(TDict, K1, K2))
@@ -199,6 +213,7 @@ postcondition(_S, {call, ?SERVER, open, [_Name]}, ok) ->
 postcondition(_S, {call, ?SERVER, close, [_Name]}, ok) ->
     true;
 postcondition(_, _, _) ->
+    error_logger:error_report([{not_matching_any_postcondition}]),
     false.
 
 
@@ -335,6 +350,11 @@ cmd_sync_range_args(#state { open = Open }) ->
                          g_existing_key(Tree, Open)},
               [Tree, K1, K2])).
 
+cmd_sync_fold_range_args(State) ->
+    ?LET([Tree, K1, K2], cmd_sync_range_args(State),
+         ?LET({F, Acc0}, g_fold_operation(),
+              [Tree, F, Acc0, K1, K2])).
+
 %% Context management
 %% ----------------------------------------------------------------------
 cleanup_test_trees(#state { open = Open, closed = Closed }) ->
@@ -365,6 +385,14 @@ open_dicts(#state { open = Open}) ->
 
 closed_dicts(#state { closed = Closed}) ->
     dict:size(Closed) > 0.
+
+dict_range_query(Dict, Fun, Acc0, LowKey, HighKey) ->
+    KVs = dict_range_query(Dict, LowKey, HighKey),
+    lists:foldl(fun({K, V}, Acc) ->
+                        Fun(K, V, Acc)
+                end,
+                Acc0,
+                KVs).
 
 dict_range_query(Dict, LowKey, HighKey) ->
     [{K, V} || {K, V} <- dict:to_list(Dict),
