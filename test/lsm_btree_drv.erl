@@ -100,7 +100,6 @@ handle_call({lookup, N, K}, _, #state { btrees = D} = State) ->
     {reply, Reply, State};
 handle_call(stop, _, #state{ btrees = D } = State ) ->
     [ lsm_btree:close(Tree) || {_,Tree} <- dict:to_list(D) ],
-    cleanup_trees(State),
     {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -119,16 +118,6 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%%===================================================================
-
-%% @todo directory cleanup
-cleanup_trees(#state { btrees = BTs }) ->
-    dict:fold(fun(_Name, Tree, ok) ->
-                      lsm_btree:close(Tree)
-              end,
-              ok,
-              BTs).
-
-
 sync_range_gather(Ref) ->
     sync_range_gather(Ref, []).
 
