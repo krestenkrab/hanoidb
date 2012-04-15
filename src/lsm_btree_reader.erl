@@ -86,36 +86,68 @@ range_fold(Fun, Acc0, #index{file=File,root=Root}, Range) ->
     case lookup_node(File,Range#btree_range.from_key,Root,0) of
         {ok, {Pos,_}} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range);
+            do_range_fold(Fun, Acc0, File, Range, Range#btree_range.limit);
         {ok, Pos} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range);
+            do_range_fold(Fun, Acc0, File, Range, Range#btree_range.limit);
         none ->
-            Acc0
+            {done, Acc0}
     end.
 
-do_range_fold(Fun, Acc0, File, Range) ->
+fold_until_stop(Fun,Acc,List) ->
+    fold_until_stop2(Fun, {continue, Acc}, List).
+
+fold_until_stop2(_Fun,{stop,Result},_) ->
+    {stopped, Result};
+fold_until_stop2(_Fun,{continue, Acc},[]) ->
+    {ok, Acc};
+fold_until_stop2(Fun,{continue, Acc},[H|T]) ->
+    fold_until_stop2(Fun,Fun(H,Acc),T).
+
+do_range_fold(Fun, Acc0, File, Range, undefined) ->
     case next_leaf_node(File) of
         eof ->
-            Acc0;
+            {done, Acc0};
 
         {ok, #node{members=Members}} ->
-            Acc1 =
-                lists:foldl(fun({Key,Value}, Acc) when ?KEY_IN_RANGE(Key, Range) ->
-                                    Fun(Key, Value, Acc);
-                               (_, Acc)->
-                                    Acc
-                            end,
-                            Acc0,
-                            Members),
+            case fold_until_stop(fun({Key,_}, Acc) when not ?KEY_IN_TO_RANGE(Key,Range) ->
+                                         {stop, {done, Acc}};
+                                    ({Key,Value}, Acc) when ?KEY_IN_FROM_RANGE(Key, Range) ->
+                                         {continue, Fun(Key, Value, Acc)};
+                                    (_, Acc) ->
+                                         {continue, Acc}
+                                 end,
+                                 Acc0,
+                                 Members) of
+                {stopped, Result} -> Result;
+                {ok, Acc1} ->
+                    do_range_fold(Fun, Acc1, File, Range, undefined)
+            end
+    end;
 
-            case lists:last(Members) of
-                {LastKey,_} when (LastKey /= Range#btree_range.to_key) andalso ?KEY_IN_TO_RANGE(LastKey, Range) ->
-                    do_range_fold(Fun, Acc1, File, Range);
-                _ ->
-                    Acc1
+do_range_fold(Fun, Acc0, File, Range, N0) ->
+    case next_leaf_node(File) of
+        eof ->
+            {done, Acc0};
+
+        {ok, #node{members=Members}} ->
+            case fold_until_stop(fun({Key,_}, {0,Acc}) ->
+                                         {stop, {limit, Acc, Key}};
+                                    ({Key,_}, {_,Acc}) when not ?KEY_IN_TO_RANGE(Key,Range)->
+                                         {stop, {done, Acc}};
+                                    ({Key,Value}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
+                                         {continue, {N1-1, Fun(Key, Value, Acc)}};
+                                    (_, Acc) ->
+                                         {continue, Acc}
+                                 end,
+                                 {N0, Acc0},
+                                 Members) of
+                {stopped, Result} -> Result;
+                {ok, {N2, Acc1}} ->
+                    do_range_fold(Fun, Acc1, File, Range, N2)
             end
     end.
+
 
 lookup_node(_File,_FromKey,#node{level=0},Pos) ->
     {ok, Pos};

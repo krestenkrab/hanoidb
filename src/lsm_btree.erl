@@ -31,13 +31,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([open/1, open/2,
-         close/1,
-         get/2,
-         put/3,
-         delete/2,
-         async_range/3, async_fold_range/5,
-         sync_range/3, sync_fold_range/5]).
+-export([open/1, close/1, lookup/2, delete/2, put/3,
+         async_range/2, async_fold_range/4, sync_range/2, sync_fold_range/4]).
 
 -include("lsm_btree.hrl").
 -include_lib("kernel/include/file.hrl").
@@ -49,9 +44,6 @@
 %% PUBLIC API
 
 open(Dir) ->
-    open(Dir, []).
-
-open(Dir, _Config) -> %TODO Config is currently ignored.
     gen_server:start(?MODULE, [Dir], []).
 
 close(Ref) ->
@@ -76,43 +68,42 @@ put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
 sync_range(Ref, #btree_range{}=Range) ->
     gen_server:call(Ref, {sync_range, self(), Range}).
 
-sync_range(Ref,undefined,ToKey) ->
-    sync_range(Ref, <<>>, ToKey);
-sync_range(Ref,FromKey,ToKey) when is_binary(FromKey),
-                                    ToKey == undefined orelse is_binary(ToKey) ->
-    sync_range(Ref, #btree_range{ from_key = FromKey,
-                                  from_inclusive = true,
-                                  to_key = ToKey,
-                                  to_inclusive = false,
-                                  limit = undefined }).
+sync_fold_range(Ref,Fun,Acc0,Range) ->
+    {ok, PID} = sync_range(Ref, Range),
+    sync_receive_fold_range(PID,Fun,Acc0).
 
-sync_fold_range(Ref,Fun,Acc0,FromKey,ToKey) ->
-    {ok, PID} = sync_range(Ref,FromKey,ToKey),
-    receive_fold_range(PID,Fun,Acc0).
+sync_receive_fold_range(PID,Fun,Acc0) ->
+    receive
+        {fold_result, PID, K,V} ->
+            sync_receive_fold_range(PID, Fun, Fun(K,V,Acc0));
+        {fold_limit, PID, _} ->
+            Acc0;
+        {fold_done, PID} ->
+            Acc0
+    end.
+
+
 
 async_range(Ref, #btree_range{}=Range) ->
     gen_server:call(Ref, {async_range, self(), Range}).
 
-async_range(Ref,undefined,ToKey) ->
-    async_range(Ref, <<>>, ToKey);
-async_range(Ref,FromKey,ToKey) when is_binary(FromKey),
-                                    ToKey == undefined orelse is_binary(ToKey) ->
-    async_range(Ref, #btree_range{ from_key = FromKey,
-                                   from_inclusive = true,
-                                   to_key = ToKey,
-                                   to_inclusive = false,
-                                   limit = undefined }).
+async_fold_range(Ref,Fun,Acc0,Range) ->
+    Range2 = Range#btree_range{ limit=?BTREE_ASYNC_CHUNK_SIZE },
+    FoldMoreFun = fun() ->
+                          {ok, PID} = gen_server:call(Ref, {sync_range, self(), Range}),
+                          async_receive_fold_range(PID,Fun,Acc0,Ref,Range2)
+                  end,
+    {async, FoldMoreFun}.
 
-async_fold_range(Ref,Fun,Acc0,FromKey,ToKey) ->
-    {ok, PID} = async_range(Ref,FromKey,ToKey),
-    receive_fold_range(PID,Fun,Acc0).
-
-receive_fold_range(PID,Fun,Acc0) ->
+async_receive_fold_range(PID,Fun,Acc0,Ref,Range) ->
     receive
         {fold_result, PID, K,V} ->
-            receive_fold_range(PID, Fun, Fun(K,V,Acc0));
+            async_receive_fold_range(PID, Fun, Fun(K,V,Acc0), Ref, Range);
+        {fold_limit, PID, Key} ->
+            Range2 = Range#btree_range{ from_key = Key, from_inclusive=true },
+            async_fold_range(Ref, Fun, Acc0, Range2);
         {fold_done, PID} ->
-            Acc0
+            {ok, Acc0}
     end.
 
 

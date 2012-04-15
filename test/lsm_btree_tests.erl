@@ -1,5 +1,8 @@
 -module(lsm_btree_tests).
 
+-include("include/lsm_btree.hrl").
+-include("src/lsm_btree.hrl").
+
 -ifdef(TEST).
 -ifdef(TRIQ).
 -include_lib("triq/include/triq.hrl").
@@ -132,10 +135,10 @@ command(#state { open = Open, closed = Closed } = S) ->
      ).
 
 %% Precondition (abstract)
-precondition(S, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, _K1, _K2]}) ->
-    open_dicts(S) andalso open_dicts_with_keys(S);
-precondition(S, {call, ?SERVER, sync_range, [_Tree, _K1, _K2]}) ->
-    open_dicts(S) andalso open_dicts_with_keys(S);
+precondition(S, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, Range]}) ->
+    is_valid_range(Range) andalso open_dicts(S) andalso open_dicts_with_keys(S);
+precondition(S, {call, ?SERVER, sync_range, [_Tree, Range]}) ->
+    is_valid_range(Range) andalso open_dicts(S) andalso open_dicts_with_keys(S);
 precondition(S, {call, ?SERVER, delete_exist, [_Name, _K]}) ->
     open_dicts(S) andalso open_dicts_with_keys(S);
 precondition(S, {call, ?SERVER, get_fail, [_Name, _K]}) ->
@@ -151,10 +154,30 @@ precondition(#state { open = Open, closed = Closed },
              {call, ?SERVER, close, [Name]}) ->
     (dict:is_key(Name, Open)) and (not dict:is_key(Name, Closed)).
 
+is_valid_range(#btree_range{ from_key=FromKey, from_inclusive=FromIncl,
+                          to_key=ToKey, to_inclusive=ToIncl,
+                          limit=Limit })
+  when
+      (Limit == undefined) orelse (Limit > 0),
+      is_binary(FromKey),
+      (ToKey == undefined) orelse is_binary(ToKey),
+      FromKey =< ToKey,
+      is_boolean(FromIncl),
+      is_boolean(ToIncl)
+      ->
+    if (FromKey == ToKey) ->
+            (FromIncl == true) and (ToIncl == true);
+       true ->
+            true
+    end;
+is_valid_range(_) ->
+    false.
+
+
 %% Next state manipulation (abstract / concrete)
-next_state(S, _Res, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, _K1, _K2]}) ->
+next_state(S, _Res, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, _Range]}) ->
     S;
-next_state(S, _Res, {call, ?SERVER, sync_range, [_Tree, _K1, _K2]}) ->
+next_state(S, _Res, {call, ?SERVER, sync_range, [_Tree, _Range]}) ->
     S;
 next_state(S, _Res, {call, ?SERVER, get_fail, [_Name, _Key]}) ->
     S;
@@ -188,15 +211,17 @@ next_state(#state { open = Open, closed=Closed} = S, _Res,
 
 %% Postcondition check (concrete)
 postcondition(#state { open = Open},
-              {call, ?SERVER, sync_fold_range, [Tree, F, A0, K1, K2]}, Result) ->
+              {call, ?SERVER, sync_fold_range, [Tree, F, A0, Range]}, Result) ->
     #tree { elements = TDict } = dict:fetch(Tree, Open),
-    lists:sort(dict_range_query(TDict, F, A0, K1, K2))
-        == lists:sort(Result);
+    DictResult = lists:sort(dict_range_query(TDict, F, A0, Range)),
+    CallResult = lists:sort(Result),
+    DictResult == CallResult;
 postcondition(#state { open = Open},
-              {call, ?SERVER, sync_range, [Tree, K1, K2]}, {ok, Result}) ->
+              {call, ?SERVER, sync_range, [Tree, Range]}, {ok, Result}) ->
     #tree { elements = TDict } = dict:fetch(Tree, Open),
-    lists:sort(dict_range_query(TDict, K1, K2))
-        == lists:sort(Result);
+    DictResult = lists:sort(dict_range_query(TDict, Range)),
+    CallResult = lists:sort(Result),
+    DictResult == CallResult;
 postcondition(_S,
               {call, ?SERVER, get_fail, [_Name, _Key]}, not_found) ->
     true;
@@ -249,7 +274,7 @@ test_tree_simple_2() ->
 test_tree_simple_3() ->
     {ok, Tree} = lsm_btree:open("simple"),
     ok = lsm_btree:put(Tree, <<"X">>, <<"Y">>),
-    {ok, Ref} = lsm_btree:sync_range(Tree, <<"X">>, <<"X">>),
+    {ok, Ref} = lsm_btree:sync_range(Tree, #btree_range{from_key= <<"X">>, to_key= <<"X">>}),
     ?assertEqual(ok,
                  receive
                      {fold_done, Ref} -> ok
@@ -292,7 +317,7 @@ test_tree() ->
     ok = lsm_btree:close(Tree).
 
 run_fold(Tree,From,To) ->
-    {ok, PID} = lsm_btree:sync_range(Tree, <<From:128>>, <<(To+1):128>>),
+    {ok, PID} = lsm_btree:sync_range(Tree, #btree_range{from_key= <<From:128>>, to_key= <<(To+1):128>>}),
     lists:foreach(fun(1500) -> ok;
                      (N) ->
                           receive
@@ -346,12 +371,12 @@ cmd_sync_range_args(#state { open = Open }) ->
     ?LET(Tree, g_non_empty_btree(Open),
          ?LET({K1, K2}, {g_existing_key(Tree, Open),
                          g_existing_key(Tree, Open)},
-              [Tree, K1, K2])).
+              [Tree, #btree_range{from_key=K1, to_key=K2}])).
 
 cmd_sync_fold_range_args(State) ->
-    ?LET([Tree, K1, K2], cmd_sync_range_args(State),
+    ?LET([Tree, Range], cmd_sync_range_args(State),
          ?LET({F, Acc0}, g_fold_operation(),
-              [Tree, F, Acc0, K1, K2])).
+              [Tree, F, Acc0, Range])).
 
 %% Context management
 %% ----------------------------------------------------------------------
@@ -384,17 +409,16 @@ open_dicts(#state { open = Open}) ->
 closed_dicts(#state { closed = Closed}) ->
     dict:size(Closed) > 0.
 
-dict_range_query(Dict, Fun, Acc0, LowKey, HighKey) ->
-    KVs = dict_range_query(Dict, LowKey, HighKey),
+dict_range_query(Dict, Fun, Acc0, Range) ->
+    KVs = dict_range_query(Dict, Range),
     lists:foldl(fun({K, V}, Acc) ->
                         Fun(K, V, Acc)
                 end,
                 Acc0,
                 KVs).
 
-dict_range_query(Dict, LowKey, HighKey) ->
+dict_range_query(Dict, Range) ->
     [{K, V} || {K, V} <- dict:to_list(Dict),
-               K >= LowKey,
-               K < HighKey].
+               ?KEY_IN_RANGE(K, Range)].
 
 

@@ -9,8 +9,14 @@
 -export([new/1,
          run/4]).
 
+-include("lsm_btree.hrl").
 -include_lib("basho_bench/include/basho_bench.hrl").
 
+-record(btree_range, { from_key = <<>>       :: binary(),
+                       from_inclusive = true :: boolean(),
+                       to_key                :: binary() | undefined,
+                       to_inclusive = false  :: boolean(),
+                       limit :: pos_integer() | undefined }).
 
 %% ====================================================================
 %% API
@@ -71,4 +77,20 @@ run(delete, KeyGen, _ValueGen, State) ->
             {ok, State};
         {error, Reason} ->
             {error, Reason}
+    end;
+
+run(fold_100, KeyGen, _ValueGen, State) ->
+    [From,To] = lists:usort([KeyGen(), KeyGen()]),
+    case lsm_btree:sync_fold_range(State#state.tree,
+                                   fun(_Key,_Value,Count) ->
+                                           Count+1
+                                   end,
+                                   0,
+                                   #btree_range{ from_key=From,
+                                                 to_key=To,
+                                                 limit=100 }) of
+        Count when Count >= 0; Count =< 100 ->
+            {ok,State};
+        Count ->
+            {error, {bad_fold_count, Count}}
     end.

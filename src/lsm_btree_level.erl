@@ -436,15 +436,18 @@ start_range_fold(FileName, WorkerPID, Range) ->
     {ok, PID}.
 
 do_range_fold(BT, WorkerPID, Self, Range) ->
-    lsm_btree_reader:range_fold(fun(Key,Value,_) ->
-                                        WorkerPID ! {level_result, Self, Key, Value},
-                                        ok
-                                end,
-                                ok,
-                                BT,
-                                Range),
+    case lsm_btree_reader:range_fold(fun(Key,Value,_) ->
+                                             WorkerPID ! {level_result, Self, Key, Value},
+                                             ok
+                                     end,
+                                     ok,
+                                     BT,
+                                     Range) of
+        {limit, _, LastKey} ->
+            WorkerPID ! {level_limit, Self, LastKey};
+        {done, _} ->
+            %% tell fold merge worker we're done
+            WorkerPID ! {level_done, Self}
 
-    %% tell fold merge worker we're done
-    WorkerPID ! {level_done, Self},
-
+    end,
     ok.

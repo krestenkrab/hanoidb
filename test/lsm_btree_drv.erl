@@ -12,8 +12,8 @@
          get_fail/2,
          open/1, close/1,
          put/3,
-         sync_range/3,
-         sync_fold_range/5,
+         sync_range/2,
+         sync_fold_range/4,
          stop/0]).
 
 %% gen_server callbacks
@@ -51,11 +51,11 @@ close(N) ->
 put(N, K, V) ->
     call({put, N, K, V}).
 
-sync_range(T, LK, HK) ->
-    call({sync_range, T, LK, HK}).
+sync_range(T, Range) ->
+    call({sync_range, T, Range}).
 
-sync_fold_range(T, Fun, Acc0, LK, HK) ->
-    call({sync_fold_range, T, Fun, Acc0, LK, HK}).
+sync_fold_range(T, Fun, Acc0, Range) ->
+    call({sync_fold_range, T, Fun, Acc0, Range}).
 
 stop() ->
     call(stop).
@@ -80,17 +80,17 @@ handle_call({close, N}, _, #state { btrees = D} = State) ->
         Otherwise ->
             {reply, {error, Otherwise}, State}
     end;
-handle_call({sync_range, Name, LoKey, HiKey}, _From,
+handle_call({sync_range, Name, Range}, _From,
             #state { btrees = D} = State) ->
     Tree = dict:fetch(Name, D),
-    {ok, Ref} = lsm_btree:sync_range(Tree, LoKey, HiKey),
+    {ok, Ref} = lsm_btree:sync_range(Tree, Range),
     Result = sync_range_gather(Ref),
     {reply, Result, State};
-handle_call({sync_fold_range, Name, Fun, Acc0, LoKey, HiKey},
+handle_call({sync_fold_range, Name, Fun, Acc0, Range},
             _From,
             #state { btrees = D } = State) ->
     Tree = dict:fetch(Name, D),
-    Result = lsm_btree:sync_fold_range(Tree, Fun, Acc0, LoKey, HiKey),
+    Result = lsm_btree:sync_fold_range(Tree, Fun, Acc0, Range),
     {reply, Result, State};
 handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),

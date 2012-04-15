@@ -101,6 +101,8 @@ fill(State, Values, [PID|Rest]=PIDs) ->
     receive
         {level_done, PID} ->
             fill(State, lists:keydelete(PID, 1, Values), Rest);
+        {level_limit, PID, Key} ->
+            fill(State, lists:keyreplace(PID, 1, Values, {PID,{Key,limit}}), Rest);
         {level_result, PID, Key, Value} ->
             fill(State, lists:keyreplace(PID, 1, Values, {PID,{Key,Value}}), Rest);
 
@@ -125,7 +127,8 @@ emit_next(State, []) ->
     ok;
 
 emit_next(State, [{FirstPID,FirstKV}|Rest]=Values) ->
-    {{FoundKey, FoundValue}, FillFrom} =
+
+    case
         lists:foldl(fun({P,{K1,_}=KV}, {{K2,_},_}) when K1 < K2 ->
                             {KV,[P]};
                        ({P,{K,_}}, {{K,_}=KV,List}) ->
@@ -134,15 +137,16 @@ emit_next(State, [{FirstPID,FirstKV}|Rest]=Values) ->
                             Found
                     end,
                     {FirstKV,[FirstPID]},
-                    Rest),
-    case FoundValue of
-        ?TOMBSTONE ->
-            ok;
-        _ ->
-            State#state.sendto ! {fold_result, self(), FoundKey, FoundValue}
-    end,
-
-    fill(State, Values, FillFrom).
+                    Rest)
+    of
+        {{_, ?TOMBSTONE}, FillFrom} ->
+            fill(State, Values, FillFrom);
+        {{Key, limit}, _} ->
+            State#state.sendto ! {fold_limit, self(), Key};
+        {{FoundKey, FoundValue}, FillFrom} ->
+            State#state.sendto ! {fold_result, self(), FoundKey, FoundValue},
+            fill(State, Values, FillFrom)
+    end.
 
 
 data_vsn() ->
