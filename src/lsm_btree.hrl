@@ -25,8 +25,8 @@
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 
-%% smallest levels are 32 entries
--define(TOP_LEVEL, 5).
+%% smallest levels are 8192 entries
+-define(TOP_LEVEL, 13).
 -define(BTREE_SIZE(Level), (1 bsl (Level))).
 
 -define(TOMBSTONE, 'deleted').
@@ -57,5 +57,3 @@
              (Key =< Range#btree_range.to_key))
           orelse
              (Key <  Range#btree_range.to_key)))).
-
-
