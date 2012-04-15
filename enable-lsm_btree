@@ -34,6 +34,13 @@ fi
 
 rebar get-deps
 
+file=./deps/riak_kv/src/riak_kv.app.src
+if ! grep -q lsm_btree $file ; then
+    echo
+    echo "Modifying $file, saving the original as ${file}.orig ..."
+    perl -i.orig -pe '/\bos_mon,/ && print qq(                  lsm_btree,\n)' $file
+fi
+
 file=./deps/riak_kv/rebar.config
 if ! grep -q lsm_btree $file ; then
     echo
