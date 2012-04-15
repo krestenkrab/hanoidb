@@ -51,7 +51,7 @@
 open(Dir) ->
     open(Dir, []).
 
-open(Dir, Config) -> %TODO Config is currently ignored.
+open(Dir, _Config) -> %TODO Config is currently ignored.
     gen_server:start(?MODULE, [Dir], []).
 
 close(Ref) ->

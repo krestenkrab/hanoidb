@@ -180,8 +180,8 @@ main_loop(State = #state{ next=Next }) ->
     receive
         ?REQ(From, {lookup, Key})=Req ->
             case do_lookup(Key, [State#state.b, State#state.a, Next]) of
-                notfound ->
-                    reply(From, notfound);
+                not_found ->
+                    reply(From, not_found);
                 {found, Result} ->
                     reply(From, {ok, Result});
                 {delegate, DelegatePid} ->
@@ -355,16 +355,16 @@ main_loop(State = #state{ next=Next }) ->
     end.
 
 do_lookup(_Key, []) ->
-    notfound;
+    not_found;
 do_lookup(_Key, [Pid]) when is_pid(Pid) ->
     {delegate, Pid};
 do_lookup(Key, [undefined|Rest]) ->
     do_lookup(Key, Rest);
 do_lookup(Key, [BT|Rest]) ->
     case lsm_btree_reader:lookup(BT, Key) of
-        {ok, ?TOMBSTONE} -> notfound;
+        {ok, ?TOMBSTONE} -> not_found;
         {ok, Result}  -> {found, Result};
-        notfound      -> do_lookup(Key, Rest)
+        not_found     -> do_lookup(Key, Rest)
     end.
 
 close_if_defined(undefined) -> ok;

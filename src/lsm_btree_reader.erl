@@ -130,7 +130,7 @@ lookup_node(File,FromKey,#node{members=Members,level=N},_) ->
                 eof ->
                     none
             end;
-        notfound ->
+        not_found ->
             none
     end.
 
@@ -161,13 +161,13 @@ lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
         true ->
             lookup_in_node(File,Node,Key);
         false ->
-            notfound
+            not_found
     end.
 
 lookup_in_node(_File,#node{level=0,members=Members},Key) ->
     case lists:keyfind(Key,1,Members) of
         false ->
-            notfound;
+            not_found;
         {_,Value} ->
             {ok, Value}
     end;
@@ -177,8 +177,8 @@ lookup_in_node(File,#node{members=Members},Key) ->
         {ok, {Pos,Size}} ->
             {ok, Node} = read_node(File, {Pos,Size}),
             lookup_in_node(File, Node, Key);
-        notfound ->
-            notfound
+        not_found ->
+            not_found
     end.
 
 
@@ -189,10 +189,11 @@ find(K, [{K1,V}]) when K >= K1 ->
 find(K, [_|T]) ->
     find(K,T);
 find(_, _) ->
-    notfound.
+    not_found.
 
 
 read_node(File,{Pos,Size}) ->
+%    error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),
     {ok, <<_:32, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
     lsm_btree_util:decode_index_node(Level, Data);
 

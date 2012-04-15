@@ -53,7 +53,7 @@ run(get, KeyGen, _ValueGen, State) ->
     case lsm_btree:lookup(State#state.tree, KeyGen()) of
         {ok, _Value} ->
             {ok, State};
-        notfound ->
+        not_found ->
             {ok, State};
         {error, Reason} ->
             {error, Reason}
