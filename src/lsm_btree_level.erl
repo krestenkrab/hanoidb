@@ -362,9 +362,12 @@ do_lookup(Key, [undefined|Rest]) ->
     do_lookup(Key, Rest);
 do_lookup(Key, [BT|Rest]) ->
     case lsm_btree_reader:lookup(BT, Key) of
-        {ok, ?TOMBSTONE} -> not_found;
-        {ok, Result}  -> {found, Result};
-        not_found     -> do_lookup(Key, Rest)
+        {ok, ?TOMBSTONE} ->
+            not_found;
+        {ok, Result} ->
+            {found, Result};
+        not_found ->
+            do_lookup(Key, Rest)
     end.
 
 close_if_defined(undefined) -> ok;
