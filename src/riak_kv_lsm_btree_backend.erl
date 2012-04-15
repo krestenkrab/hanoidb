@@ -90,20 +90,24 @@ start(Partition, Config) ->
                                ok;
                            {error, {already_started, _}} ->
                                ok;
-                           {error, Reason} ->
-                               lager:error("Failed to init the lsm_btree backend: ~p", [Reason]),
-                               {error, Reason}
+                           {error, StartReason} ->
+                               lager:error("Failed to init the lsm_btree backend: ~p", [StartReason]),
+                               {error, StartReason}
                        end,
             case AppStart of
                 ok ->
-                    ok = filelib:ensure_dir(filename:join([DataRoot, "x"])),
-                    DbName = filename:join(DataRoot, integer_to_list(Partition)),
-                    case lsm_btree:open(DbName) of
-                        {ok, Tree} ->
-                            {ok, #state{tree=Tree, partition=Partition}};
-                        {error, OpenReason}=OpenError ->
-                            lager:error("Failed to open lsm_btree: ~p\n", [OpenReason]),
-                            OpenError
+                    case get_data_dir(DataRoot, integer_to_list(Partition)) of
+                        {ok, DataDir} ->
+                            case lsm_btree:open(DataDir) of
+                                {ok, Tree} ->
+                                    {ok, #state{tree=Tree, partition=Partition}};
+                                {error, OpenReason}=OpenError ->
+                                    lager:error("Failed to open lsm_btree: ~p\n", [OpenReason]),
+                                    OpenError
+                            end;
+                        {error, Reason} ->
+                            lager:error("Failed to start lsm_btree backend: ~p\n", [Reason]),
+                            {error, Reason}
                     end;
                 Error ->
                     Error
@@ -121,8 +125,8 @@ stop(#state{tree=Tree}) ->
                  {ok, not_found, state()} |
                  {error, term(), state()}.
 get(Bucket, Key, #state{tree=Tree}=State) ->
-    Key = to_object_key(Bucket, Key),
-    case lsm_btree:get(Tree, Key) of
+    BKey = to_object_key(Bucket, Key),
+    case lsm_btree:get(Tree, BKey) of
         {ok, Value} ->
             {ok, Value, State};
         not_found  ->
@@ -136,9 +140,9 @@ get(Bucket, Key, #state{tree=Tree}=State) ->
 -spec put(riak_object:bucket(), riak_object:key(), [index_spec()], binary(), state()) ->
                  {ok, state()} |
                  {error, term(), state()}.
-put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{tree=Tree}=State) ->
-    Key = to_object_key(Bucket, PrimaryKey),
-    ok = lsm_btree:put(Tree, Key, Val),
+put(Bucket, Key, _IndexSpecs, Val, #state{tree=Tree}=State) ->
+    BKey = to_object_key(Bucket, Key),
+    ok = lsm_btree:put(Tree, BKey, Val),
     {ok, State}.
 
 %% @doc Delete an object from the lsm_btree backend
@@ -146,8 +150,8 @@ put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{tree=Tree}=State) ->
                     {ok, state()} |
                     {error, term(), state()}.
 delete(Bucket, Key, _IndexSpecs, #state{tree=Tree}=State) ->
-    Key = to_object_key(Bucket, Key),
-    case lsm_btree:delete(Tree, Key) of
+    BKey = to_object_key(Bucket, Key),
+    case lsm_btree:delete(Tree, BKey) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -270,6 +274,19 @@ callback(_Ref, _Msg, State) ->
 %% ===================================================================
 %% Internal functions
 %% ===================================================================
+
+%% @private
+%% Create the directory for this partition's LSM-BTree files
+get_data_dir(DataRoot, Partition) ->
+    PartitionDir = filename:join([DataRoot, Partition]),
+    case filelib:ensure_dir(filename:join([filename:absname(DataRoot), Partition, "x"])) of
+        ok ->
+            {ok, PartitionDir};
+        {error, Reason} ->
+            lager:error("Failed to create lsm_btree dir ~s: ~p",
+                        [PartitionDir, Reason]),
+            {error, Reason}
+    end.
 
 %% @private
 %% Return a function to fold over the buckets on this backend
