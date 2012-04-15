@@ -97,7 +97,7 @@ start(Partition, Config) ->
             case AppStart of
                 ok ->
                     ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
-                    DbName = filename:join(DataRoot, "lsm_btree" ++ integer_to_list(Partition)),
+                    DbName = filename:join(DataRoot, integer_to_list(Partition)),
                     case lsm_btree:open(DbName) of
                         {ok, Tree} ->
                             {ok, #state{tree=Tree, partition=Partition}};
