@@ -193,12 +193,11 @@ find(_, _) ->
 
 
 read_node(File,{Pos,Size}) ->
-%    error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),
+%   error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),
     {ok, <<_:32, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
     lsm_btree_util:decode_index_node(Level, Data);
 
 read_node(File,Pos) ->
-
     {ok, Pos} = file:position(File, Pos),
     Result = read_node(File),
 %   error_logger:info_msg("decoded ~p ~p~n", [Pos, Result]),
