@@ -29,7 +29,7 @@
 %%% NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE
 
 
--module(lsmbtree_riak_kv_backend).
+-module(temp_riak_kv_backend).
 
 -export([behaviour_info/1]).
 -export([callback_after/3]).
