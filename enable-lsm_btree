@@ -48,6 +48,6 @@ make all devrel
 
 echo
 echo 'Modifying all dev/dev*/etc/app.config files, saving originals with .orig suffix...'
-perl -i.orig -ne 'if (/\bstorage_backend,/) { s/(storage_backend, )[^\}]+/\1riak_kv_lsmbtree_backend/; print } elsif (/\{eleveldb,/) { $eleveldb++; print } elsif ($eleveldb && /^\s+\]\},/) { $eleveldb = 0; print; print qq(\n {lsm_btree, [\n          {data_root, "./data/lb"}\n         ]},\n\n) } else { print }' dev/dev*/etc/app.config
+perl -i.orig -ne 'if (/\bstorage_backend,/) { s/(storage_backend, )[^\}]+/\1riak_kv_lsm_btree_backend/; print } elsif (/\{eleveldb,/) { $eleveldb++; print } elsif ($eleveldb && /^\s+\]\},/) { $eleveldb = 0; print; print qq(\n {lsm_btree, [\n          {data_root, "./data/lsm_btree"}\n         ]},\n\n) } else { print }' dev/dev*/etc/app.config
 
 exit 0

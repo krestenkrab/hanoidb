@@ -1,12 +1,12 @@
 {application, lsm_btree,
  [
   {description, ""},
-  {vsn, "1"},
+  {vsn, "1.0.0"},
   {registered, []},
   {applications, [
                   kernel,
                   stdlib
                  ]},
-  {mod, { lsm_btree_app, []}},
+  {mod, {lsm_btree_app, []}},
   {env, []}
  ]}.

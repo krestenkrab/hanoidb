@@ -28,7 +28,7 @@ new(_Id) ->
 
     %% Get the target directory
     Dir = basho_bench_config:get(lsm_btree_dir, "."),
-    Filename = filename:join(Dir, "test.frac"),
+    Filename = filename:join(Dir, "test.lsm_btree"),
 
     %% Look for sync interval config
     case basho_bench_config:get(lsm_btree_sync_interval, infinity) of
@@ -72,4 +72,3 @@ run(delete, KeyGen, _ValueGen, State) ->
         {error, Reason} ->
             {error, Reason}
     end.
-

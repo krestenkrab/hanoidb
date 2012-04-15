@@ -1,5 +1,3 @@
-> **NOTE** I erroneously called this engine `fractal_btree` when first released, but I have since learned that what we have implemented is indeed much less sophisticated than Tokutek's Fractal Tree&reg;.   Hence, the name change to `lsm_btree`.
-
 # LSM B-Tree Storage
 
 This erlang-based storage engine implements a structure somewhat like LSM-trees (Log-Structured Merge Trees).  The notes below describe how this storage engine work; I have not done extensive studies as how it differs from other storage mechanisms, but a brief brows through available online resources on LSM-trees and Fractal Trees indicates that this storage engine is quite different in several respects.
@@ -57,10 +55,16 @@ A further trouble is that merging does in fact not have completely linear I/O co
 Merging can be going on concurrently at each level (in preparation for an injection to the next level), which lets you utilize available multi-core capacity to merge.  
 
 
-### LSM B-Trees vs. Fractal Trees
-LSM B-Trees bear some resemblance with so-called "Fractal Trees&reg;", but LSM B-Trees are much simpler.  For instance, our LSM B-Tree does not use any in-place updating (in a Fractal Tree, inner nodes have a buffer space which is updated-in place); also we use bloom filters rather than fractional cascading to speed up multiple B-tree lookups.  From published online documents, it does indeed look like fractal trees can be *much* faster (I have not run any performance tests myself).
+### Deploying the lsm_btree for testing with Riak/KV
 
-You can read more about Fractal Trees in this slide deck from [Tokutek](http://www.tokutek.com/2011/11/how-fractal-trees-work-at-mit-today/), a company providing a MySQL backend based on Fractal Trees.  They also own some patents related to fractal trees.  I have not tried their TokuDB, but it looks truly amazing; I recommend that you try it out if you're hitting the limits of your current MySQL setup.
+You can deploy `lsm_btree` into a Riak devrel cluster using the
+`enable-lsm_btree` script. Clone the `riak` repo, change your working directory
+to it, and then execute the `enable-lsm_btree` script. It adds `lsm_btree` as a
+dependency, runs `make all devrel`, and then modifies the configuration
+settings of the resulting dev nodes to use the lsm_btree storage backend.
 
-
-
+1. `git clone git://github.com/basho/riak.git`
+1. `cd riak/deps`
+1. `git clone git://github.com/basho/lsm_btree.git`
+1. `cd ..`
+1. `./deps/lsm_btree/enable-lsm_btree` # which does `make all devrel`

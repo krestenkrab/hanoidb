@@ -1,11 +1,43 @@
+%% ----------------------------------------------------------------------------
+%%
+%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%%
+%% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
+%% http://trifork.com/ info@trifork.com
+%%
+%% Copyright 2012 (c) Basho Technologies, Inc.  All Rights Reserved.
+%% http://basho.com/ info@basho.com
+%%
+%% This file is provided to you under the Apache License, Version 2.0 (the
+%% "License"); you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+%% WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+%% License for the specific language governing permissions and limitations
+%% under the License.
+%%
+%% ----------------------------------------------------------------------------
+
 -module(lsm_btree).
+-author('Kresten Krab Thorup <krab@trifork.com>').
+
 
 -behavior(gen_server).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-	 terminate/2, code_change/3]).
+         terminate/2, code_change/3]).
 
--export([open/1, close/1, lookup/2, delete/2, put/3, async_range/3, async_fold_range/5, sync_range/3, sync_fold_range/5]).
+-export([open/1, open/2,
+         close/1,
+         get/2,
+         put/3,
+         delete/2,
+         async_range/3, async_fold_range/5,
+         sync_range/3, sync_fold_range/5]).
 
 -include("lsm_btree.hrl").
 -include_lib("kernel/include/file.hrl").
@@ -17,6 +49,9 @@
 %% PUBLIC API
 
 open(Dir) ->
+    open(Dir, []).
+
+open(Dir, Config) -> %TODO Config is currently ignored.
     gen_server:start(?MODULE, [Dir], []).
 
 close(Ref) ->
@@ -29,9 +64,8 @@ close(Ref) ->
         exit:{normal, _} -> ok
     end.
 
-
-lookup(Ref,Key) when is_binary(Key) ->
-    gen_server:call(Ref, {lookup, Key}).
+get(Ref,Key) when is_binary(Key) ->
+    gen_server:call(Ref, {get, Key}).
 
 delete(Ref,Key) when is_binary(Key) ->
     gen_server:call(Ref, {delete, Key}).
@@ -180,10 +214,10 @@ handle_call({delete, Key}, _From, State) when is_binary(Key) ->
     {ok, State2} = do_put(Key, ?TOMBSTONE, State),
     {reply, ok, State2};
 
-handle_call({lookup, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) when is_binary(Key) ->
+handle_call({get, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) when is_binary(Key) ->
     case lsm_btree_nursery:lookup(Key, Nursery) of
         {value, ?TOMBSTONE} ->
-            {reply, notfound, State};
+            {reply, not_found, State};
         {value, Value} when is_binary(Value) ->
             {reply, {ok, Value}, State};
         none ->

@@ -1,4 +1,29 @@
+%% ----------------------------------------------------------------------------
+%%
+%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%%
+%% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
+%% http://trifork.com/ info@trifork.com
+%%
+%% Copyright 2012 (c) Basho Technologies, Inc.  All Rights Reserved.
+%% http://basho.com/ info@basho.com
+%%
+%% This file is provided to you under the Apache License, Version 2.0 (the
+%% "License"); you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+%% WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+%% License for the specific language governing permissions and limitations
+%% under the License.
+%%
+%% ----------------------------------------------------------------------------
+
 -module(lsm_btree_level).
+-author('Kresten Krab Thorup <krab@trifork.com>').
 
 -include("lsm_btree.hrl").
 
@@ -84,8 +109,8 @@ receive_reply(MRef) ->
         ?REPLY(MRef, Reply) ->
             erlang:demonitor(MRef, [flush]),
             Reply;
-		{'DOWN', MRef, _, _, Reason} ->
-		    exit(Reason)
+                {'DOWN', MRef, _, _, Reason} ->
+                    exit(Reason)
     end.
 
 call(PID,Request) ->
@@ -306,8 +331,8 @@ main_loop(State = #state{ next=Next }) ->
         %%
         %% Our successor died!
         %%
-		{'DOWN', MRef, _, _, Reason} when MRef =:= State#state.inject_done_ref ->
-		    exit(Reason);
+                {'DOWN', MRef, _, _, Reason} when MRef =:= State#state.inject_done_ref ->
+                    exit(Reason);
 
         %% gen_fsm handling
         {system, From, Req} ->
@@ -337,9 +362,9 @@ do_lookup(Key, [undefined|Rest]) ->
     do_lookup(Key, Rest);
 do_lookup(Key, [BT|Rest]) ->
     case lsm_btree_reader:lookup(BT, Key) of
-	{ok, ?TOMBSTONE} -> notfound;
-	{ok, Result}  -> {found, Result};
-	notfound      -> do_lookup(Key, Rest)
+        {ok, ?TOMBSTONE} -> notfound;
+        {ok, Result}  -> {found, Result};
+        notfound      -> do_lookup(Key, Rest)
     end.
 
 close_if_defined(undefined) -> ok;

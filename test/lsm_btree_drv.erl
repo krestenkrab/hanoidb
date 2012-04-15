@@ -8,8 +8,8 @@
 
 -export([
          delete_exist/2,
-         lookup_exist/2,
-         lookup_fail/2,
+         get_exist/2,
+         get_fail/2,
          open/1, close/1,
          put/3,
          sync_range/3,
@@ -20,7 +20,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--define(SERVER, ?MODULE). 
+-define(SERVER, ?MODULE).
 
 -record(state, { btrees = dict:new() % Map from a name to its tree
                }).
@@ -33,11 +33,11 @@ start_link() ->
 call(X) ->
     gen_server:call(?SERVER, X, infinity).
 
-lookup_exist(N, K) ->
-    call({lookup, N, K}).
+get_exist(N, K) ->
+    call({get, N, K}).
 
-lookup_fail(N, K) ->
-    call({lookup, N, K}).
+get_fail(N, K) ->
+    call({get, N, K}).
 
 delete_exist(N, K) ->
     call({delete_exist, N, K}).
@@ -104,9 +104,9 @@ handle_call({delete_exist, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
     Reply = lsm_btree:delete(Tree, K),
     {reply, Reply, State};
-handle_call({lookup, N, K}, _, #state { btrees = D} = State) ->
+handle_call({get, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    Reply = lsm_btree:lookup(Tree, K),
+    Reply = lsm_btree:get(Tree, K),
     {reply, Reply, State};
 handle_call(stop, _, #state{ btrees = D } = State ) ->
     [ lsm_btree:close(Tree) || {_,Tree} <- dict:to_list(D) ],

@@ -1,28 +1,28 @@
-%% -------------------------------------------------------------------
+%% ----------------------------------------------------------------------------
 %%
-%% riak_kv_lsmbtree_backend: LSM-Btree Driver for Riak
+%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
-%% Copyright (c) 2012 Basho Technologies, Inc.  All Rights Reserved.
+%% Copyright 2012 (c) Basho Technologies, Inc.  All Rights Reserved.
+%% http://basho.com/ info@basho.com
 %%
-%% This file is provided to you under the Apache License,
-%% Version 2.0 (the "License"); you may not use this file
-%% except in compliance with the License.  You may obtain
-%% a copy of the License at
+%% This file is provided to you under the Apache License, Version 2.0 (the
+%% "License"); you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
 %%   http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% Unless required by applicable law or agreed to in writing,
-%% software distributed under the License is distributed on an
-%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
-%% specific language governing permissions and limitations
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+%% WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+%% License for the specific language governing permissions and limitations
 %% under the License.
 %%
-%% -------------------------------------------------------------------
+%% ----------------------------------------------------------------------------
 
--module(riak_kv_lsmbtree_backend).
--behavior(lsmbtree_riak_kv_backend).
+-module(riak_kv_lsm_btree_backend).
+-behavior(temp_riak_kv_backend).
 -author('Steve Vinoski <steve@basho.com>').
+-author('Greg Burd <greg@basho.com>').
 
 %% KV Backend API
 -export([api_version/0,
@@ -50,7 +50,7 @@
 %%-define(CAPABILITIES, [async_fold, indexes]).
 -define(CAPABILITIES, [async_fold]).
 
--record(state, {db,
+-record(state, {tree,
                 partition :: integer()}).
 
 -type state() :: #state{}.
@@ -91,19 +91,19 @@ start(Partition, Config) ->
                            {error, {already_started, _}} ->
                                ok;
                            {error, Reason} ->
-                               lager:error("Failed to start lsm_btree: ~p", [Reason]),
+                               lager:error("Failed to init the lsm_btree backend: ~p", [Reason]),
                                {error, Reason}
                        end,
             case AppStart of
                 ok ->
                     ok = filelib:ensure_dir(filename:join(DataRoot, "x")),
-		    DbName = filename:join(DataRoot, "lb" ++ integer_to_list(Partition)),
+                    DbName = filename:join(DataRoot, "lsm_btree" ++ integer_to_list(Partition)),
                     case lsm_btree:open(DbName) of
-                        {ok, Db} ->
-			    {ok, #state{db=Db, partition=Partition}};
-			{error, OpenReason}=OpenError ->
-			    lager:error("Failed to open lsm_btree: ~p\n", [OpenReason]),
-			    OpenError
+                        {ok, Tree} ->
+                            {ok, #state{tree=Tree, partition=Partition}};
+                        {error, OpenReason}=OpenError ->
+                            lager:error("Failed to open lsm_btree: ~p\n", [OpenReason]),
+                            OpenError
                     end;
                 Error ->
                     Error
@@ -112,20 +112,20 @@ start(Partition, Config) ->
 
 %% @doc Stop the lsm_btree backend
 -spec stop(state()) -> ok.
-stop(#state{db=Db}) ->
-    ok = lsm_btree:close(Db).
+stop(#state{tree=Tree}) ->
+    ok = lsm_btree:close(Tree).
 
 %% @doc Retrieve an object from the lsm_btree backend
 -spec get(riak_object:bucket(), riak_object:key(), state()) ->
                  {ok, any(), state()} |
                  {ok, not_found, state()} |
                  {error, term(), state()}.
-get(Bucket, Key, #state{db=Db}=State) ->
-    LBKey = to_object_key(Bucket, Key),
-    case lsm_btree:lookup(Db, LBKey) of
+get(Bucket, Key, #state{tree=Tree}=State) ->
+    Key = to_object_key(Bucket, Key),
+    case lsm_btree:get(Tree, Key) of
         {ok, Value} ->
             {ok, Value, State};
-        notfound  ->
+        not_found  ->
             {error, not_found, State};
         {error, Reason} ->
             {error, Reason, State}
@@ -136,18 +136,18 @@ get(Bucket, Key, #state{db=Db}=State) ->
 -spec put(riak_object:bucket(), riak_object:key(), [index_spec()], binary(), state()) ->
                  {ok, state()} |
                  {error, term(), state()}.
-put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{db=Db}=State) ->
-    LBKey = to_object_key(Bucket, PrimaryKey),
-    ok = lsm_btree:put(Db, LBKey, Val),
+put(Bucket, PrimaryKey, _IndexSpecs, Val, #state{tree=Tree}=State) ->
+    Key = to_object_key(Bucket, PrimaryKey),
+    ok = lsm_btree:put(Tree, Key, Val),
     {ok, State}.
 
 %% @doc Delete an object from the lsm_btree backend
 -spec delete(riak_object:bucket(), riak_object:key(), [index_spec()], state()) ->
                     {ok, state()} |
                     {error, term(), state()}.
-delete(Bucket, Key, _IndexSpecs, #state{db=Db}=State) ->
-    LBKey = to_object_key(Bucket, Key),
-    case lsm_btree:delete(Db, LBKey) of
+delete(Bucket, Key, _IndexSpecs, #state{tree=Tree}=State) ->
+    Key = to_object_key(Bucket, Key),
+    case lsm_btree:delete(Tree, Key) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -159,12 +159,12 @@ delete(Bucket, Key, _IndexSpecs, #state{db=Db}=State) ->
                    any(),
                    [],
                    state()) -> {ok, any()} | {async, fun()}.
-fold_buckets(FoldBucketsFun, Acc, Opts, #state{db=Db}) ->
+fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
     FoldFun = fold_buckets_fun(FoldBucketsFun),
     BucketFolder =
         fun() ->
                 try
-		    lsm_btree:sync_fold_range(Db, FoldFun, {Acc, []}, undefined, undefined)
+                    lsm_btree:sync_fold_range(Tree, FoldFun, {Acc, []}, undefined, undefined)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -182,7 +182,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{db=Db}) ->
                 any(),
                 [{atom(), term()}],
                 state()) -> {ok, term()} | {async, fun()}.
-fold_keys(FoldKeysFun, Acc, Opts, #state{db=Db}) ->
+fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
     %% Figure out how we should limit the fold: by bucket, by
     %% secondary index, or neither (fold across everything.)
     Bucket = lists:keyfind(bucket, 1, Opts),
@@ -200,7 +200,7 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{db=Db}) ->
     KeyFolder =
         fun() ->
                 try
-		    lsm_btree:sync_fold_range(Db, FoldFun, Acc, undefined, undefined)
+                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, undefined, undefined)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -218,13 +218,13 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{db=Db}) ->
                    any(),
                    [{atom(), term()}],
                    state()) -> {ok, any()} | {async, fun()}.
-fold_objects(FoldObjectsFun, Acc, Opts, #state{db=Db}) ->
+fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     Bucket =  proplists:get_value(bucket, Opts),
     FoldFun = fold_objects_fun(FoldObjectsFun, Bucket),
     ObjectFolder =
         fun() ->
                 try
-		    lsm_btree:sync_fold_range(Db, FoldFun, Acc, undefined, undefined)
+                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, undefined, undefined)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -246,13 +246,13 @@ drop(#state{}=State) ->
 %% @doc Returns true if this lsm_btree backend contains any
 %% non-tombstone values; otherwise returns false.
 -spec is_empty(state()) -> boolean().
-is_empty(#state{db=Db}) ->
+is_empty(#state{tree=Tree}) ->
     FoldFun = fun(_K, _V, _Acc) -> throw(ok) end,
     try
-	[] =:= lsm_btree:sync_fold_range(Db, FoldFun, [], undefined, undefined)
+        [] =:= lsm_btree:sync_fold_range(Tree, FoldFun, [], undefined, undefined)
     catch
-	_:ok ->
-	    false
+        _:ok ->
+            false
     end.
 
 %% @doc Get the status information for this lsm_btree backend
@@ -340,13 +340,13 @@ from_object_key(LKey) ->
 -ifdef(TEST).
 
 simple_test_() ->
-    ?assertCmd("rm -rf test/lsmbtree-backend"),
-    application:set_env(lsm_btree, data_root, "test/lsmbtree-backend"),
-    lsmbtree_riak_kv_backend:standard_test(?MODULE, []).
+    ?assertCmd("rm -rf test/lsm_btree-backend"),
+    application:set_env(lsm_btree, data_root, "test/lsm_btree-backend"),
+    riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
-    ?assertCmd("rm -rf test/lsmbtree-backend"),
+    ?assertCmd("rm -rf test/lsm_btree-backend"),
     application:set_env(lsm_btree, data_root, ""),
-    lsmbtree_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/lsmbtree-backend"}]).
+    riak_kv_backend:standard_test(?MODULE, [{data_root, "test/lsm_btree-backend"}]).
 
 -endif.

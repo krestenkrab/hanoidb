@@ -119,9 +119,9 @@ command(#state { open = Open, closed = Closed } = S) ->
         || open_dicts(S)]
       ++ [ {2000, {call, ?SERVER, put, cmd_put_args(S)}}
         || open_dicts(S)]
-      ++ [ {1500, {call, ?SERVER, lookup_fail, cmd_lookup_fail_args(S)}}
+      ++ [ {1500, {call, ?SERVER, get_fail, cmd_get_fail_args(S)}}
         || open_dicts(S)]
-      ++ [ {1500, {call, ?SERVER, lookup_exist, cmd_lookup_args(S)}}
+      ++ [ {1500, {call, ?SERVER, get_exist, cmd_get_args(S)}}
         || open_dicts(S), open_dicts_with_keys(S)]
       ++ [ {500, {call, ?SERVER, delete_exist, cmd_delete_args(S)}}
            || open_dicts(S), open_dicts_with_keys(S)]
@@ -138,9 +138,9 @@ precondition(S, {call, ?SERVER, sync_range, [_Tree, _K1, _K2]}) ->
     open_dicts(S) andalso open_dicts_with_keys(S);
 precondition(S, {call, ?SERVER, delete_exist, [_Name, _K]}) ->
     open_dicts(S) andalso open_dicts_with_keys(S);
-precondition(S, {call, ?SERVER, lookup_fail, [_Name, _K]}) ->
+precondition(S, {call, ?SERVER, get_fail, [_Name, _K]}) ->
     open_dicts(S);
-precondition(S, {call, ?SERVER, lookup_exist, [_Name, _K]}) ->
+precondition(S, {call, ?SERVER, get_exist, [_Name, _K]}) ->
     open_dicts(S) andalso open_dicts_with_keys(S);
 precondition(#state { open = Open }, {call, ?SERVER, put, [Name, _K, _V]}) ->
     dict:is_key(Name, Open);
@@ -156,16 +156,16 @@ next_state(S, _Res, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, _K1, _K2]}
     S;
 next_state(S, _Res, {call, ?SERVER, sync_range, [_Tree, _K1, _K2]}) ->
     S;
-next_state(S, _Res, {call, ?SERVER, lookup_fail, [_Name, _Key]}) ->
+next_state(S, _Res, {call, ?SERVER, get_fail, [_Name, _Key]}) ->
     S;
-next_state(S, _Res, {call, ?SERVER, lookup_exist, [_Name, _Key]}) ->
+next_state(S, _Res, {call, ?SERVER, get_exist, [_Name, _Key]}) ->
     S;
 next_state(#state { open = Open} = S, _Res,
            {call, ?SERVER, delete_exist, [Name, Key]}) ->
     S#state { open = dict:update(Name,
                                  fun(#tree { elements = Dict}) ->
                                          #tree { elements =
-                                                     dict:erase(Key, Dict)} 
+                                                     dict:erase(Key, Dict)}
                                  end,
                                  Open)};
 next_state(#state { open = Open} = S, _Res,
@@ -198,10 +198,10 @@ postcondition(#state { open = Open},
     lists:sort(dict_range_query(TDict, K1, K2))
         == lists:sort(Result);
 postcondition(_S,
-              {call, ?SERVER, lookup_fail, [_Name, _Key]}, notfound) ->
+              {call, ?SERVER, get_fail, [_Name, _Key]}, notfound) ->
     true;
 postcondition(#state { open = Open },
-              {call, ?SERVER, lookup_exist, [Name, Key]}, {ok, Value}) ->
+              {call, ?SERVER, get_exist, [Name, Key]}, {ok, Value}) ->
     #tree { elements = Elems } = dict:fetch(Name, Open),
     dict:fetch(Key, Elems) == Value;
 postcondition(_S, {call, ?SERVER, delete_exist, [_Name, _Key]}, ok) ->
@@ -237,7 +237,7 @@ prop_dict_agree() ->
 test_tree_simple_1() ->
     {ok, Tree} = lsm_btree:open("simple"),
     ok = lsm_btree:put(Tree, <<>>, <<"data", 77:128>>),
-    {ok, <<"data", 77:128>>} = lsm_btree:lookup(Tree, <<>>),
+    {ok, <<"data", 77:128>>} = lsm_btree:get(Tree, <<>>),
     ok = lsm_btree:close(Tree).
 
 test_tree_simple_2() ->
@@ -264,7 +264,7 @@ test_tree_simple_4() ->
     Value = <<212,167,12,6,105,152,17,80,243>>,
     {ok, Tree} = lsm_btree:open("simple"),
     ok = lsm_btree:put(Tree, Key, Value),
-    ?assertEqual({ok, Value}, lsm_btree:lookup(Tree, Key)),
+    ?assertEqual({ok, Value}, lsm_btree:get(Tree, Key)),
     ok = lsm_btree:close(Tree).
 
 test_tree() ->
@@ -327,12 +327,12 @@ cmd_put_args(#state { open = Open }) ->
          [Name, Key, Value]).
 
 
-cmd_lookup_fail_args(#state { open = Open}) ->
+cmd_get_fail_args(#state { open = Open}) ->
     ?LET(Name, g_open_tree(Open),
          ?LET(Key, g_non_existing_key(Name, Open),
               [Name, Key])).
 
-cmd_lookup_args(#state { open = Open}) ->
+cmd_get_args(#state { open = Open}) ->
     ?LET(Name, g_non_empty_btree(Open),
          ?LET(Key, g_existing_key(Name, Open),
               [Name, Key])).
