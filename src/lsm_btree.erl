@@ -74,18 +74,54 @@ sync_range(Ref, #btree_range{}=Range) ->
 
 sync_fold_range(Ref,Fun,Acc0,Range) ->
     {ok, PID} = sync_range(Ref, Range),
-    sync_receive_fold_range(PID,Fun,Acc0).
+    MRef = erlang:monitor(process, PID),
+    sync_receive_fold_range(MRef, PID,Fun,Acc0).
 
-sync_receive_fold_range(PID,Fun,Acc0) ->
+sync_receive_fold_range(MRef, PID,Fun,Acc0) ->
     receive
         {fold_result, PID, K,V} ->
-            sync_receive_fold_range(PID, Fun, Fun(K,V,Acc0));
+            case
+                try
+                    {ok, Fun(K,V,Acc0)}
+                catch
+                    Class:Exception ->
+                        lager:warning("Exception in lsm_btree fold: ~p", [Exception]),
+                        {'EXIT', Class, Exception, erlang:get_stacktrace()}
+                end
+            of
+                {ok, Acc1} ->
+                    sync_receive_fold_range(MRef, PID, Fun, Acc1);
+                Exit ->
+                    %% kill the fold worker ...
+                    erlang:exit(PID, kill),
+                    drain_worker_and_throw(MRef,PID,Exit)
+            end;
         {fold_limit, PID, _} ->
+            erlang:demonitor(MRef, [flush]),
             Acc0;
         {fold_done, PID} ->
-            Acc0
+            erlang:demonitor(MRef, [flush]),
+            Acc0;
+        {'DOWN', MRef, _, _, Reason} ->
+            error({fold_worker_died, Reason})
     end.
 
+raise({'EXIT', Class, Exception, Trace}) ->
+    erlang:raise(Class, Exception, Trace).
+
+drain_worker_and_throw(MRef, PID, ExitTuple) ->
+    receive
+        {fold_result, PID, _, _} ->
+            drain_worker_and_throw(MRef, PID, ExitTuple);
+        {'DOWN', MRef, _, _, _} ->
+            raise(ExitTuple);
+        {fold_limit, PID, _} ->
+            erlang:demonitor(MRef, [flush]),
+            raise(ExitTuple);
+        {fold_done, PID} ->
+            erlang:demonitor(MRef, [flush]),
+            raise(ExitTuple)
+    end.
 
 
 async_range(Ref, #btree_range{}=Range) ->
