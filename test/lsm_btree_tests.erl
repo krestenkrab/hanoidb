@@ -198,7 +198,7 @@ postcondition(#state { open = Open},
     lists:sort(dict_range_query(TDict, K1, K2))
         == lists:sort(Result);
 postcondition(_S,
-              {call, ?SERVER, get_fail, [_Name, _Key]}, notfound) ->
+              {call, ?SERVER, get_fail, [_Name, _Key]}, not_found) ->
     true;
 postcondition(#state { open = Open },
               {call, ?SERVER, get_exist, [Name, Key]}, {ok, Value}) ->
