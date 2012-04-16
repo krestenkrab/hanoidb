@@ -45,6 +45,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-include("include/lsm_btree.hrl").
+
 -define(API_VERSION, 1).
 %% TODO: for when this backend supports 2i
 %%-define(CAPABILITIES, [async_fold, indexes]).
@@ -168,7 +170,8 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
     BucketFolder =
         fun() ->
                 try
-                    lsm_btree:sync_fold_range(Tree, FoldFun, {Acc, []}, undefined, undefined)
+                    Range = #btree_range{to_key = <<>>},
+                    lsm_btree:sync_fold_range(Tree, FoldFun, {Acc, []}, Range)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -204,7 +207,8 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
     KeyFolder =
         fun() ->
                 try
-                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, undefined, undefined)
+                    Range = #btree_range{to_key = <<>>},
+                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -228,7 +232,8 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     ObjectFolder =
         fun() ->
                 try
-                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, undefined, undefined)
+                    Range = #btree_range{to_key = <<>>},
+                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -253,7 +258,8 @@ drop(#state{}=State) ->
 is_empty(#state{tree=Tree}) ->
     FoldFun = fun(_K, _V, _Acc) -> throw(ok) end,
     try
-        [] =:= lsm_btree:sync_fold_range(Tree, FoldFun, [], undefined, undefined)
+        Range = #btree_range{to_key = <<>>},
+        [] =:= lsm_btree:sync_fold_range(Tree, FoldFun, [], Range)
     catch
         _:ok ->
             false
