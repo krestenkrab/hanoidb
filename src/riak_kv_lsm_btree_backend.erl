@@ -20,7 +20,7 @@
 %% ----------------------------------------------------------------------------
 
 -module(riak_kv_lsm_btree_backend).
--behavior(temp_riak_kv_backend).
+-behavior(lsm_btree_temp_riak_kv_backend).
 -author('Steve Vinoski <steve@basho.com>').
 -author('Greg Burd <greg@basho.com>').
 
@@ -359,11 +359,11 @@ from_object_key(LKey) ->
 simple_test_() ->
     ?assertCmd("rm -rf test/lsm_btree-backend"),
     application:set_env(lsm_btree, data_root, "test/lsm_btree-backend"),
-    riak_kv_backend:standard_test(?MODULE, []).
+    lsm_btree_temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
     ?assertCmd("rm -rf test/lsm_btree-backend"),
     application:set_env(lsm_btree, data_root, ""),
-    riak_kv_backend:standard_test(?MODULE, [{data_root, "test/lsm_btree-backend"}]).
+    lsm_btree_temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/lsm_btree-backend"}]).
 
 -endif.
