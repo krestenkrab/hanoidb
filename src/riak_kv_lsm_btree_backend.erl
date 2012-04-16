@@ -230,12 +230,13 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
 bucket_range(undefined) ->
     #btree_range{};
 bucket_range(Bucket) ->
-    #btree_range{
-              from_key       = to_object_key(Bucket, '_'),
-              from_inclusive = true,
-              to_key         = to_object_key(<<Bucket, 0>>, '_'),
-              to_inclusive   = false
-             }.
+    #btree_range{}.
+%    #btree_range{
+%              from_key       = to_object_key(Bucket, '_'),
+%              from_inclusive = true,
+%              to_key         = to_object_key(<<Bucket, 0>>, '_'),
+%              to_inclusive   = false
+%             }.
 
 
 %% @doc Fold over all the objects for one or all buckets.
