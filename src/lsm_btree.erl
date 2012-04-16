@@ -31,7 +31,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([open/1, close/1, lookup/2, delete/2, put/3,
+-export([open/1, close/1, get/2, lookup/2, delete/2, put/3,
          async_range/2, async_fold_range/4, sync_range/2, sync_fold_range/4]).
 
 -include("lsm_btree.hrl").
@@ -57,6 +57,10 @@ close(Ref) ->
     end.
 
 get(Ref,Key) when is_binary(Key) ->
+    gen_server:call(Ref, {get, Key}).
+
+%% for compatibility with original code
+lookup(Ref,Key) when is_binary(Key) ->
     gen_server:call(Ref, {get, Key}).
 
 delete(Ref,Key) when is_binary(Key) ->
