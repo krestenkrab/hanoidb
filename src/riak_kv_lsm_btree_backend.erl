@@ -169,8 +169,12 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
     FoldFun = fold_buckets_fun(FoldBucketsFun),
     BucketFolder =
         fun() ->
-                Range = #btree_range{to_key = <<>>},
-                lsm_btree:sync_fold_range(Tree, FoldFun, {Acc, []}, Range)
+                try
+                    lsm_btree:sync_fold_range(Tree, FoldFun, {Acc, []}, #btree_range{})
+                catch
+                    {break, AccFinal} ->
+                        AccFinal
+                end
         end,
     case lists:member(async_fold, Opts) of
         true ->
@@ -191,18 +195,29 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
     Index = lists:keyfind(index, 1, Opts),
 
     %% Multiple limiters may exist. Take the most specific limiter.
-    Limiter = if
-                  Index /= false  -> Index;
-                  Bucket /= false -> Bucket;
-                  true            -> undefined
-              end,
+    Limiter =
+        if Index /= false  ->
+                %% TODO: figure out the proper key prefixes for Index!
+                Range = #btree_range{},
+                Index;
+           Bucket /= false ->
+                Range = bucket_range(Bucket),
+                Bucket;
+           true            ->
+                Range = #btree_range{},
+                undefined
+        end,
 
     %% Set up the fold...
     FoldFun = fold_keys_fun(FoldKeysFun, Limiter),
     KeyFolder =
         fun() ->
-                Range = #btree_range{to_key = <<>>},
-                lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
+                try
+                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
+                catch
+                    {break, AccFinal} ->
+                        AccFinal
+                end
         end,
     case lists:member(async_fold, Opts) of
         true ->
@@ -210,6 +225,18 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
         false ->
             {ok, KeyFolder()}
     end.
+
+%% @doc Get btree_range object for entire bucket
+bucket_range(undefined) ->
+    #btree_range{};
+bucket_range(Bucket) ->
+    #btree_range{
+              from_key       = to_object_key(Bucket, '_'),
+              from_inclusive = true,
+              to_key         = to_object_key(<<Bucket, 0>>, '_'),
+              to_inclusive   = false
+             }.
+
 
 %% @doc Fold over all the objects for one or all buckets.
 -spec fold_objects(riak_kv_backend:fold_objects_fun(),
@@ -221,8 +248,12 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     FoldFun = fold_objects_fun(FoldObjectsFun, Bucket),
     ObjectFolder =
         fun() ->
-                Range = #btree_range{to_key = <<>>},
-                lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
+                try
+                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, bucket_range(Bucket))
+                catch
+                    {break, AccFinal} ->
+                        AccFinal
+                end
         end,
     case lists:member(async_fold, Opts) of
         true ->
@@ -243,7 +274,7 @@ drop(#state{}=State) ->
 is_empty(#state{tree=Tree}) ->
     FoldFun = fun(_K, _V, _Acc) -> throw(ok) end,
     try
-        Range = #btree_range{to_key = <<>>},
+        Range = #btree_range{},
         [] =:= lsm_btree:sync_fold_range(Tree, FoldFun, [], Range)
     catch
         _:ok ->
