@@ -169,13 +169,8 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
     FoldFun = fold_buckets_fun(FoldBucketsFun),
     BucketFolder =
         fun() ->
-                try
-                    Range = #btree_range{to_key = <<>>},
-                    lsm_btree:sync_fold_range(Tree, FoldFun, {Acc, []}, Range)
-                catch
-                    {break, AccFinal} ->
-                        AccFinal
-                end
+                Range = #btree_range{to_key = <<>>},
+                lsm_btree:sync_fold_range(Tree, FoldFun, {Acc, []}, Range)
         end,
     case lists:member(async_fold, Opts) of
         true ->
@@ -196,23 +191,18 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
     Index = lists:keyfind(index, 1, Opts),
 
     %% Multiple limiters may exist. Take the most specific limiter.
-    Limiter =
-        if Index /= false  -> Index;
-           Bucket /= false -> Bucket;
-           true            -> undefined
-        end,
+    Limiter = if
+                  Index /= false  -> Index;
+                  Bucket /= false -> Bucket;
+                  true            -> undefined
+              end,
 
     %% Set up the fold...
     FoldFun = fold_keys_fun(FoldKeysFun, Limiter),
     KeyFolder =
         fun() ->
-                try
-                    Range = #btree_range{to_key = <<>>},
-                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
-                catch
-                    {break, AccFinal} ->
-                        AccFinal
-                end
+                Range = #btree_range{to_key = <<>>},
+                lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
         end,
     case lists:member(async_fold, Opts) of
         true ->
@@ -231,13 +221,8 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     FoldFun = fold_objects_fun(FoldObjectsFun, Bucket),
     ObjectFolder =
         fun() ->
-                try
-                    Range = #btree_range{to_key = <<>>},
-                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
-                catch
-                    {break, AccFinal} ->
-                        AccFinal
-                end
+                Range = #btree_range{to_key = <<>>},
+                lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
         end,
     case lists:member(async_fold, Opts) of
         true ->
@@ -289,8 +274,7 @@ get_data_dir(DataRoot, Partition) ->
         ok ->
             {ok, PartitionDir};
         {error, Reason} ->
-            lager:error("Failed to create lsm_btree dir ~s: ~p",
-                        [PartitionDir, Reason]),
+            lager:error("Failed to create lsm_btree dir ~s: ~p", [PartitionDir, Reason]),
             {error, Reason}
     end.
 
@@ -302,9 +286,7 @@ fold_buckets_fun(FoldBucketsFun) ->
                 {LastBucket, _} ->
                     {Acc, LastBucket};
                 {Bucket, _} ->
-                    {FoldBucketsFun(Bucket, Acc), Bucket};
-                _ ->
-                    throw({break, Acc})
+                    {FoldBucketsFun(Bucket, Acc), Bucket}
             end
     end.
 
@@ -317,7 +299,7 @@ fold_keys_fun(FoldKeysFun, undefined) ->
                 {Bucket, Key} ->
                     FoldKeysFun(Bucket, Key, Acc);
                 _ ->
-                    throw({break, Acc})
+                    Acc
             end
     end;
 fold_keys_fun(FoldKeysFun, {bucket, FilterBucket}) ->
@@ -327,7 +309,7 @@ fold_keys_fun(FoldKeysFun, {bucket, FilterBucket}) ->
                 {Bucket, Key} when Bucket == FilterBucket ->
                     FoldKeysFun(Bucket, Key, Acc);
                 _ ->
-                    throw({break, Acc})
+                    Acc
             end
     end;
 fold_keys_fun(_FoldKeysFun, Other) ->
@@ -342,7 +324,7 @@ fold_objects_fun(FoldObjectsFun, FilterBucket) ->
                                    Bucket == FilterBucket ->
                     FoldObjectsFun(Bucket, Key, Value, Acc);
                 _ ->
-                    throw({break, Acc})
+                    Acc
             end
     end.
 
@@ -363,13 +345,13 @@ from_object_key(LKey) ->
 -ifdef(TEST).
 
 simple_test_() ->
-    ?assertCmd("rm -rf test/lsm_btree-backend"),
-    application:set_env(lsm_btree, data_root, "test/lsm_btree-backend"),
+    ?assertCmd("rm -rf test/lsm-btree-backend"),
+    application:set_env(lsm_btree, data_root, "test/lsm-btree-backend"),
     lsm_btree_temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
     ?assertCmd("rm -rf test/lsm_btree-backend"),
     application:set_env(lsm_btree, data_root, ""),
-    lsm_btree_temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/lsm_btree-backend"}]).
+    lsm_btree_temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/lsm-btree-backend"}]).
 
 -endif.
