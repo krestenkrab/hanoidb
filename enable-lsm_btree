@@ -32,7 +32,7 @@ if [ -d dev ]; then
     done
 fi
 
-rebar get-deps
+./rebar get-deps
 
 file=./deps/riak_kv/src/riak_kv.app.src
 if ! grep -q lsm_btree $file ; then
@@ -48,7 +48,7 @@ if ! grep -q lsm_btree $file ; then
     perl -i.orig -pe '/\bsext\b/ && print qq(        {lsm_btree, ".*", {git, "git\@github.com:basho/lsm_btree.git", "master"}},\n)' $file
 fi
 
-rebar get-deps
+./rebar get-deps
 
 rm -rf dev
 make all devrel
