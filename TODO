@@ -3,6 +3,7 @@
   * [cleanup] check to make sure every error returns with a reason {error, Reason}
   * [feature] statistics
   * [feature] use lager for error messages
+  * [enhancement] add crc or something to the files
   * [feature] add config parameters on open
     * {sync, boolean()} fdsync or not on write
     * {cache, bytes(), name} share max(bytes) cache named 'name' via etc
