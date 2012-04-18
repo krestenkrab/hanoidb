@@ -26,7 +26,7 @@
 
 
 %% smallest levels are 8192 entries
--define(TOP_LEVEL, 13).
+-define(TOP_LEVEL, 5).
 -define(BTREE_SIZE(Level), (1 bsl (Level))).
 
 -define(TOMBSTONE, 'deleted').
