@@ -67,6 +67,7 @@ start(SendTo) ->
     PID = plain_fsm:spawn(?MODULE,
                           fun() ->
                                   process_flag(trap_exit,true),
+                                  link(SendTo),
                                   initialize(#state{sendto=SendTo}, [])
                           end),
     {ok, PID}.
@@ -124,10 +125,9 @@ fill(State, Values, [PID|Rest]=PIDs) ->
 
 emit_next(State, []) ->
     State#state.sendto ! {fold_done, self()},
-    ok;
+    end_of_fold(State);
 
 emit_next(State, [{FirstPID,FirstKV}|Rest]=Values) ->
-
     case
         lists:foldl(fun({P,{K1,_}=KV}, {{K2,_},_}) when K1 < K2 ->
                             {KV,[P]};
@@ -142,12 +142,16 @@ emit_next(State, [{FirstPID,FirstKV}|Rest]=Values) ->
         {{_, ?TOMBSTONE}, FillFrom} ->
             fill(State, Values, FillFrom);
         {{Key, limit}, _} ->
-            State#state.sendto ! {fold_limit, self(), Key};
+            State#state.sendto ! {fold_limit, self(), Key},
+            end_of_fold(State);
         {{FoundKey, FoundValue}, FillFrom} ->
             State#state.sendto ! {fold_result, self(), FoundKey, FoundValue},
             fill(State, Values, FillFrom)
     end.
 
+end_of_fold(State) ->
+    unlink(State#state.sendto),
+    ok.
 
 data_vsn() ->
     5.
