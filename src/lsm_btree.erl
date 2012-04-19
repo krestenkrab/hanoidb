@@ -245,8 +245,10 @@ handle_cast(Info,State) ->
 
 
 %% premature delete -> cleanup
+terminate(normal,_State) ->
+    ok;
 terminate(_Reason,_State) ->
-    % error_logger:info_msg("got terminate(~p,~p)~n", [Reason,State]),
+    error_logger:info_msg("got terminate(~p,~p)~n", [_Reason,_State]),
     % flush_nursery(State),
     ok.
 

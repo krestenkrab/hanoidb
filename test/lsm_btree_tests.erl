@@ -38,7 +38,7 @@ full_test_() ->
       ?_test(test_tree_simple_2()),
       ?_test(test_tree_simple_3()),
       ?_test(test_tree_simple_4()),
-      {timeout, 30, ?_test(test_tree())},
+      {timeout, 300, ?_test(test_tree())},
       {timeout, 120, ?_test(test_qc())}
      ]}.
 
@@ -299,7 +299,7 @@ test_tree() ->
                                                <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
-                lists:seq(2,10000,1)),
+                lists:seq(2,100000,1)),
     lists:foldl(fun(N,_) ->
                         ok = lsm_btree:put(Tree,
                                                <<N:128>>, <<"data",N:128>>)

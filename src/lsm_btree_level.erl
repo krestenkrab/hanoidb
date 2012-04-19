@@ -42,22 +42,25 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/3, lookup/2, inject/2, close/1, async_range/3, sync_range/3]).
+-export([open/3, lookup/2, inject/2, close/1, async_range/3, sync_range/3, step/2]).
 
 -include_lib("kernel/include/file.hrl").
 
 -record(state, {
-          a, b, c, next, dir, level, inject_done_ref, merge_pid, folding = []
+          a, b, c, next, dir, level, inject_done_ref, merge_pid, folding = [],
+          step_next_ref, step_caller, step_merge_ref
           }).
 
 %%%%% PUBLIC OPERATIONS
 
 open(Dir,Level,Next) when Level>0 ->
-    {ok, plain_fsm:spawn_link(?MODULE,
+    PID = plain_fsm:spawn_link(?MODULE,
                               fun() ->
                                       process_flag(trap_exit,true),
                                       initialize(#state{dir=Dir,level=Level,next=Next})
-                              end)}.
+                              end),
+    step(PID, 2*?BTREE_SIZE(?TOP_LEVEL)),
+    {ok, PID}.
 
 lookup(Ref, Key) ->
     call(Ref, {lookup, Key}).
@@ -65,6 +68,9 @@ lookup(Ref, Key) ->
 inject(Ref, FileName) ->
     Result = call(Ref, {inject, FileName}),
     Result.
+
+step(Ref,Howmuch) ->
+    call(Ref,{step,Howmuch}).
 
 close(Ref) ->
     try
@@ -128,8 +134,8 @@ initialize(State) ->
     try
         initialize2(State)
     catch
-        Class:Ex ->
-            error_logger:error_msg("crash: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()])
+        Class:Ex when not (Class == exit andalso Ex == normal) ->
+            error_logger:error_msg("crash2: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()])
     end.
 
 initialize2(State) ->
@@ -231,8 +237,75 @@ main_loop(State = #state{ next=Next }) ->
             end,
             ok = file:rename(FileName, ToFileName),
             {ok, BT} = lsm_btree_reader:open(ToFileName, random),
+
             reply(From, ok),
             check_begin_merge_then_loop(setelement(SetPos, State, BT));
+
+        %% accept step any time there is not an outstanding step
+        ?REQ(StepFrom, {step, HowMuch})
+          when State#state.step_merge_ref == undefined,
+               State#state.step_caller == undefined,
+               State#state.step_next_ref == undefined
+               ->
+
+            %% delegate the step request to the next level
+            if Next =:= undefined ->
+                    DelegateRef = undefined;
+               true ->
+                    DelegateRef = send_request(Next, {step, HowMuch})
+            end,
+
+            %% if there is a merge worker, send him a step message
+            case State#state.merge_pid of
+                undefined ->
+                    MergeRef = undefined;
+                MergePID ->
+                    MergeRef = monitor(process, MergePID),
+                    MergePID ! {step, {self(), MergeRef}, HowMuch}
+            end,
+
+            if (Next =:= undefined) andalso (MergeRef =:= undefined) ->
+                    %% nothing to do ... just return OK
+                    reply(StepFrom, ok),
+                    main_loop(State);
+               true ->
+                    main_loop(State#state{ step_next_ref=DelegateRef,
+                                           step_caller=StepFrom,
+                                           step_merge_ref=MergeRef
+                                         })
+            end;
+
+        {MRef, step_done} when MRef == State#state.step_merge_ref ->
+            demonitor(MRef, [flush]),
+
+            case State#state.step_next_ref of
+                undefined ->
+                    reply(State#state.step_caller, ok),
+                    State2 = State#state{ step_caller=undefined };
+                _ ->
+                    State2 = State
+            end,
+
+            main_loop(State2#state{ step_merge_ref=undefined });
+
+        {'DOWN', MRef, _, _, _} when MRef == State#state.step_merge_ref ->
+
+            case State#state.step_next_ref of
+                undefined ->
+                    reply(State#state.step_caller, ok),
+                    State2 = State#state{ step_caller=undefined };
+                _ ->
+                    State2 = State
+            end,
+
+            main_loop(State2#state{ step_merge_ref=undefined });
+
+
+        ?REPLY(MRef, ok) when (MRef =:= State#state.step_next_ref) and
+                              (State#state.step_merge_ref =:= undefined) ->
+            reply(State#state.step_caller, ok),
+            main_loop(State#state{ step_next_ref=undefined,
+                                   step_caller=undefined });
 
         ?REQ(From, close) ->
             close_if_defined(State#state.a),
