@@ -1,0 +1,67 @@
+* lsm_btree
+  * [cleanup] add @doc strings and and -spec's
+  * [cleanup] check to make sure every error returns with a reason {error, Reason}
+  * [feature] statistics
+  * [feature] use lager for error messages
+  * [enhancement] add crc or something to the files
+  * [feature] add config parameters on open
+    * {sync, boolean()} fdsync or not on write
+    * {cache, bytes(), name} share max(bytes) cache named 'name' via etc
+  * [enhancement] use etc/emmap to access/cache files
+  * [enhancement] adaptive nursery sizing
+  * [feature] support for time based expiry, merge should eliminate expired data
+  * [feature] add truncate/1 - quickly truncates a database to 0 items
+  * [feature] add sync/1 - flush pending writes to disk (aka checkpoint)
+    (nursery:finish() and finish/flush any merges)
+  * [feature] count/1 - return number of items currently in tree
+  * [feature] "group" commit - ability to make many k/v add/update/deletes atomic (for 2i)
+  * [enhancement] backpressure on fold operations
+    - The "sync_fold" creates a snapshot (hard link to btree files), which
+      provides consistent behavior but may use a lot of disk space if there is
+      a lot of insertion going on.
+    - The "async_fold" folds a limited number, and remembers the last key
+      serviced, then picks up from there again. So you could see intermittent
+      puts in a subsequent batch of results.
+
+* riak_kv_lsm_tree_backend
+  * add support for time-based expiry
+  * finish support for 2i
+  * add stats collection
+    - For each level {#merges, {merge-time-min, max, average}}
+
+
+PHASE 2:
+* lsm_btree
+
+  * Define a standard struct which is the metadata added at the end of the
+    file, e.g. [btree-nodes] [meta-data] [offset of meta-data]. This is written
+    in lsm_btree_writer:flush_nodes, and read in lsm_btree_reader:open2.
+  * [feature] compression, encryption on disk
+
+PHASE 3:
+* lsm_ixdb
+  * lsm_{btree, ctrie, ...} support for sub-databases and associations with
+    different index types
+  * [major change] add more CAPABILITIES such as
+     test-and-set(Fun, Key, Value) - to compare a vclock quickly, to speed up
+     the get/put patch for every update
+  * [enhancement] change encoding/layout of data on disk using sub-databases
+    and secondary indexes
+      bucket/key{meta[], data} -> ??
+
+
+REVIEW LITERATURE AND OTHER SIMILAR IMPLEMENTATAIONS:
+* nessdb https://code.google.com/p/nessdb/source/browse/LSM-BTREE?r=3a1df166a19505a2369dd954e8fc6d0a545f3d7b
+* http://tokutek.com/downloads/mysqluc-2010-fractal-trees.pdf page 14+
+* http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.44.2782&rep=rep1&type=pdf
+
+
+1: make the "first level" have more thatn 2^5 entries (controlled by the constant TOP_LEVEL in lsm_btree.hrl); this means a new set of files is opened/closed/merged for every 32 insert/updates/deletes. Setting this higher will just make the nursery correspondingly larger, which should be absolutely fine.
+
+2: Right now, the streaming btree writer emits a btree page based on number of elements. This could be changed to be based on the size of the node (say, some block-size boudary) and then add padding at the end so that each node read becomes a clean block transfer. Right now, we're probably taking way to many reads.
+
+3: Also, there is no caching of read nodes. So every time a btree node is visited it is also read from disk and term_to_binary'ed. But we need a caching system for that to work well (https://github.com/cliffmoon/cherly is difficult to build), it needs to be rebar-ified.
+
+4: Also, the format for btree nodes could probably be optimized. Right now it's just binary_to_term of a key/value list as far as I remember. Perhaps we dont have to deserialize the entire thing.
+
+5: It might also be good to employ a scheduler (github.com/esl/jobs<http://github.com/esl/jobs>) for issuing merges; because I think that it can be a problem for the OS if there are too many merges going on at the same time.
