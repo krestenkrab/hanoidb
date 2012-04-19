@@ -164,11 +164,9 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, total_size=_TotalSize, 
             %% inject the B-Tree (blocking RPC)
             ok = lsm_btree_level:inject(TopLevel, BTreeFileName),
 
-            %% synchroneously do some work if this is a top-level inject
-
-            % error_logger:info_msg("doing step ~p~n", [?BTREE_SIZE(?TOP_LEVEL)]),
-            lsm_btree_level:step(TopLevel, ?BTREE_SIZE(?TOP_LEVEL)),
-
+            %% issue some work if this is a top-level inject (blocks until previous such
+            %% incremental merge is finished).
+            lsm_btree_level:incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL)),
             ok;
 
         _ ->
