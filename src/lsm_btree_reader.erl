@@ -35,8 +35,13 @@
 -record(node, { level, members=[] }).
 -record(index, {file, root, bloom}).
 
+-type read_file() :: #index{}.
+
+-spec open(Name::string()) -> read_file().
 open(Name) ->
     open(Name, random).
+
+-spec open(Name::string(), sequential|random) -> read_file().
 
 %% this is how to open a btree for sequential scanning (merge, fold)
 open(Name, sequential) ->

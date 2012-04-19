@@ -11,6 +11,8 @@ function periodic() {
 		echo -n " "
 	    elif ! [ -f "B-$i.data" ] ; then
 		echo -n "-"
+	    elif ! [ -f "C-$i.data" ] ; then
+		echo -n "#"
 	    elif ! [ -f "X-$i.data" ] ; then
 		echo -n "="
 	    else
@@ -32,8 +34,10 @@ function dynamic() {
 		s="$s "
 	    elif ! [ -f "B-$i.data" ] ; then
 		s="$s-"
-	    elif ! [ -f "X-$i.data" ] ; then
+	    elif ! [ -f "C-$i.data" ] ; then
 		s="$s="
+	    elif ! [ -f "X-$i.data" ] ; then
+		s="$s%"
 	    else
 		s="$s*"
 	    fi
