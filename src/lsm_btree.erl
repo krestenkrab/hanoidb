@@ -132,21 +132,6 @@ kvfoldl(_Fun,Acc0,[]) ->
 kvfoldl(Fun,Acc0,[{K,V}|T]) ->
     kvfoldl(Fun, Fun(K,V,Acc0), T).
 
-drain_worker_and_throw(MRef, PID, ExitTuple) ->
-    receive
-        {fold_result, PID, _, _} ->
-            drain_worker_and_throw(MRef, PID, ExitTuple);
-        {'DOWN', MRef, _, _, _} ->
-            raise(ExitTuple);
-        {fold_limit, PID, _} ->
-            erlang:demonitor(MRef, [flush]),
-            raise(ExitTuple);
-        {fold_done, PID} ->
-            erlang:demonitor(MRef, [flush]),
-            raise(ExitTuple)
-    end.
-
-
 raise({'EXIT', Class, Exception, Trace}) ->
     erlang:raise(Class, Exception, Trace).
 
