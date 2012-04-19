@@ -79,10 +79,31 @@ sync_fold_range(Ref,Fun,Acc0,Range) ->
 
 sync_receive_fold_range(MRef, PID,Fun,Acc0) ->
     receive
+
+        %% receive one K/V from fold_worker
         {fold_result, PID, K,V} ->
             case
                 try
                     {ok, Fun(K,V,Acc0)}
+                catch
+                    Class:Exception ->
+                        lager:warning("Exception in lsm_btree fold: ~p", [Exception]),
+                        {'EXIT', Class, Exception, erlang:get_stacktrace()}
+                end
+            of
+                {ok, Acc1} ->
+                    sync_receive_fold_range(MRef, PID, Fun, Acc1);
+                Exit ->
+                    %% kill the fold worker ...
+                    erlang:exit(PID, kill),
+                    drain_worker_and_throw(MRef,PID,Exit)
+            end;
+
+        %% receive multiple KVs from fold_worker
+        {fold_results, PID, KVs} ->
+            case
+                try
+                    {ok, kvfoldl(Fun,Acc0,KVs)}
                 catch
                     Class:Exception ->
                         lager:warning("Exception in lsm_btree fold: ~p", [Exception]),
@@ -106,12 +127,34 @@ sync_receive_fold_range(MRef, PID,Fun,Acc0) ->
             error({fold_worker_died, Reason})
     end.
 
+kvfoldl(_Fun,Acc0,[]) ->
+    Acc0;
+kvfoldl(Fun,Acc0,[{K,V}|T]) ->
+    kvfoldl(Fun, Fun(K,V,Acc0), T).
+
+drain_worker_and_throw(MRef, PID, ExitTuple) ->
+    receive
+        {fold_result, PID, _, _} ->
+            drain_worker_and_throw(MRef, PID, ExitTuple);
+        {'DOWN', MRef, _, _, _} ->
+            raise(ExitTuple);
+        {fold_limit, PID, _} ->
+            erlang:demonitor(MRef, [flush]),
+            raise(ExitTuple);
+        {fold_done, PID} ->
+            erlang:demonitor(MRef, [flush]),
+            raise(ExitTuple)
+    end.
+
+
 raise({'EXIT', Class, Exception, Trace}) ->
     erlang:raise(Class, Exception, Trace).
 
 drain_worker_and_throw(MRef, PID, ExitTuple) ->
     receive
         {fold_result, PID, _, _} ->
+            drain_worker_and_throw(MRef, PID, ExitTuple);
+        {fold_results, PID, _} ->
             drain_worker_and_throw(MRef, PID, ExitTuple);
         {'DOWN', MRef, _, _, _} ->
             raise(ExitTuple);
@@ -215,8 +258,10 @@ handle_cast(Info,State) ->
 
 
 %% premature delete -> cleanup
+terminate(normal,_State) ->
+    ok;
 terminate(_Reason,_State) ->
-    % error_logger:info_msg("got terminate(~p,~p)~n", [Reason,State]),
+    error_logger:info_msg("got terminate(~p,~p)~n", [_Reason,_State]),
     % flush_nursery(State),
     ok.
 

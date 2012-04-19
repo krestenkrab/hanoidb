@@ -162,7 +162,13 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, total_size=_TotalSize, 
 %                                  [ gb_trees:size(Cache), TotalSize, FileInfo#file_info.size ]),
 
             %% inject the B-Tree (blocking RPC)
-            ok = lsm_btree_level:inject(TopLevel, BTreeFileName);
+            ok = lsm_btree_level:inject(TopLevel, BTreeFileName),
+
+            %% issue some work if this is a top-level inject (blocks until previous such
+            %% incremental merge is finished).
+            lsm_btree_level:incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL)),
+            ok;
+
         _ ->
             ok
     end,

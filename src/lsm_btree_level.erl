@@ -25,7 +25,8 @@
 -module(lsm_btree_level).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--include("lsm_btree.hrl").
+-include("include/lsm_btree.hrl").
+-include("src/lsm_btree.hrl").
 
 %%
 %% Manages a "pair" of lsm_index (or rathern, 0, 1 or 2), and governs
@@ -41,22 +42,25 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/3, lookup/2, inject/2, close/1, async_range/3, sync_range/3]).
+-export([open/3, lookup/2, inject/2, close/1, async_range/3, sync_range/3, incremental_merge/2]).
 
 -include_lib("kernel/include/file.hrl").
 
 -record(state, {
-          a, b, next, dir, level, inject_done_ref, merge_pid, folding = []
+          a, b, c, next, dir, level, inject_done_ref, merge_pid, folding = [],
+          step_next_ref, step_caller, step_merge_ref
           }).
 
 %%%%% PUBLIC OPERATIONS
 
 open(Dir,Level,Next) when Level>0 ->
-    {ok, plain_fsm:spawn_link(?MODULE,
+    PID = plain_fsm:spawn_link(?MODULE,
                               fun() ->
                                       process_flag(trap_exit,true),
                                       initialize(#state{dir=Dir,level=Level,next=Next})
-                              end)}.
+                              end),
+    incremental_merge(PID, 2*?BTREE_SIZE(?TOP_LEVEL)),
+    {ok, PID}.
 
 lookup(Ref, Key) ->
     call(Ref, {lookup, Key}).
@@ -64,6 +68,9 @@ lookup(Ref, Key) ->
 inject(Ref, FileName) ->
     Result = call(Ref, {inject, FileName}),
     Result.
+
+incremental_merge(Ref,HowMuch) ->
+    call(Ref, {incremental_merge, HowMuch}).
 
 close(Ref) ->
     try
@@ -77,13 +84,13 @@ close(Ref) ->
 
 async_range(Ref, FoldWorkerPID, Range) ->
     proc_lib:spawn(fun() ->
-                           {ok, Folders} = call(Ref, {init_range_fold, FoldWorkerPID, Range, []}),
+                           {ok, Folders} = call(Ref, {init_snapshot_range_fold, FoldWorkerPID, Range, []}),
                            FoldWorkerPID ! {initialize, Folders}
                    end),
     {ok, FoldWorkerPID}.
 
 sync_range(Ref, FoldWorkerPID, Range) ->
-    {ok, Folders} = call(Ref, {sync_range_fold, FoldWorkerPID, Range, []}),
+    {ok, Folders} = call(Ref, {init_blocking_range_fold, FoldWorkerPID, Range, []}),
     FoldWorkerPID ! {initialize, Folders},
     {ok, FoldWorkerPID}.
 
@@ -123,29 +130,49 @@ reply({PID,Ref}, Reply) ->
 
 
 initialize(State) ->
+
+    try
+        initialize2(State)
+    catch
+        Class:Ex when not (Class == exit andalso Ex == normal) ->
+            error_logger:error_msg("crash2: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()])
+    end.
+
+initialize2(State) ->
 %    error_logger:info_msg("in ~p level=~p~n", [self(), State]),
 
     AFileName = filename("A",State),
     BFileName = filename("B",State),
     CFileName = filename("C",State),
+    MFileName = filename("M",State),
 
     %% remove old merge file
     file:delete( filename("X",State)),
 
-    %% remove old fold files (hard links to A/B used during fold)
+    %% remove old fold files (hard links to A/B/C used during fold)
     file:delete( filename("AF",State)),
     file:delete( filename("BF",State)),
+    file:delete( filename("CF",State)),
 
-    case file:read_file_info(CFileName) of
+    case file:read_file_info(MFileName) of
         {ok, _} ->
 
             %% recover from post-merge crash
             file:delete(AFileName),
             file:delete(BFileName),
-            ok = file:rename(CFileName, AFileName),
+            ok = file:rename(MFileName, AFileName),
 
-            {ok, BT} = lsm_btree_reader:open(CFileName, random),
-            main_loop(State#state{ a= BT, b=undefined });
+            {ok, BT} = lsm_btree_reader:open(AFileName, random),
+
+            case file:read_file_info(CFileName) of
+                {ok, _} ->
+                    file:rename(CFileName, BFileName),
+                    {ok, BT2} = lsm_btree_reader:open(BFileName, random),
+                    check_begin_merge_then_loop(State#state{ a= BT, b=BT2 });
+
+                {error, enoent} ->
+                    main_loop(State#state{ a= BT, b=undefined })
+            end;
 
         {error, enoent} ->
             case file:read_file_info(BFileName) of
@@ -153,7 +180,14 @@ initialize(State) ->
                     {ok, BT1} = lsm_btree_reader:open(AFileName, random),
                     {ok, BT2} = lsm_btree_reader:open(BFileName, random),
 
-                    check_begin_merge_then_loop(State#state{ a=BT1, b=BT2 });
+                    case file:read_file_info(CFileName) of
+                        {ok, _} ->
+                            {ok, BT3} = lsm_btree_reader:open(CFileName, random);
+                        {error, enoent} ->
+                            BT3 = undefined
+                    end,
+
+                    check_begin_merge_then_loop(State#state{ a=BT1, b=BT2, c=BT3 });
 
                 {error, enoent} ->
 
@@ -179,7 +213,7 @@ main_loop(State = #state{ next=Next }) ->
     Parent = plain_fsm:info(parent),
     receive
         ?REQ(From, {lookup, Key})=Req ->
-            case do_lookup(Key, [State#state.b, State#state.a, Next]) of
+            case do_lookup(Key, [State#state.c, State#state.b, State#state.a, Next]) of
                 not_found ->
                     reply(From, not_found);
                 {found, Result} ->
@@ -189,22 +223,107 @@ main_loop(State = #state{ next=Next }) ->
             end,
             main_loop(State);
 
-        ?REQ(From, {inject, FileName}) when State#state.b == undefined ->
-            if State#state.a == undefined ->
+        ?REQ(From, {inject, FileName}) when State#state.c == undefined ->
+            case {State#state.a, State#state.b} of
+                {undefined, undefined} ->
                     ToFileName = filename("A",State),
                     SetPos = #state.a;
-               true ->
+                {_, undefined} ->
                     ToFileName = filename("B",State),
-                    SetPos = #state.b
+                    SetPos = #state.b;
+                {_, _} ->
+                    ToFileName = filename("C",State),
+                    SetPos = #state.c
             end,
             ok = file:rename(FileName, ToFileName),
             {ok, BT} = lsm_btree_reader:open(ToFileName, random),
+
             reply(From, ok),
             check_begin_merge_then_loop(setelement(SetPos, State, BT));
+
+
+        %% replies OK when there is no current step in progress
+        ?REQ(From, {incremental_merge, HowMuch})
+          when State#state.step_merge_ref == undefined,
+               State#state.step_next_ref == undefined ->
+            reply(From, ok),
+            self() ! ?REQ(undefined, {step, HowMuch}),
+            main_loop(State);
+
+        %% accept step any time there is not an outstanding step
+        ?REQ(StepFrom, {step, HowMuch})
+          when State#state.step_merge_ref == undefined,
+               State#state.step_caller    == undefined,
+               State#state.step_next_ref  == undefined
+               ->
+
+            %% delegate the step request to the next level
+            if Next =:= undefined ->
+                    DelegateRef = undefined;
+               true ->
+                    DelegateRef = send_request(Next, {step, HowMuch})
+            end,
+
+            %% if there is a merge worker, send him a step message
+            case State#state.merge_pid of
+                undefined ->
+                    MergeRef = undefined;
+                MergePID ->
+                    MergeRef = monitor(process, MergePID),
+                    MergePID ! {step, {self(), MergeRef}, HowMuch}
+            end,
+
+            if (Next =:= undefined) andalso (MergeRef =:= undefined) ->
+                    %% nothing to do ... just return OK
+                    State2 = reply_step_ok(State#state { step_caller = StepFrom }),
+                    main_loop(State2);
+               true ->
+                    main_loop(State#state{ step_next_ref=DelegateRef,
+                                           step_caller=StepFrom,
+                                           step_merge_ref=MergeRef
+                                         })
+            end;
+
+        {MRef, step_done} when MRef == State#state.step_merge_ref ->
+            demonitor(MRef, [flush]),
+
+            case State#state.step_next_ref of
+                undefined ->
+                    State2 = reply_step_ok(State);
+                _ ->
+                    State2 = State
+            end,
+
+            main_loop(State2#state{ step_merge_ref=undefined });
+
+        {'DOWN', MRef, _, _, _} when MRef == State#state.step_merge_ref ->
+
+            %% current merge worker died (or just finished)
+
+            case State#state.step_next_ref of
+                undefined ->
+                    State2 = reply_step_ok(State);
+                _ ->
+                    State2 = State
+            end,
+
+            main_loop(State2#state{ step_merge_ref=undefined });
+
+
+        ?REPLY(MRef, ok)
+          when MRef =:= State#state.step_next_ref,
+               State#state.step_merge_ref =:= undefined ->
+
+            %% this applies when we receive an OK from the next level,
+            %% and we have finished the incremental merge at this level
+
+            State2 = reply_step_ok(State),
+            main_loop(State2#state{ step_next_ref=undefined });
 
         ?REQ(From, close) ->
             close_if_defined(State#state.a),
             close_if_defined(State#state.b),
+            close_if_defined(State#state.c),
             stop_if_defined(State#state.merge_pid),
             reply(From, ok),
 
@@ -217,69 +336,94 @@ main_loop(State = #state{ next=Next }) ->
             end,
             ok;
 
-        ?REQ(From, {init_range_fold, WorkerPID, Range, List}) when State#state.folding == [] ->
+        ?REQ(From, {init_snapshot_range_fold, WorkerPID, Range, List}) when State#state.folding == [] ->
 
-            case {State#state.a, State#state.b} of
-                {undefined, undefined} ->
-                    NewFolding = [],
+            case {State#state.a, State#state.b, State#state.c} of
+                {undefined, undefined, undefined} ->
+                    FoldingPIDs = [],
                     NextList = List;
 
-                {_, undefined} ->
+                {_, undefined, undefined} ->
                     ok = file:make_link(filename("A", State), filename("AF", State)),
                     {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, Range),
                     NextList = [PID0|List],
-                    NewFolding = [PID0];
+                    FoldingPIDs = [PID0];
 
-                {_, _} ->
+                {_, _, undefined} ->
                     ok = file:make_link(filename("A", State), filename("AF", State)),
-                    {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, Range),
+                    {ok, PIDA} = start_range_fold(filename("AF",State), WorkerPID, Range),
 
                     ok = file:make_link(filename("B", State), filename("BF", State)),
-                    {ok, PID1} = start_range_fold(filename("BF",State), WorkerPID, Range),
+                    {ok, PIDB} = start_range_fold(filename("BF",State), WorkerPID, Range),
 
-                    NextList = [PID1,PID0|List],
-                    NewFolding = [PID1,PID0]
+                    NextList = [PIDA,PIDB|List],
+                    FoldingPIDs = [PIDB,PIDA];
+
+                {_, _, _} ->
+                    ok = file:make_link(filename("A", State), filename("AF", State)),
+                    {ok, PIDA} = start_range_fold(filename("AF",State), WorkerPID, Range),
+
+                    ok = file:make_link(filename("B", State), filename("BF", State)),
+                    {ok, PIDB} = start_range_fold(filename("BF",State), WorkerPID, Range),
+
+                    ok = file:make_link(filename("C", State), filename("CF", State)),
+                    {ok, PIDC} = start_range_fold(filename("CF",State), WorkerPID, Range),
+
+                    NextList = [PIDA,PIDB,PIDC|List],
+                    FoldingPIDs = [PIDC,PIDB,PIDA]
             end,
 
             case Next of
                 undefined ->
                     reply(From, {ok, lists:reverse(NextList)});
                 _ ->
-                    Next ! ?REQ(From, {init_range_fold, WorkerPID, Range, NextList})
+                    Next ! ?REQ(From, {init_snapshot_range_fold, WorkerPID, Range, NextList})
             end,
 
-            main_loop(State#state{ folding = NewFolding });
+            main_loop(State#state{ folding = FoldingPIDs });
 
         {range_fold_done, PID, [_,$F|_]=FoldFileName} ->
             ok = file:delete(FoldFileName),
             main_loop(State#state{ folding = lists:delete(PID,State#state.folding) });
 
-        ?REQ(From, {sync_range_fold, WorkerPID, Range, List}) ->
+        ?REQ(From, {init_blocking_range_fold, WorkerPID, Range, List}) ->
 
-            case {State#state.a, State#state.b} of
-                {undefined, undefined} ->
+            case {State#state.a, State#state.b, State#state.c} of
+                {undefined, undefined, undefined} ->
                     RefList = List;
 
-                {_, undefined} ->
+                {_, undefined, undefined} ->
                     ARef = erlang:make_ref(),
                     ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
                     RefList = [ARef|List];
 
-                {_, _} ->
+                {_, _, undefined} ->
                     BRef = erlang:make_ref(),
                     ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
 
                     ARef = erlang:make_ref(),
                     ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
 
-                    RefList = [ARef,BRef|List]
+                    RefList = [ARef,BRef|List];
+
+                {_, _, _} ->
+                    CRef = erlang:make_ref(),
+                    ok = do_range_fold(State#state.c, WorkerPID, CRef, Range),
+
+                    BRef = erlang:make_ref(),
+                    ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
+
+                    ARef = erlang:make_ref(),
+                    ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
+
+                    RefList = [ARef,BRef,CRef|List]
             end,
 
             case Next of
                 undefined ->
                     reply(From, {ok, lists:reverse(RefList)});
                 _ ->
-                    Next ! ?REQ(From, {sync_range_fold, WorkerPID, Range, RefList})
+                    Next ! ?REQ(From, {init_blocking_range_fold, WorkerPID, Range, RefList})
             end,
 
             main_loop(State);
@@ -291,19 +435,29 @@ main_loop(State = #state{ next=Next }) ->
         %%
         {merge_done, Count, OutFileName} when Count =< ?BTREE_SIZE(State#state.level) ->
 
-            % first, rename the tmp file to C, so recovery will pick it up
-            CFileName = filename("C",State),
-            ok = file:rename(OutFileName, CFileName),
+            % first, rename the tmp file to M, so recovery will pick it up
+            MFileName = filename("M",State),
+            ok = file:rename(OutFileName, MFileName),
 
             % then delete A and B (if we crash now, C will become the A file)
-            {ok, State2} = close_a_and_b(State),
+            {ok, State2} = close_and_delete_a_and_b(State),
 
-            % then, rename C to A, and open it
+            % then, rename M to A, and open it
             AFileName = filename("A",State2),
-            ok = file:rename(CFileName, AFileName),
+            ok = file:rename(MFileName, AFileName),
             {ok, BT} = lsm_btree_reader:open(AFileName, random),
 
-            main_loop(State2#state{ a=BT, b=undefined, merge_pid=undefined });
+            % iff there is a C file, then move it to B position
+            % TODO: consider recovery for this
+            case State#state.c of
+                undefined ->
+                    main_loop(State2#state{ a=BT, b=undefined, merge_pid=undefined });
+                TreeFile ->
+                    file:rename(filename("C",State2), filename("B", State2)),
+                    check_begin_merge_then_loop(State2#state{ a=BT, b=TreeFile, c=undefined,
+                                                              merge_pid=undefined })
+
+            end;
 
         %%
         %% We need to push the output of merging to the next level
@@ -317,6 +471,8 @@ main_loop(State = #state{ next=Next }) ->
                         State
                 end,
 
+            %% no need to rename it since we don't accept new injects
+
             MRef = send_request(State1#state.next, {inject, OutFileName}),
             main_loop(State1#state{ inject_done_ref = MRef, merge_pid=undefined });
 
@@ -325,14 +481,25 @@ main_loop(State = #state{ next=Next }) ->
         %%
         ?REPLY(MRef, ok) when MRef =:= State#state.inject_done_ref ->
             erlang:demonitor(MRef, [flush]),
-            {ok, State2} = close_a_and_b(State),
-            main_loop(State2#state{ inject_done_ref=undefined });
+            {ok, State2} = close_and_delete_a_and_b(State),
+
+            % if there is a "C" file, then move it to "A" position.
+            case State2#state.c of
+                undefined ->
+                    State3=State2;
+                TreeFile ->
+                    %% TODO: on what OS's is it ok to rename an open file?
+                    ok = file:rename(filename("C", State2), filename("A", State2)),
+                    State3 = State2#state{ a = TreeFile, b=undefined, c=undefined }
+            end,
+
+            main_loop(State3#state{ inject_done_ref=undefined });
 
         %%
         %% Our successor died!
         %%
-                {'DOWN', MRef, _, _, Reason} when MRef =:= State#state.inject_done_ref ->
-                    exit(Reason);
+        {'DOWN', MRef, _, _, Reason} when MRef =:= State#state.inject_done_ref ->
+            exit(Reason);
 
         %% gen_fsm handling
         {system, From, Req} ->
@@ -353,6 +520,13 @@ main_loop(State = #state{ next=Next }) ->
             error_logger:info_msg("got unexpected exit ~p from ~p~n", [Reason, PID])
 
     end.
+
+reply_step_ok(State) ->
+    case State#state.step_caller of
+        undefined -> ok;
+        _ -> reply(State#state.step_caller, ok)
+    end,
+    State#state{ step_caller=undefined }.
 
 do_lookup(_Key, []) ->
     not_found;
@@ -404,7 +578,7 @@ begin_merge(State) ->
     {ok, MergePID}.
 
 
-close_a_and_b(State) ->
+close_and_delete_a_and_b(State) ->
     AFileName = filename("A",State),
     BFileName = filename("B",State),
 
@@ -435,19 +609,23 @@ start_range_fold(FileName, WorkerPID, Range) ->
                         end ),
     {ok, PID}.
 
-do_range_fold(BT, WorkerPID, Self, Range) ->
+-spec do_range_fold(BT        :: lsm_btree_reader:read_file(),
+                    WorkerPID :: pid(),
+                    SelfOrRef :: pid() | reference(),
+                    Range     :: #btree_range{} ) -> ok.
+do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
     case lsm_btree_reader:range_fold(fun(Key,Value,_) ->
-                                             WorkerPID ! {level_result, Self, Key, Value},
+                                             WorkerPID ! {level_result, SelfOrRef, Key, Value},
                                              ok
                                      end,
                                      ok,
                                      BT,
                                      Range) of
         {limit, _, LastKey} ->
-            WorkerPID ! {level_limit, Self, LastKey};
+            WorkerPID ! {level_limit, SelfOrRef, LastKey};
         {done, _} ->
             %% tell fold merge worker we're done
-            WorkerPID ! {level_done, Self}
+            WorkerPID ! {level_done, SelfOrRef}
 
     end,
     ok.
