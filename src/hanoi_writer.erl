@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,10 +22,10 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree_writer).
+-module(hanoi_writer).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--include("lsm_btree.hrl").
+-include("hanoi.hrl").
 
 %%
 %% Streaming btree writer. Accepts only monotonically increasing keys for put.
@@ -80,7 +80,7 @@ init([Name,Size]) ->
 
 %    io:format("got name: ~p~n", [Name]),
 
-    case file:open( lsm_btree_util:index_file_name(Name),
+    case file:open( hanoi_util:index_file_name(Name),
                                [raw, exclusive, write, {delayed_write, 512 * 1024, 2000}]) of
         {ok, IdxFile} ->
             {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
@@ -89,7 +89,7 @@ init([Name,Size]) ->
                          bloom = BloomFilter
                        }};
         {error, _}=Error ->
-            error_logger:error_msg("lsm_btree_writer cannot open ~p: ~p~n", [Name, Error]),
+            error_logger:error_msg("hanoi_writer cannot open ~p: ~p~n", [Name, Error]),
             {stop, Error}
     end.
 
@@ -113,7 +113,7 @@ terminate(normal,_State) ->
 %% premature delete -> cleanup
 terminate(_Reason,State) ->
     file:close( State#state.index_file ),
-    file:delete( lsm_btree_util:index_file_name(State#state.name) ).
+    file:delete( hanoi_util:index_file_name(State#state.name) ).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -162,7 +162,7 @@ add_record(Level, Key, Value,
             end
     end,
 
-    NewSize = NodeSize + lsm_btree_util:estimate_node_size_increment(List, Key, Value),
+    NewSize = NodeSize + hanoi_util:estimate_node_size_increment(List, Key, Value),
 
     ebloom:insert( State#state.bloom, Key ),
 
@@ -182,7 +182,7 @@ add_record(Level, Key, Value, #state{ nodes=Nodes }=State) ->
 
 close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes]} = State) ->
     OrderedMembers = lists:reverse(NodeMembers),
-    {ok, DataSize, Data} = lsm_btree_util:encode_index_node(Level, OrderedMembers),
+    {ok, DataSize, Data} = hanoi_util:encode_index_node(Level, OrderedMembers),
     NodePos = State#state.index_file_pos,
     ok = file:write(State#state.index_file, Data),
 

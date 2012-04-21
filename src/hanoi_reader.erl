@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,12 +22,12 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree_reader).
+-module(hanoi_reader).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -include_lib("kernel/include/file.hrl").
--include("include/lsm_btree.hrl").
--include("lsm_btree.hrl").
+-include("include/hanoi.hrl").
+-include("hanoi.hrl").
 
 -export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4]).
 -export([first_node/1,next_node/1]).
@@ -232,7 +232,7 @@ find(_, _) ->
 read_node(File,{Pos,Size}) ->
 %   error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),
     {ok, <<_:32, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
-    lsm_btree_util:decode_index_node(Level, Data);
+    hanoi_util:decode_index_node(Level, Data);
 
 read_node(File,Pos) ->
     {ok, Pos} = file:position(File, Pos),
@@ -246,7 +246,7 @@ read_node(File) ->
         0 -> eof;
         _ ->
             {ok, Data} = file:read(File, Len-2),
-            {ok, Node} = lsm_btree_util:decode_index_node(Level, Data),
+            {ok, Node} = hanoi_util:decode_index_node(Level, Data),
             {ok, Node}
     end.
 
@@ -257,7 +257,7 @@ next_leaf_node(File) ->
             eof;
         {ok, <<Len:32, 0:16>>} ->
             {ok, Data} = file:read(File, Len-2),
-            lsm_btree_util:decode_index_node(0, Data);
+            hanoi_util:decode_index_node(0, Data);
         {ok, <<Len:32, _:16>>} ->
             {ok, _} = file:position(File, {cur,Len-2}),
             next_leaf_node(File)

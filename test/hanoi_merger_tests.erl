@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree_merger_tests).
+-module(hanoi_merger_tests).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -37,26 +37,26 @@ merge_test() ->
     file:delete("test2"),
     file:delete("test3"),
 
-    {ok, BT1} = lsm_btree_writer:open("test1"),
+    {ok, BT1} = hanoi_writer:open("test1"),
     lists:foldl(fun(N,_) ->
-                        ok = lsm_btree_writer:add(BT1, <<N:128>>, <<"data",N:128>>)
+                        ok = hanoi_writer:add(BT1, <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
                 lists:seq(1,10000,2)),
-    ok = lsm_btree_writer:close(BT1),
+    ok = hanoi_writer:close(BT1),
 
 
-    {ok, BT2} = lsm_btree_writer:open("test2"),
+    {ok, BT2} = hanoi_writer:open("test2"),
     lists:foldl(fun(N,_) ->
-                        ok = lsm_btree_writer:add(BT2, <<N:128>>, <<"data",N:128>>)
+                        ok = hanoi_writer:add(BT2, <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
                 lists:seq(2,5001,1)),
-    ok = lsm_btree_writer:close(BT2),
+    ok = hanoi_writer:close(BT2),
 
 
     self() ! {step, {self(), none}, 2000000000},
-    {Time,{ok,Count}} = timer:tc(lsm_btree_merger, merge, ["test1", "test2", "test3", 10000, true]),
+    {Time,{ok,Count}} = timer:tc(hanoi_merger, merge, ["test1", "test2", "test3", 10000, true]),
 
     error_logger:info_msg("time to merge: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 

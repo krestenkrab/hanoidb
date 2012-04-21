@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,10 +22,10 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree_tests).
+-module(hanoi_tests).
 
--include("include/lsm_btree.hrl").
--include("src/lsm_btree.hrl").
+-include("include/hanoi.hrl").
+-include("src/hanoi.hrl").
 
 -ifdef(TEST).
 -ifdef(TRIQ).
@@ -50,7 +50,7 @@
 -record(tree, { elements = dict:new() }).
 -record(state, { open = dict:new(),
                  closed = dict:new() }).
--define(SERVER, lsm_btree_drv).
+-define(SERVER, hanoi_drv).
 
 full_test_() ->
     {setup,
@@ -272,9 +272,9 @@ prop_dict_agree() ->
     ?FORALL(Cmds, commands(?MODULE),
             ?TRAPEXIT(
                begin
-                   lsm_btree_drv:start_link(),
+                   hanoi_drv:start_link(),
                     {History,State,Result} = run_commands(?MODULE, Cmds),
-                   lsm_btree_drv:stop(),
+                   hanoi_drv:stop(),
                    cleanup_test_trees(State),
                     ?WHENFAIL(io:format("History: ~w\nState: ~w\nResult: ~w\n",
                                         [History,State,Result]),
@@ -284,64 +284,64 @@ prop_dict_agree() ->
 %% UNIT TESTS
 %% ----------------------------------------------------------------------
 test_tree_simple_1() ->
-    {ok, Tree} = lsm_btree:open("simple"),
-    ok = lsm_btree:put(Tree, <<>>, <<"data", 77:128>>),
-    {ok, <<"data", 77:128>>} = lsm_btree:get(Tree, <<>>),
-    ok = lsm_btree:close(Tree).
+    {ok, Tree} = hanoi:open("simple"),
+    ok = hanoi:put(Tree, <<>>, <<"data", 77:128>>),
+    {ok, <<"data", 77:128>>} = hanoi:get(Tree, <<>>),
+    ok = hanoi:close(Tree).
 
 test_tree_simple_2() ->
-    {ok, Tree} = lsm_btree:open("simple"),
-    ok = lsm_btree:put(Tree, <<"ã">>, <<"µ">>),
-    ok = lsm_btree:delete(Tree, <<"ã">>),
-    ok = lsm_btree:close(Tree).
+    {ok, Tree} = hanoi:open("simple"),
+    ok = hanoi:put(Tree, <<"ã">>, <<"µ">>),
+    ok = hanoi:delete(Tree, <<"ã">>),
+    ok = hanoi:close(Tree).
 
 test_tree_simple_3() ->
-    {ok, Tree} = lsm_btree:open("simple"),
-    ok = lsm_btree:put(Tree, <<"X">>, <<"Y">>),
-    {ok, Ref} = lsm_btree:sync_range(Tree, #btree_range{from_key= <<"X">>, to_key= <<"X">>}),
+    {ok, Tree} = hanoi:open("simple"),
+    ok = hanoi:put(Tree, <<"X">>, <<"Y">>),
+    {ok, Ref} = hanoi:sync_range(Tree, #btree_range{from_key= <<"X">>, to_key= <<"X">>}),
     ?assertEqual(ok,
                  receive
                      {fold_done, Ref} -> ok
                  after 1000 -> {error, timeout}
                  end),
-    ok = lsm_btree:close(Tree).
+    ok = hanoi:close(Tree).
 
 test_tree_simple_4() ->
     Key = <<56,11,62,42,35,163,16,100,9,224,8,228,130,94,198,2,126,117,243,
             1,122,175,79,159,212,177,30,153,71,91,85,233,41,199,190,58,3,
             173,220,9>>,
     Value = <<212,167,12,6,105,152,17,80,243>>,
-    {ok, Tree} = lsm_btree:open("simple"),
-    ok = lsm_btree:put(Tree, Key, Value),
-    ?assertEqual({ok, Value}, lsm_btree:get(Tree, Key)),
-    ok = lsm_btree:close(Tree).
+    {ok, Tree} = hanoi:open("simple"),
+    ok = hanoi:put(Tree, Key, Value),
+    ?assertEqual({ok, Value}, hanoi:get(Tree, Key)),
+    ok = hanoi:close(Tree).
 
 test_tree() ->
-    {ok, Tree} = lsm_btree:open("simple2"),
+    {ok, Tree} = hanoi:open("simple2"),
     lists:foldl(fun(N,_) ->
-                        ok = lsm_btree:put(Tree,
+                        ok = hanoi:put(Tree,
                                                <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
                 lists:seq(2,100000,1)),
     lists:foldl(fun(N,_) ->
-                        ok = lsm_btree:put(Tree,
+                        ok = hanoi:put(Tree,
                                                <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
                 lists:seq(4000,6000,1)),
 
-    lsm_btree:delete(Tree, <<1500:128>>),
+    hanoi:delete(Tree, <<1500:128>>),
 
     {Time,{ok,Count}} = timer:tc(?MODULE, run_fold, [Tree,1000,2000]),
 
     error_logger:info_msg("time to fold: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 
 
-    ok = lsm_btree:close(Tree).
+    ok = hanoi:close(Tree).
 
 run_fold(Tree,From,To) ->
-    {ok, PID} = lsm_btree:sync_range(Tree, #btree_range{from_key= <<From:128>>, to_key= <<(To+1):128>>}),
+    {ok, PID} = hanoi:sync_range(Tree, #btree_range{from_key= <<From:128>>, to_key= <<(To+1):128>>}),
     lists:foreach(fun(1500) -> ok;
                      (N) ->
                           receive

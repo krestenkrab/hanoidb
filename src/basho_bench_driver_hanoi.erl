@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(basho_bench_driver_lsm_btree).
+-module(basho_bench_driver_hanoi).
 
 -record(state, { tree,
                  filename,
@@ -33,7 +33,7 @@
 -export([new/1,
          run/4]).
 
--include("lsm_btree.hrl").
+-include("hanoi.hrl").
 -include_lib("basho_bench/include/basho_bench.hrl").
 
 -record(btree_range, { from_key = <<>>       :: binary(),
@@ -48,20 +48,20 @@
 
 new(_Id) ->
     %% Make sure bitcask is available
-    case code:which(lsm_btree) of
+    case code:which(hanoi) of
         non_existing ->
-            ?FAIL_MSG("~s requires lsm_btree to be available on code path.\n",
+            ?FAIL_MSG("~s requires hanoi to be available on code path.\n",
                       [?MODULE]);
         _ ->
             ok
     end,
 
     %% Get the target directory
-    Dir = basho_bench_config:get(lsm_btree_dir, "."),
-    Filename = filename:join(Dir, "test.lsm_btree"),
+    Dir = basho_bench_config:get(hanoi_dir, "."),
+    Filename = filename:join(Dir, "test.hanoi"),
 
     %% Look for sync interval config
-    case basho_bench_config:get(lsm_btree_sync_interval, infinity) of
+    case basho_bench_config:get(hanoi_sync_interval, infinity) of
         Value when is_integer(Value) ->
             SyncInterval = Value;
         infinity ->
@@ -69,9 +69,9 @@ new(_Id) ->
     end,
 
     %% Get any bitcask flags
-    case lsm_btree:open(Filename) of
+    case hanoi:open(Filename) of
         {error, Reason} ->
-            ?FAIL_MSG("Failed to open lsm btree in ~s: ~p\n", [Filename, Reason]);
+            ?FAIL_MSG("Failed to open hanoi in ~s: ~p\n", [Filename, Reason]);
         {ok, FBTree} ->
             {ok, #state { tree = FBTree,
                           filename = Filename,
@@ -80,7 +80,7 @@ new(_Id) ->
     end.
 
 run(get, KeyGen, _ValueGen, State) ->
-    case lsm_btree:lookup(State#state.tree, KeyGen()) of
+    case hanoi:lookup(State#state.tree, KeyGen()) of
         {ok, _Value} ->
             {ok, State};
         not_found ->
@@ -89,14 +89,14 @@ run(get, KeyGen, _ValueGen, State) ->
             {error, Reason}
     end;
 run(put, KeyGen, ValueGen, State) ->
-    case lsm_btree:put(State#state.tree, KeyGen(), ValueGen()) of
+    case hanoi:put(State#state.tree, KeyGen(), ValueGen()) of
         ok ->
             {ok, State};
         {error, Reason} ->
             {error, Reason}
     end;
 run(delete, KeyGen, _ValueGen, State) ->
-    case lsm_btree:delete(State#state.tree, KeyGen()) of
+    case hanoi:delete(State#state.tree, KeyGen()) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -105,7 +105,7 @@ run(delete, KeyGen, _ValueGen, State) ->
 
 run(fold_100, KeyGen, _ValueGen, State) ->
     [From,To] = lists:usort([KeyGen(), KeyGen()]),
-    case lsm_btree:sync_fold_range(State#state.tree,
+    case hanoi:sync_fold_range(State#state.tree,
                                    fun(_Key,_Value,Count) ->
                                            Count+1
                                    end,

@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,14 +22,14 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree_nursery).
+-module(hanoi_nursery).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -export([new/1, recover/2, add/3, finish/2, lookup/2, add_maybe_flush/4]).
 -export([do_level_fold/3]).
 
--include("include/lsm_btree.hrl").
--include("lsm_btree.hrl").
+-include("include/hanoi.hrl").
+-include("hanoi.hrl").
 -include_lib("kernel/include/file.hrl").
 
 -record(nursery, { log_file, dir, cache, total_size=0, count=0 }).
@@ -147,14 +147,14 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, total_size=_TotalSize, 
         N when N>0 ->
             %% next, flush cache to a new BTree
             BTreeFileName = filename:join(Dir, "nursery.data"),
-            {ok, BT} = lsm_btree_writer:open(BTreeFileName, ?BTREE_SIZE(?TOP_LEVEL)),
+            {ok, BT} = hanoi_writer:open(BTreeFileName, ?BTREE_SIZE(?TOP_LEVEL)),
             try
                 lists:foreach( fun({Key,Value}) ->
-                                       ok = lsm_btree_writer:add(BT, Key, Value)
+                                       ok = hanoi_writer:add(BT, Key, Value)
                                end,
                                gb_trees:to_list(Cache))
             after
-                ok = lsm_btree_writer:close(BT)
+                ok = hanoi_writer:close(BT)
             end,
 
 %            {ok, FileInfo} = file:read_file_info(BTreeFileName),
@@ -162,11 +162,11 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, total_size=_TotalSize, 
 %                                  [ gb_trees:size(Cache), TotalSize, FileInfo#file_info.size ]),
 
             %% inject the B-Tree (blocking RPC)
-            ok = lsm_btree_level:inject(TopLevel, BTreeFileName),
+            ok = hanoi_level:inject(TopLevel, BTreeFileName),
 
             %% issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
-            lsm_btree_level:incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL)),
+            hanoi_level:incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL)),
             ok;
 
         _ ->
@@ -183,9 +183,9 @@ add_maybe_flush(Key, Value, Nursery=#nursery{ dir=Dir }, Top) ->
         {ok, _} = OK ->
             OK;
         {full, Nursery2} ->
-            ok = lsm_btree_nursery:finish(Nursery2, Top),
+            ok = hanoi_nursery:finish(Nursery2, Top),
             {error, enoent} = file:read_file_info( filename:join(Dir, "nursery.log")),
-            lsm_btree_nursery:new(Dir)
+            hanoi_nursery:new(Dir)
     end.
 
 do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, KeyRange) ->

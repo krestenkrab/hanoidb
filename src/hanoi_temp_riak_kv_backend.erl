@@ -20,14 +20,14 @@
 
 %%% NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE
 %%%
-%%% This is a temporary copy of riak_kv_backend, just here to keep lsm_btree
-%%% development private for now. When riak_kv_lsm_btree_backend is moved to
+%%% This is a temporary copy of riak_kv_backend, just here to keep hanoi
+%%% development private for now. When riak_kv_hanoi_backend is moved to
 %%% riak_kv, delete this file.
 %%%
 %%% NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE
 
 
--module(lsm_btree_temp_riak_kv_backend).
+-module(hanoi_temp_riak_kv_backend).
 
 -export([behaviour_info/1]).
 -export([callback_after/3]).

@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree_fold_worker).
+-module(hanoi_fold_worker).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 
@@ -59,7 +59,7 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--include("lsm_btree.hrl").
+-include("hanoi.hrl").
 
 -record(state, {sendto}).
 

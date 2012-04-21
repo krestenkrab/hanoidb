@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,24 +22,28 @@
 %%
 %% ----------------------------------------------------------------------------
 
+-author('Kresten Krab Thorup <krab@trifork.com>').
 
-%%
-%% When doing "async fold", it does "sync fold" in chunks
-%% of this many K/V entries.
-%%
--define(BTREE_ASYNC_CHUNK_SIZE, 100).
 
-%%
-%% The btree_range structure is a bit assymetric, here is why:
-%%
-%% from_key=<<>> is "less than" any other key, hence we don't need to
-%% handle from_key=undefined to support an open-ended start of the
-%% interval. For to_key, we cannot (statically) construct a key
-%% which is > any possible key, hence we need to allow to_key=undefined
-%% as a token of an interval that has no upper limit.
-%%
--record(btree_range, { from_key = <<>>       :: binary(),
-                       from_inclusive = true :: boolean(),
-                       to_key                :: binary() | undefined,
-                       to_inclusive = false  :: boolean(),
-                       limit :: pos_integer() | undefined }).
+%% smallest levels are 128 entries
+-define(TOP_LEVEL, 7).
+-define(BTREE_SIZE(Level), (1 bsl (Level))).
+
+-define(TOMBSTONE, 'deleted').
+
+-define(KEY_IN_FROM_RANGE(Key,Range),
+        ((Range#btree_range.from_inclusive andalso
+          (Range#btree_range.from_key =< Key))
+         orelse
+           (Range#btree_range.from_key < Key))).
+
+-define(KEY_IN_TO_RANGE(Key,Range),
+        ((Range#btree_range.to_key == undefined)
+         orelse
+         ((Range#btree_range.to_inclusive andalso
+             (Key =< Range#btree_range.to_key))
+          orelse
+             (Key <  Range#btree_range.to_key)))).
+
+-define(KEY_IN_RANGE(Key,Range),
+        (?KEY_IN_FROM_RANGE(Key,Range) andalso ?KEY_IN_TO_RANGE(Key,Range))).

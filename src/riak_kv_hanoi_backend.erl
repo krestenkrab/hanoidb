@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2012 (c) Basho Technologies, Inc.  All Rights Reserved.
 %% http://basho.com/ info@basho.com
@@ -19,8 +19,8 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(riak_kv_lsm_btree_backend).
--behavior(lsm_btree_temp_riak_kv_backend).
+-module(riak_kv_hanoi_backend).
+-behavior(hanoi_temp_riak_kv_backend).
 -author('Steve Vinoski <steve@basho.com>').
 -author('Greg Burd <greg@basho.com>').
 
@@ -45,7 +45,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--include("include/lsm_btree.hrl").
+-include("include/hanoi.hrl").
 
 -define(API_VERSION, 1).
 %% TODO: for when this backend supports 2i
@@ -78,37 +78,37 @@ capabilities(_) ->
 capabilities(_, _) ->
     {ok, ?CAPABILITIES}.
 
-%% @doc Start the lsm_btree backend
+%% @doc Start the hanoi backend
 -spec start(integer(), config()) -> {ok, state()} | {error, term()}.
 start(Partition, Config) ->
     %% Get the data root directory
-    case app_helper:get_prop_or_env(data_root, Config, lsm_btree) of
+    case app_helper:get_prop_or_env(data_root, Config, hanoi) of
         undefined ->
-            lager:error("Failed to create lsm_btree dir: data_root is not set"),
+            lager:error("Failed to create hanoi dir: data_root is not set"),
             {error, data_root_unset};
         DataRoot ->
-            AppStart = case application:start(lsm_btree) of
+            AppStart = case application:start(hanoi) of
                            ok ->
                                ok;
                            {error, {already_started, _}} ->
                                ok;
                            {error, StartReason} ->
-                               lager:error("Failed to init the lsm_btree backend: ~p", [StartReason]),
+                               lager:error("Failed to init the hanoi backend: ~p", [StartReason]),
                                {error, StartReason}
                        end,
             case AppStart of
                 ok ->
                     case get_data_dir(DataRoot, integer_to_list(Partition)) of
                         {ok, DataDir} ->
-                            case lsm_btree:open(DataDir) of
+                            case hanoi:open(DataDir) of
                                 {ok, Tree} ->
                                     {ok, #state{tree=Tree, partition=Partition}};
                                 {error, OpenReason}=OpenError ->
-                                    lager:error("Failed to open lsm_btree: ~p\n", [OpenReason]),
+                                    lager:error("Failed to open hanoi: ~p\n", [OpenReason]),
                                     OpenError
                             end;
                         {error, Reason} ->
-                            lager:error("Failed to start lsm_btree backend: ~p\n", [Reason]),
+                            lager:error("Failed to start hanoi backend: ~p\n", [Reason]),
                             {error, Reason}
                     end;
                 Error ->
@@ -116,19 +116,19 @@ start(Partition, Config) ->
             end
     end.
 
-%% @doc Stop the lsm_btree backend
+%% @doc Stop the hanoi backend
 -spec stop(state()) -> ok.
 stop(#state{tree=Tree}) ->
-    ok = lsm_btree:close(Tree).
+    ok = hanoi:close(Tree).
 
-%% @doc Retrieve an object from the lsm_btree backend
+%% @doc Retrieve an object from the hanoi backend
 -spec get(riak_object:bucket(), riak_object:key(), state()) ->
                  {ok, any(), state()} |
                  {ok, not_found, state()} |
                  {error, term(), state()}.
 get(Bucket, Key, #state{tree=Tree}=State) ->
     BKey = to_object_key(Bucket, Key),
-    case lsm_btree:get(Tree, BKey) of
+    case hanoi:get(Tree, BKey) of
         {ok, Value} ->
             {ok, Value, State};
         not_found  ->
@@ -137,23 +137,23 @@ get(Bucket, Key, #state{tree=Tree}=State) ->
             {error, Reason, State}
     end.
 
-%% @doc Insert an object into the lsm_btree backend.
+%% @doc Insert an object into the hanoi backend.
 -type index_spec() :: {add, Index, SecondaryKey} | {remove, Index, SecondaryKey}.
 -spec put(riak_object:bucket(), riak_object:key(), [index_spec()], binary(), state()) ->
                  {ok, state()} |
                  {error, term(), state()}.
 put(Bucket, Key, _IndexSpecs, Val, #state{tree=Tree}=State) ->
     BKey = to_object_key(Bucket, Key),
-    ok = lsm_btree:put(Tree, BKey, Val),
+    ok = hanoi:put(Tree, BKey, Val),
     {ok, State}.
 
-%% @doc Delete an object from the lsm_btree backend
+%% @doc Delete an object from the hanoi backend
 -spec delete(riak_object:bucket(), riak_object:key(), [index_spec()], state()) ->
                     {ok, state()} |
                     {error, term(), state()}.
 delete(Bucket, Key, _IndexSpecs, #state{tree=Tree}=State) ->
     BKey = to_object_key(Bucket, Key),
-    case lsm_btree:delete(Tree, BKey) of
+    case hanoi:delete(Tree, BKey) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -170,7 +170,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
     BucketFolder =
         fun() ->
                 try
-                    lsm_btree:sync_fold_range(Tree, FoldFun, {Acc, []}, #btree_range{})
+                    hanoi:sync_fold_range(Tree, FoldFun, {Acc, []}, #btree_range{})
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -213,7 +213,7 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
     KeyFolder =
         fun() ->
                 try
-                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, Range)
+                    hanoi:sync_fold_range(Tree, FoldFun, Acc, Range)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -250,7 +250,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     ObjectFolder =
         fun() ->
                 try
-                    lsm_btree:sync_fold_range(Tree, FoldFun, Acc, bucket_range(Bucket))
+                    hanoi:sync_fold_range(Tree, FoldFun, Acc, bucket_range(Bucket))
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -263,26 +263,26 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
             {ok, ObjectFolder()}
     end.
 
-%% @doc Delete all objects from this lsm_btree backend
+%% @doc Delete all objects from this hanoi backend
 -spec drop(state()) -> {ok, state()} | {error, term(), state()}.
 drop(#state{}=State) ->
     %% TODO: not yet implemented
     {ok, State}.
 
-%% @doc Returns true if this lsm_btree backend contains any
+%% @doc Returns true if this hanoi backend contains any
 %% non-tombstone values; otherwise returns false.
 -spec is_empty(state()) -> boolean().
 is_empty(#state{tree=Tree}) ->
     FoldFun = fun(_K, _V, _Acc) -> throw(ok) end,
     try
         Range = #btree_range{},
-        [] =:= lsm_btree:sync_fold_range(Tree, FoldFun, [], Range)
+        [] =:= hanoi:sync_fold_range(Tree, FoldFun, [], Range)
     catch
         _:ok ->
             false
     end.
 
-%% @doc Get the status information for this lsm_btree backend
+%% @doc Get the status information for this hanoi backend
 -spec status(state()) -> [{atom(), term()}].
 status(#state{}) ->
     %% TODO: not yet implemented
@@ -306,7 +306,7 @@ get_data_dir(DataRoot, Partition) ->
         ok ->
             {ok, PartitionDir};
         {error, Reason} ->
-            lager:error("Failed to create lsm_btree dir ~s: ~p", [PartitionDir, Reason]),
+            lager:error("Failed to create hanoi dir ~s: ~p", [PartitionDir, Reason]),
             {error, Reason}
     end.
 
@@ -377,13 +377,13 @@ from_object_key(LKey) ->
 -ifdef(TEST).
 
 simple_test_() ->
-    ?assertCmd("rm -rf test/lsm-btree-backend"),
-    application:set_env(lsm_btree, data_root, "test/lsm-btree-backend"),
-    lsm_btree_temp_riak_kv_backend:standard_test(?MODULE, []).
+    ?assertCmd("rm -rf test/hanoi-backend"),
+    application:set_env(hanoi, data_root, "test/hanoid-backend"),
+    hanoi_temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
-    ?assertCmd("rm -rf test/lsm_btree-backend"),
-    application:set_env(lsm_btree, data_root, ""),
-    lsm_btree_temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/lsm-btree-backend"}]).
+    ?assertCmd("rm -rf test/hanoi-backend"),
+    application:set_env(hanoi, data_root, ""),
+    hanoi_temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/hanoi-backend"}]).
 
 -endif.
