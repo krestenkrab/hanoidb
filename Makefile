@@ -28,7 +28,7 @@ clean-test-btrees:
 	rm -fr .eunit/Btree_* .eunit/simple
 
 plt: compile
-	$(DIALYZER) --build_plt --output_plt .lsm_btree.plt \
+	$(DIALYZER) --build_plt --output_plt .hanoi.plt \
 		-pa deps/plain_fsm/ebin \
 		-pa deps/ebloom/ebin \
 		deps/plain_fsm/ebin \
@@ -36,7 +36,7 @@ plt: compile
 		--apps kernel stdlib
 
 analyze: compile
-	$(DIALYZER) --plt .lsm_btree.plt \
+	$(DIALYZER) --plt .hanoi.plt \
 	-pa deps/plain_fsm/ebin \
 	-pa deps/ebloom/ebin \
 	ebin

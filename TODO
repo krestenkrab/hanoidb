@@ -1,4 +1,4 @@
-* lsm_btree
+* hanoi
   * [cleanup] add @doc strings and and -spec's
   * [cleanup] check to make sure every error returns with a reason {error, Reason}
   * [feature] statistics
@@ -23,7 +23,7 @@
       serviced, then picks up from there again. So you could see intermittent
       puts in a subsequent batch of results.
 
-* riak_kv_lsm_tree_backend
+* riak_kv_hanoie_backend
   * add support for time-based expiry
   * finish support for 2i
   * add stats collection
@@ -31,16 +31,16 @@
 
 
 PHASE 2:
-* lsm_btree
+* hanoi
 
   * Define a standard struct which is the metadata added at the end of the
     file, e.g. [btree-nodes] [meta-data] [offset of meta-data]. This is written
-    in lsm_btree_writer:flush_nodes, and read in lsm_btree_reader:open2.
+    in hanoi_writer:flush_nodes, and read in hanoi_reader:open2.
   * [feature] compression, encryption on disk
 
 PHASE 3:
 * lsm_ixdb
-  * lsm_{btree, ctrie, ...} support for sub-databases and associations with
+  * hanoi{btree, trie, ...} support for sub-databases and associations with
     different index types
   * [major change] add more CAPABILITIES such as
      test-and-set(Fun, Key, Value) - to compare a vclock quickly, to speed up
@@ -56,7 +56,7 @@ REVIEW LITERATURE AND OTHER SIMILAR IMPLEMENTATAIONS:
 * http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.44.2782&rep=rep1&type=pdf
 
 
-1: make the "first level" have more thatn 2^5 entries (controlled by the constant TOP_LEVEL in lsm_btree.hrl); this means a new set of files is opened/closed/merged for every 32 insert/updates/deletes. Setting this higher will just make the nursery correspondingly larger, which should be absolutely fine.
+1: make the "first level" have more thatn 2^5 entries (controlled by the constant TOP_LEVEL in hanoi.hrl); this means a new set of files is opened/closed/merged for every 32 insert/updates/deletes. Setting this higher will just make the nursery correspondingly larger, which should be absolutely fine.
 
 2: Right now, the streaming btree writer emits a btree page based on number of elements. This could be changed to be based on the size of the node (say, some block-size boudary) and then add padding at the end so that each node read becomes a clean block transfer. Right now, we're probably taking way to many reads.
 

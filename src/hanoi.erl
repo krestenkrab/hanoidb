@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree).
+-module(hanoi).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 
@@ -34,9 +34,9 @@
 -export([open/1, close/1, get/2, lookup/2, delete/2, put/3,
          async_range/2, async_fold_range/4, sync_range/2, sync_fold_range/4]).
 
--include("lsm_btree.hrl").
+-include("hanoi.hrl").
 -include_lib("kernel/include/file.hrl").
--include_lib("include/lsm_btree.hrl").
+-include_lib("include/hanoi.hrl").
 
 -record(state, { top, nursery, dir }).
 
@@ -87,7 +87,7 @@ sync_receive_fold_range(MRef, PID,Fun,Acc0) ->
                     {ok, Fun(K,V,Acc0)}
                 catch
                     Class:Exception ->
-                        lager:warning("Exception in lsm_btree fold: ~p", [Exception]),
+                        lager:warning("Exception in hanoi fold: ~p", [Exception]),
                         {'EXIT', Class, Exception, erlang:get_stacktrace()}
                 end
             of
@@ -106,7 +106,7 @@ sync_receive_fold_range(MRef, PID,Fun,Acc0) ->
                     {ok, kvfoldl(Fun,Acc0,KVs)}
                 catch
                     Class:Exception ->
-                        lager:warning("Exception in lsm_btree fold: ~p", [Exception]),
+                        lager:warning("Exception in hanoi fold: ~p", [Exception]),
                         {'EXIT', Class, Exception, erlang:get_stacktrace()}
                 end
             of
@@ -180,12 +180,12 @@ init([Dir]) ->
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
             {ok, TopLevel} = open_levels(Dir),
-            {ok, Nursery} = lsm_btree_nursery:recover(Dir, TopLevel);
+            {ok, Nursery} = hanoi_nursery:recover(Dir, TopLevel);
 
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
-            {ok, TopLevel} = lsm_btree_level:open(Dir, ?TOP_LEVEL, undefined),
-            {ok, Nursery} = lsm_btree_nursery:new(Dir)
+            {ok, TopLevel} = hanoi_level:open(Dir, ?TOP_LEVEL, undefined),
+            {ok, Nursery} = hanoi_nursery:new(Dir)
     end,
 
     {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery }}.
@@ -216,7 +216,7 @@ open_levels(Dir) ->
 
     TopLevel =
         lists:foldl( fun(LevelNo, Prev) ->
-                             {ok, Level} = lsm_btree_level:open(Dir,LevelNo,Prev),
+                             {ok, Level} = hanoi_level:open(Dir,LevelNo,Prev),
                              Level
                      end,
                      undefined,
@@ -256,15 +256,15 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 handle_call({async_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
-    {ok, FoldWorkerPID} = lsm_btree_fold_worker:start(Sender),
-    lsm_btree_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
-    Result = lsm_btree_level:async_range(TopLevel, FoldWorkerPID, Range),
+    {ok, FoldWorkerPID} = hanoi_fold_worker:start(Sender),
+    hanoi_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
+    Result = hanoi_level:async_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
 handle_call({sync_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
-    {ok, FoldWorkerPID} = lsm_btree_fold_worker:start(Sender),
-    lsm_btree_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
-    Result = lsm_btree_level:sync_range(TopLevel, FoldWorkerPID, Range),
+    {ok, FoldWorkerPID} = hanoi_fold_worker:start(Sender),
+    hanoi_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
+    Result = hanoi_level:sync_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
 handle_call({put, Key, Value}, _From, State) when is_binary(Key), is_binary(Value) ->
@@ -276,20 +276,20 @@ handle_call({delete, Key}, _From, State) when is_binary(Key) ->
     {reply, ok, State2};
 
 handle_call({get, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) when is_binary(Key) ->
-    case lsm_btree_nursery:lookup(Key, Nursery) of
+    case hanoi_nursery:lookup(Key, Nursery) of
         {value, ?TOMBSTONE} ->
             {reply, not_found, State};
         {value, Value} when is_binary(Value) ->
             {reply, {ok, Value}, State};
         none ->
-            Reply = lsm_btree_level:lookup(Top, Key),
+            Reply = hanoi_level:lookup(Top, Key),
             {reply, Reply, State}
     end;
 
 handle_call(close, _From, State=#state{top=Top}) ->
     try
         {ok, State2} = flush_nursery(State),
-        ok = lsm_btree_level:close(Top),
+        ok = hanoi_level:close(Top),
         {stop, normal, ok, State2}
     catch
         E:R ->
@@ -298,10 +298,10 @@ handle_call(close, _From, State=#state{top=Top}) ->
     end.
 
 do_put(Key, Value, State=#state{ nursery=Nursery, top=Top }) ->
-    {ok, Nursery2} = lsm_btree_nursery:add_maybe_flush(Key, Value, Nursery, Top),
+    {ok, Nursery2} = hanoi_nursery:add_maybe_flush(Key, Value, Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
 
 flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir}) ->
-    ok = lsm_btree_nursery:finish(Nursery, Top),
-    {ok, Nursery2} = lsm_btree_nursery:new(Dir),
+    ok = hanoi_nursery:finish(Nursery, Top),
+    {ok, Nursery2} = hanoi_nursery:new(Dir),
     {ok, State#state{ nursery=Nursery2 }}.

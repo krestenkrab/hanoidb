@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree_writer_tests).
+-module(hanoi_writer_tests).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -33,21 +33,21 @@
 
 simple_test() ->
 
-    {ok, BT} = lsm_btree_writer:open("testdata"),
-    ok = lsm_btree_writer:add(BT, <<"A">>, <<"Avalue">>),
-    ok = lsm_btree_writer:add(BT, <<"B">>, <<"Bvalue">>),
-    ok = lsm_btree_writer:close(BT),
+    {ok, BT} = hanoi_writer:open("testdata"),
+    ok = hanoi_writer:add(BT, <<"A">>, <<"Avalue">>),
+    ok = hanoi_writer:add(BT, <<"B">>, <<"Bvalue">>),
+    ok = hanoi_writer:close(BT),
 
-    {ok, IN} = lsm_btree_reader:open("testdata"),
-    {ok, <<"Avalue">>} = lsm_btree_reader:lookup(IN, <<"A">>),
-    ok = lsm_btree_reader:close(IN),
+    {ok, IN} = hanoi_reader:open("testdata"),
+    {ok, <<"Avalue">>} = hanoi_reader:lookup(IN, <<"A">>),
+    ok = hanoi_reader:close(IN),
 
     ok = file:delete("testdata").
 
 
 simple1_test() ->
 
-    {ok, BT} = lsm_btree_writer:open("testdata"),
+    {ok, BT} = hanoi_writer:open("testdata"),
 
     Max = 30*1024,
     Seq = lists:seq(0, Max),
@@ -56,21 +56,21 @@ simple1_test() ->
                   fun() ->
                           lists:foreach(
                             fun(Int) ->
-                                    ok = lsm_btree_writer:add(BT, <<Int:128>>, <<"valuevalue/", Int:128>>)
+                                    ok = hanoi_writer:add(BT, <<Int:128>>, <<"valuevalue/", Int:128>>)
                             end,
                             Seq),
-                          ok = lsm_btree_writer:close(BT)
+                          ok = hanoi_writer:close(BT)
                   end,
                   []),
 
     error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
 
-    {ok, IN} = lsm_btree_reader:open("testdata"),
-    {ok, <<"valuevalue/", 2048:128>>} = lsm_btree_reader:lookup(IN, <<2048:128>>),
+    {ok, IN} = hanoi_reader:open("testdata"),
+    {ok, <<"valuevalue/", 2048:128>>} = hanoi_reader:lookup(IN, <<2048:128>>),
 
 
     {Time2,Count} = timer:tc(
-                      fun() -> lsm_btree_reader:fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
+                      fun() -> hanoi_reader:fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
                                                          N+1
                                                  end,
                                                  0,
@@ -83,6 +83,6 @@ simple1_test() ->
     Max = Count-1,
 
 
-    ok = lsm_btree_reader:close(IN),
+    ok = hanoi_reader:close(IN),
 
     ok = file:delete("testdata").

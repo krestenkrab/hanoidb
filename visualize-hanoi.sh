@@ -2,7 +2,7 @@
 
 ## ----------------------------------------------------------------------------
 ##
-## lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+## hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 ##
 ## Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 ## http://trifork.com/ info@trifork.com

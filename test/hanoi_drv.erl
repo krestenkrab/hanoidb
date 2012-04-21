@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,8 +22,8 @@
 %%
 %% ----------------------------------------------------------------------------
 
-%% @Doc Drive a set of lsm BTrees
--module(lsm_btree_drv).
+%% @Doc Drive a set of LSM BTrees
+-module(hanoi_drv).
 
 -behaviour(gen_server).
 
@@ -90,7 +90,7 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({open, N}, _, #state { btrees = D} = State) ->
-    case lsm_btree:open(N) of
+    case hanoi:open(N) of
         {ok, Tree} ->
             {reply, ok, State#state { btrees = dict:store(N, Tree, D)}};
         Otherwise ->
@@ -98,7 +98,7 @@ handle_call({open, N}, _, #state { btrees = D} = State) ->
     end;
 handle_call({close, N}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    case lsm_btree:close(Tree) of
+    case hanoi:close(Tree) of
         ok ->
             {reply, ok, State#state { btrees = dict:erase(N, D)}};
         Otherwise ->
@@ -107,18 +107,18 @@ handle_call({close, N}, _, #state { btrees = D} = State) ->
 handle_call({sync_range, Name, Range}, _From,
             #state { btrees = D} = State) ->
     Tree = dict:fetch(Name, D),
-    {ok, Ref} = lsm_btree:sync_range(Tree, Range),
+    {ok, Ref} = hanoi:sync_range(Tree, Range),
     Result = sync_range_gather(Ref),
     {reply, Result, State};
 handle_call({sync_fold_range, Name, Fun, Acc0, Range},
             _From,
             #state { btrees = D } = State) ->
     Tree = dict:fetch(Name, D),
-    Result = lsm_btree:sync_fold_range(Tree, Fun, Acc0, Range),
+    Result = hanoi:sync_fold_range(Tree, Fun, Acc0, Range),
     {reply, Result, State};
 handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    case lsm_btree:put(Tree, K, V) of
+    case hanoi:put(Tree, K, V) of
         ok ->
             {reply, ok, State};
         Other ->
@@ -126,14 +126,14 @@ handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     end;
 handle_call({delete_exist, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    Reply = lsm_btree:delete(Tree, K),
+    Reply = hanoi:delete(Tree, K),
     {reply, Reply, State};
 handle_call({get, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    Reply = lsm_btree:get(Tree, K),
+    Reply = hanoi:get(Tree, K),
     {reply, Reply, State};
 handle_call(stop, _, #state{ btrees = D } = State ) ->
-    [ lsm_btree:close(Tree) || {_,Tree} <- dict:to_list(D) ],
+    [ hanoi:close(Tree) || {_,Tree} <- dict:to_list(D) ],
     {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,

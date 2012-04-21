@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,28 +22,31 @@
 %%
 %% ----------------------------------------------------------------------------
 
+-module(hanoi_sup).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
+-behaviour(supervisor).
 
-%% smallest levels are 128 entries
--define(TOP_LEVEL, 7).
--define(BTREE_SIZE(Level), (1 bsl (Level))).
+%% API
+-export([start_link/0]).
 
--define(TOMBSTONE, 'deleted').
+%% Supervisor callbacks
+-export([init/1]).
 
--define(KEY_IN_FROM_RANGE(Key,Range),
-        ((Range#btree_range.from_inclusive andalso
-          (Range#btree_range.from_key =< Key))
-         orelse
-           (Range#btree_range.from_key < Key))).
+%% Helper macro for declaring children of supervisor
+-define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
 
--define(KEY_IN_TO_RANGE(Key,Range),
-        ((Range#btree_range.to_key == undefined)
-         orelse
-         ((Range#btree_range.to_inclusive andalso
-             (Key =< Range#btree_range.to_key))
-          orelse
-             (Key <  Range#btree_range.to_key)))).
+%% ===================================================================
+%% API functions
+%% ===================================================================
 
--define(KEY_IN_RANGE(Key,Range),
-        (?KEY_IN_FROM_RANGE(Key,Range) andalso ?KEY_IN_TO_RANGE(Key,Range))).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+%% ===================================================================
+%% Supervisor callbacks
+%% ===================================================================
+
+init([]) ->
+    {ok, { {one_for_one, 5, 10}, []} }.
+

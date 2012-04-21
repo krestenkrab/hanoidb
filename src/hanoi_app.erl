@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,15 +22,20 @@
 %%
 %% ----------------------------------------------------------------------------
 
-{application, lsm_btree,
- [
-  {description, ""},
-  {vsn, "1.0.0"},
-  {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib
-                 ]},
-  {mod, {lsm_btree_app, []}},
-  {env, []}
- ]}.
+-module(hanoi_app).
+-author('Kresten Krab Thorup <krab@trifork.com>').
+
+-behaviour(application).
+
+%% Application callbacks
+-export([start/2, stop/1]).
+
+%% ===================================================================
+%% Application callbacks
+%% ===================================================================
+
+start(_StartType, _StartArgs) ->
+    hanoi_sup:start_link().
+
+stop(_State) ->
+    ok.

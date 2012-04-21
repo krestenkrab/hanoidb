@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% lsm_btree: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,14 +22,14 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(lsm_btree_level).
+-module(hanoi_level).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--include("include/lsm_btree.hrl").
--include("src/lsm_btree.hrl").
+-include("include/hanoi.hrl").
+-include("src/hanoi.hrl").
 
 %%
-%% Manages a "pair" of lsm_index (or rathern, 0, 1 or 2), and governs
+%% Manages a "pair" of hanoi index (or rathern, 0, 1 or 2), and governs
 %% the process of injecting/merging parent trees into this pair.
 %%
 
@@ -162,12 +162,12 @@ initialize2(State) ->
             file:delete(BFileName),
             ok = file:rename(MFileName, AFileName),
 
-            {ok, BT} = lsm_btree_reader:open(AFileName, random),
+            {ok, BT} = hanoi_reader:open(AFileName, random),
 
             case file:read_file_info(CFileName) of
                 {ok, _} ->
                     file:rename(CFileName, BFileName),
-                    {ok, BT2} = lsm_btree_reader:open(BFileName, random),
+                    {ok, BT2} = hanoi_reader:open(BFileName, random),
                     check_begin_merge_then_loop(State#state{ a= BT, b=BT2 });
 
                 {error, enoent} ->
@@ -177,12 +177,12 @@ initialize2(State) ->
         {error, enoent} ->
             case file:read_file_info(BFileName) of
                 {ok, _} ->
-                    {ok, BT1} = lsm_btree_reader:open(AFileName, random),
-                    {ok, BT2} = lsm_btree_reader:open(BFileName, random),
+                    {ok, BT1} = hanoi_reader:open(AFileName, random),
+                    {ok, BT2} = hanoi_reader:open(BFileName, random),
 
                     case file:read_file_info(CFileName) of
                         {ok, _} ->
-                            {ok, BT3} = lsm_btree_reader:open(CFileName, random);
+                            {ok, BT3} = hanoi_reader:open(CFileName, random);
                         {error, enoent} ->
                             BT3 = undefined
                     end,
@@ -193,7 +193,7 @@ initialize2(State) ->
 
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
-                            {ok, BT1} = lsm_btree_reader:open(AFileName, random),
+                            {ok, BT1} = hanoi_reader:open(AFileName, random),
                             main_loop(State#state{ a=BT1 });
 
                         {error, enoent} ->
@@ -236,7 +236,7 @@ main_loop(State = #state{ next=Next }) ->
                     SetPos = #state.c
             end,
             ok = file:rename(FileName, ToFileName),
-            {ok, BT} = lsm_btree_reader:open(ToFileName, random),
+            {ok, BT} = hanoi_reader:open(ToFileName, random),
 
             reply(From, ok),
             check_begin_merge_then_loop(setelement(SetPos, State, BT));
@@ -332,7 +332,7 @@ main_loop(State = #state{ next=Next }) ->
             %% rpc would fail when we fall off the cliff
             if Next == undefined -> ok;
                true ->
-                    lsm_btree_level:close(Next)
+                    hanoi_level:close(Next)
             end,
             ok;
 
@@ -445,7 +445,7 @@ main_loop(State = #state{ next=Next }) ->
             % then, rename M to A, and open it
             AFileName = filename("A",State2),
             ok = file:rename(MFileName, AFileName),
-            {ok, BT} = lsm_btree_reader:open(AFileName, random),
+            {ok, BT} = hanoi_reader:open(AFileName, random),
 
             % iff there is a C file, then move it to B position
             % TODO: consider recovery for this
@@ -535,7 +535,7 @@ do_lookup(_Key, [Pid]) when is_pid(Pid) ->
 do_lookup(Key, [undefined|Rest]) ->
     do_lookup(Key, Rest);
 do_lookup(Key, [BT|Rest]) ->
-    case lsm_btree_reader:lookup(BT, Key) of
+    case hanoi_reader:lookup(BT, Key) of
         {ok, ?TOMBSTONE} ->
             not_found;
         {ok, Result} ->
@@ -545,7 +545,7 @@ do_lookup(Key, [BT|Rest]) ->
     end.
 
 close_if_defined(undefined) -> ok;
-close_if_defined(BT)        -> lsm_btree_reader:close(BT).
+close_if_defined(BT)        -> hanoi_reader:close(BT).
 
 stop_if_defined(undefined) -> ok;
 stop_if_defined(MergePid) when is_pid(MergePid) ->
@@ -567,7 +567,7 @@ begin_merge(State) ->
     file:delete(XFileName),
 
     MergePID = proc_lib:spawn_link(fun() ->
-                       {ok, OutCount} = lsm_btree_merger:merge(AFileName, BFileName, XFileName,
+                       {ok, OutCount} = hanoi_merger:merge(AFileName, BFileName, XFileName,
                                                                    ?BTREE_SIZE(State#state.level + 1),
                                                                    State#state.next =:= undefined),
 %                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
@@ -582,8 +582,8 @@ close_and_delete_a_and_b(State) ->
     AFileName = filename("A",State),
     BFileName = filename("B",State),
 
-    ok = lsm_btree_reader:close(State#state.a),
-    ok = lsm_btree_reader:close(State#state.b),
+    ok = hanoi_reader:close(State#state.a),
+    ok = hanoi_reader:close(State#state.b),
 
     ok = file:delete(AFileName),
     ok = file:delete(BFileName),
@@ -600,7 +600,7 @@ start_range_fold(FileName, WorkerPID, Range) ->
     PID =
         proc_lib:spawn( fun() ->
                                 erlang:link(WorkerPID),
-                                {ok, File} = lsm_btree_reader:open(FileName, sequential),
+                                {ok, File} = hanoi_reader:open(FileName, sequential),
                                 do_range_fold(File, WorkerPID, self(), Range),
                                 erlang:unlink(WorkerPID),
 
@@ -609,12 +609,12 @@ start_range_fold(FileName, WorkerPID, Range) ->
                         end ),
     {ok, PID}.
 
--spec do_range_fold(BT        :: lsm_btree_reader:read_file(),
+-spec do_range_fold(BT        :: hanoi_reader:read_file(),
                     WorkerPID :: pid(),
                     SelfOrRef :: pid() | reference(),
                     Range     :: #btree_range{} ) -> ok.
 do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
-    case lsm_btree_reader:range_fold(fun(Key,Value,_) ->
+    case hanoi_reader:range_fold(fun(Key,Value,_) ->
                                              WorkerPID ! {level_result, SelfOrRef, Key, Value},
                                              ok
                                      end,
