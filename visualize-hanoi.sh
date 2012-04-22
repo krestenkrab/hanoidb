@@ -53,18 +53,30 @@ function dynamic() {
     start=`date +%s`
     while true ; do
         s=""
-        for ((i=0; i<35; i++)) ; do
-            if ! [ -f "A-$i.data" ] ; then
-                s="$s "
-            elif ! [ -f "B-$i.data" ] ; then
-                s="$s-"
-            elif ! [ -f "C-$i.data" ] ; then
-                s="$s="
-            elif ! [ -f "X-$i.data" ] ; then
-                s="$s%"
+        for ((i=7; i<25; i++)) ; do
+            if [ -f "A-$i.data" ] ; then
+                s="${s}A"
             else
-                s="$s*"
+                s="$s "
             fi
+            if [ -f "B-$i.data" ] ; then
+                s="${s}B"
+            else
+                s="$s "
+            fi
+            if [ -f "C-$i.data" ] ; then
+                s="${s}C"
+            else
+                s="$s "
+            fi
+            if [ -f "X-$i.data" ] ; then
+                s="${s}X"
+            elif [ -f "M-$i.data" ] ; then
+                s="${s}M"
+            else
+                s="$s "
+            fi
+            s="$s|"
         done
 
         if [[ "$s" != "$old" ]] ; then
