@@ -54,8 +54,8 @@ function dynamic() {
     while true ; do
         s=""
         for ((i=7; i<25; i++)) ; do
-            if [ -f "A-$i.data" ] ; then
-                s="${s}A"
+            if [ -f "C-$i.data" ] ; then
+                s="${s}C"
             else
                 s="$s "
             fi
@@ -64,8 +64,8 @@ function dynamic() {
             else
                 s="$s "
             fi
-            if [ -f "C-$i.data" ] ; then
-                s="${s}C"
+            if [ -f "A-$i.data" ] ; then
+                s="${s}A"
             else
                 s="$s "
             fi
