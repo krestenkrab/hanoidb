@@ -222,6 +222,8 @@ open_levels(Dir) ->
                      undefined,
                      lists:seq(MaxLevel, MinLevel, -1)),
 
+    ok = hanoi_level:incremental_merge(TopLevel, 2*?BTREE_SIZE(MaxLevel)),
+
     {ok, TopLevel}.
 
 parse_level(FileName) ->

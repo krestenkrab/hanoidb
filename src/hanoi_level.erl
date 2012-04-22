@@ -59,7 +59,6 @@ open(Dir,Level,Next) when Level>0 ->
                                       process_flag(trap_exit,true),
                                       initialize(#state{dir=Dir,level=Level,next=Next})
                               end),
-    incremental_merge(PID, 2*?BTREE_SIZE(?TOP_LEVEL)),
     {ok, PID}.
 
 lookup(Ref, Key) ->
