@@ -48,7 +48,7 @@ open(Dir) ->
 
 close(Ref) ->
     try
-        gen_server:call(Ref, close)
+        gen_server:call(Ref, close, infinity)
     catch
         exit:{noproc,_} -> ok;
         exit:noproc -> ok;
@@ -57,20 +57,20 @@ close(Ref) ->
     end.
 
 get(Ref,Key) when is_binary(Key) ->
-    gen_server:call(Ref, {get, Key}).
+    gen_server:call(Ref, {get, Key}, infinity).
 
 %% for compatibility with original code
 lookup(Ref,Key) when is_binary(Key) ->
-    gen_server:call(Ref, {get, Key}).
+    gen_server:call(Ref, {get, Key}, infinity).
 
 delete(Ref,Key) when is_binary(Key) ->
-    gen_server:call(Ref, {delete, Key}).
+    gen_server:call(Ref, {delete, Key}, infinity).
 
 put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
-    gen_server:call(Ref, {put, Key, Value}).
+    gen_server:call(Ref, {put, Key, Value}, infinity).
 
 sync_range(Ref, #btree_range{}=Range) ->
-    gen_server:call(Ref, {sync_range, self(), Range}).
+    gen_server:call(Ref, {sync_range, self(), Range}, infinity).
 
 sync_fold_range(Ref,Fun,Acc0,Range) ->
     {ok, PID} = sync_range(Ref, Range),
@@ -153,12 +153,12 @@ drain_worker_and_throw(MRef, PID, ExitTuple) ->
 
 
 async_range(Ref, #btree_range{}=Range) ->
-    gen_server:call(Ref, {async_range, self(), Range}).
+    gen_server:call(Ref, {async_range, self(), Range}, infinity).
 
 async_fold_range(Ref,Fun,Acc0,Range) ->
     Range2 = Range#btree_range{ limit=?BTREE_ASYNC_CHUNK_SIZE },
     FoldMoreFun = fun() ->
-                          {ok, PID} = gen_server:call(Ref, {sync_range, self(), Range}),
+                          {ok, PID} = gen_server:call(Ref, {sync_range, self(), Range}, infinity),
                           async_receive_fold_range(PID,Fun,Acc0,Ref,Range2)
                   end,
     {async, FoldMoreFun}.
