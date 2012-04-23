@@ -62,7 +62,7 @@ encode_index_node(KVList, Compress) ->
                     OutData = [?SNAPPY_COMPRESSION|Snappied]
             end;
         gzip ->
-            GZipData = zlib:gzip(TermData);
+            GZipData = zlib:gzip(TermData),
             if byte_size(GZipData) > byte_size(TermData) ->
                     OutData = [?NO_COMPRESSION|TermData];
                true ->
