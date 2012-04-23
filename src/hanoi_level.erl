@@ -42,7 +42,8 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/4, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3, incremental_merge/2]).
+-export([open/4, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3,
+         incremental_merge/2, unmerged_count/1]).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -71,6 +72,9 @@ inject(Ref, FileName) ->
 
 incremental_merge(Ref,HowMuch) ->
     call(Ref, {incremental_merge, HowMuch}).
+
+unmerged_count(Ref) ->
+    call(Ref, unmerged_count).
 
 close(Ref) ->
     try
@@ -241,6 +245,16 @@ main_loop(State = #state{ next=Next }) ->
             reply(From, ok),
             check_begin_merge_then_loop(setelement(SetPos, State, BT));
 
+
+        ?REQ(From, unmerged_count) ->
+            Files =
+                  (if State#state.b == undefined -> 0; true -> 1 end)
+                + (if State#state.c == undefined -> 0; true -> 1 end),
+
+            Amount = Files * ?BTREE_SIZE( State#state.level ),
+
+            reply(From, Amount),
+            main_loop(State);
 
         %% replies OK when there is no current step in progress
         ?REQ(From, {incremental_merge, HowMuch})
