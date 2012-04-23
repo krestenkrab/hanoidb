@@ -25,38 +25,40 @@
 -module(hanoi_nursery).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--export([new/1, recover/2, add/3, finish/2, lookup/2, add_maybe_flush/4]).
--export([do_level_fold/3]).
+-export([new/2, recover/3, add/3, finish/2, lookup/2, add_maybe_flush/4]).
+-export([do_level_fold/3, set_max_level/2]).
 
 -include("include/hanoi.hrl").
 -include("hanoi.hrl").
 -include_lib("kernel/include/file.hrl").
 
--record(nursery, { log_file, dir, cache, total_size=0, count=0, last_sync=now() }).
+-record(nursery, { log_file, dir, cache, total_size=0, count=0,
+                   last_sync=now(), max_level }).
 
--spec new(string()) -> {ok, #nursery{}} | {error, term()}.
+-spec new(string(), integer()) -> {ok, #nursery{}} | {error, term()}.
 
 -define(LOGFILENAME(Dir), filename:join(Dir, "nursery.log")).
 
-new(Directory) ->
+new(Directory, MaxLevel) ->
     {ok, File} = file:open( ?LOGFILENAME(Directory),
                             [raw, exclusive, write, delayed_write, append]),
-    {ok, #nursery{ log_file=File, dir=Directory, cache= gb_trees:empty() }}.
+    {ok, #nursery{ log_file=File, dir=Directory, cache= gb_trees:empty(),
+                   max_level=MaxLevel}}.
 
 
-recover(Directory, TopLevel) ->
+recover(Directory, TopLevel, MaxLevel) ->
     case file:read_file_info( ?LOGFILENAME(Directory) ) of
         {ok, _} ->
-            ok = do_recover(Directory, TopLevel),
-            new(Directory);
+            ok = do_recover(Directory, TopLevel, MaxLevel),
+            new(Directory, MaxLevel);
         {error, enoent} ->
-            new(Directory)
+            new(Directory, MaxLevel)
     end.
 
-do_recover(Directory, TopLevel) ->
+do_recover(Directory, TopLevel, MaxLevel) ->
     %% repair the log file; storing it in nursery2
     LogFileName = ?LOGFILENAME(Directory),
-    {ok, Nursery} = read_nursery_from_log(Directory),
+    {ok, Nursery} = read_nursery_from_log(Directory, MaxLevel),
 
     ok = finish(Nursery, TopLevel),
 
@@ -65,11 +67,11 @@ do_recover(Directory, TopLevel) ->
 
     ok.
 
-read_nursery_from_log(Directory) ->
+read_nursery_from_log(Directory, MaxLevel) ->
     {ok, LogFile} = file:open( ?LOGFILENAME(Directory), [raw, read, read_ahead, binary] ),
     {ok, Cache} = load_good_chunks(LogFile, gb_trees:empty()),
     ok = file:close(LogFile),
-    {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache) }}.
+    {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel }}.
 
 %% Just read the log file into a cache (gb_tree).
 %% If any errors happen here, then we simply ignore them and return
@@ -148,7 +150,10 @@ lookup(Key, #nursery{ cache=Cache }) ->
 % Finish this nursery (encode it to a btree, and delete the nursery file)
 % @end
 -spec finish(Nursery::#nursery{}, TopLevel::pid()) -> ok.
-finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, total_size=_TotalSize, count=Count }, TopLevel) ->
+finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
+                 total_size=_TotalSize, count=Count,
+                 max_level=MaxLevel
+               }, TopLevel) ->
 
     %% first, close the log file (if it is open)
     if LogFile /= undefined ->
@@ -181,7 +186,8 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, total_size=_TotalSize, 
 
             %% issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
-            hanoi_level:incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL)),
+            hanoi_level:incremental_merge(TopLevel,
+                                          (MaxLevel-?TOP_LEVEL+1)*?BTREE_SIZE(?TOP_LEVEL)),
             ok;
 
         _ ->
@@ -193,14 +199,14 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, total_size=_TotalSize, 
     file:delete(LogFileName),
     ok.
 
-add_maybe_flush(Key, Value, Nursery=#nursery{ dir=Dir }, Top) ->
+add_maybe_flush(Key, Value, Nursery=#nursery{ dir=Dir, max_level=MaxLevel }, Top) ->
     case add(Nursery, Key, Value) of
         {ok, _} = OK ->
             OK;
         {full, Nursery2} ->
             ok = hanoi_nursery:finish(Nursery2, Top),
             {error, enoent} = file:read_file_info( filename:join(Dir, "nursery.log")),
-            hanoi_nursery:new(Dir)
+            hanoi_nursery:new(Dir, MaxLevel)
     end.
 
 do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, KeyRange) ->
@@ -217,3 +223,6 @@ do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, KeyRange) ->
                   gb_trees:to_list(Cache)),
     FoldWorkerPID ! {level_done, Ref},
     ok.
+
+set_max_level(Nursery = #nursery{}, MaxLevel) ->
+    Nursery#nursery{ max_level = MaxLevel }.

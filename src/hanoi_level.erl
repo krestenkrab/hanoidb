@@ -50,7 +50,7 @@
 -record(state, {
           a, b, c, next, dir, level, inject_done_ref, merge_pid, folding = [],
           step_next_ref, step_caller, step_merge_ref,
-          opts = [], owner
+          opts = [], owner, work_done=0
           }).
 
 %%%%% PUBLIC OPERATIONS
@@ -209,7 +209,7 @@ initialize2(State) ->
 check_begin_merge_then_loop(State=#state{a=BT1, b=BT2, merge_pid=undefined})
   when BT1/=undefined, BT2 /= undefined ->
     {ok, MergePID} = begin_merge(State),
-    main_loop(State#state{merge_pid=MergePID });
+    main_loop(State#state{merge_pid=MergePID,work_done=0 });
 check_begin_merge_then_loop(State) ->
     main_loop(State).
 
@@ -247,13 +247,7 @@ main_loop(State = #state{ next=Next }) ->
 
 
         ?REQ(From, unmerged_count) ->
-            Files =
-                  (if State#state.b == undefined -> 0; true -> 1 end)
-                + (if State#state.c == undefined -> 0; true -> 1 end),
-
-            Amount = Files * ?BTREE_SIZE( State#state.level ),
-
-            reply(From, Amount),
+            reply(From, total_unmerged(State)),
             main_loop(State);
 
         %% replies OK when there is no current step in progress
@@ -261,7 +255,11 @@ main_loop(State = #state{ next=Next }) ->
           when State#state.step_merge_ref == undefined,
                State#state.step_next_ref == undefined ->
             reply(From, ok),
-            self() ! ?REQ(undefined, {step, HowMuch}),
+            if HowMuch > 0 ->
+                    self() ! ?REQ(undefined, {step, HowMuch});
+               true ->
+                    ok
+            end,
             main_loop(State);
 
         %% accept step any time there is not an outstanding step
@@ -271,30 +269,37 @@ main_loop(State = #state{ next=Next }) ->
                State#state.step_next_ref  == undefined
                ->
 
+            WorkLeftHere = max(0,total_unmerged(State) - State#state.work_done),
+            WorkToDoHere = min(WorkLeftHere, HowMuch),
+            DelegateWork = max(0,HowMuch - WorkToDoHere),
+
             %% delegate the step request to the next level
-            if Next =:= undefined ->
+            if Next =:= undefined; DelegateWork == 0 ->
                     DelegateRef = undefined;
                true ->
-                    DelegateRef = send_request(Next, {step, HowMuch})
+                    DelegateRef = send_request(Next, {step, DelegateWork})
             end,
 
-            %% if there is a merge worker, send him a step message
-            case State#state.merge_pid of
-                undefined ->
-                    MergeRef = undefined;
-                MergePID ->
+            if (State#state.merge_pid == undefined)
+               orelse (WorkToDoHere =< 0) ->
+                    MergeRef = undefined,
+                    NewWorkDone = State#state.work_done;
+               true ->
+                    MergePID = State#state.merge_pid,
                     MergeRef = monitor(process, MergePID),
-                    MergePID ! {step, {self(), MergeRef}, HowMuch}
+                    MergePID ! {step, {self(), MergeRef}, WorkToDoHere},
+                    NewWorkDone = State#state.work_done + WorkToDoHere
             end,
 
             if (Next =:= undefined) andalso (MergeRef =:= undefined) ->
                     %% nothing to do ... just return OK
                     State2 = reply_step_ok(State#state { step_caller = StepFrom }),
-                    main_loop(State2);
+                    main_loop(State2#state { work_done = NewWorkDone });
                true ->
                     main_loop(State#state{ step_next_ref=DelegateRef,
                                            step_caller=StepFrom,
-                                           step_merge_ref=MergeRef
+                                           step_merge_ref=MergeRef,
+                                           work_done = NewWorkDone
                                          })
             end;
 
@@ -544,6 +549,15 @@ reply_step_ok(State) ->
         _ -> reply(State#state.step_caller, ok)
     end,
     State#state{ step_caller=undefined }.
+
+total_unmerged(State) ->
+    Files =
+          (if State#state.b == undefined -> 0; true -> 1 end)
+        + (if State#state.c == undefined -> 0; true -> 1 end),
+
+    Files * ?BTREE_SIZE( State#state.level ).
+
+
 
 do_lookup(_Key, []) ->
     not_found;

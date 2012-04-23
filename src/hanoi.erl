@@ -197,13 +197,13 @@ init([Dir, Opts]) ->
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
             {ok, TopLevel, MaxLevel} = open_levels(Dir,Opts),
-            {ok, Nursery} = hanoi_nursery:recover(Dir, TopLevel);
+            {ok, Nursery} = hanoi_nursery:recover(Dir, TopLevel, MaxLevel);
 
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
             {ok, TopLevel} = hanoi_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
             MaxLevel = ?TOP_LEVEL,
-            {ok, Nursery} = hanoi_nursery:new(Dir)
+            {ok, Nursery} = hanoi_nursery:new(Dir, MaxLevel)
     end,
 
     {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts, max_level=MaxLevel }}.
@@ -233,12 +233,12 @@ open_levels(Dir,Options) ->
     file:delete(filename:join(Dir,"nursery.data")),
 
     {TopLevel, MaxMerge} =
-        lists:foldl( fun(LevelNo, {Prev, Max}) ->
+        lists:foldl( fun(LevelNo, {Prev, MergeWork0}) ->
                              {ok, Level} = hanoi_level:open(Dir,LevelNo,Prev,Options,self()),
 
-                             NextMax = max(Max, hanoi_level:unmerged_count(Level)),
+                             MergeWork = MergeWork0 + hanoi_level:unmerged_count(Level),
 
-                             {Level, NextMax}
+                             {Level, MergeWork}
                      end,
                      {undefined, 0},
                      lists:seq(MaxLevel, min(?TOP_LEVEL, MinLevel), -1)),
@@ -262,8 +262,10 @@ parse_level(FileName) ->
     end.
 
 
-handle_info({bottom_level, N}, State) when N > State#state.max_level ->
-    {noreply,State#state{ max_level = N }};
+handle_info({bottom_level, N}, #state{ nursery=Nursery }=State)
+  when N > State#state.max_level ->
+    {noreply,State#state{ max_level = N,
+                          nursery= hanoi_nursery:set_max_level(Nursery, N) }};
 
 handle_info(Info,State) ->
     error_logger:error_msg("Unknown info ~p~n", [Info]),
@@ -333,9 +335,9 @@ do_put(Key, Value, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = hanoi_nursery:add_maybe_flush(Key, Value, Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
 
-flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir}) ->
+flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel}) ->
     ok = hanoi_nursery:finish(Nursery, Top),
-    {ok, Nursery2} = hanoi_nursery:new(Dir),
+    {ok, Nursery2} = hanoi_nursery:new(Dir, MaxLevel),
     {ok, State#state{ nursery=Nursery2 }}.
 
 start_app() ->
