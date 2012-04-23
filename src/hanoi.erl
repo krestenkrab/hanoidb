@@ -39,14 +39,29 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("include/hanoi.hrl").
 
--record(state, { top, nursery, dir }).
+-record(state, { top, nursery, dir, opt }).
 
 
 %% PUBLIC API
 
+% @doc
+% Create or open existing hanoi store.  Argument `Dir' names a
+% directory in which to keep the data files.  By convention, we
+% name hanoi data directories with extension ".hanoi".
+% @spec open(Dir::string()) -> pid().
+- spec open(Dir::string()) -> pid().
 open(Dir) ->
-    gen_server:start(?MODULE, [Dir], []).
+    open(Dir, []).
 
+- spec open(Dir::string(), Opts::[_]) -> pid().
+open(Dir, Opts) ->
+    ok = start_app(),
+    gen_server:start(?MODULE, [Dir, Opts], []).
+
+% @doc
+% Close a Hanoi data store.
+% @spec close(Ref::pid()) -> ok
+- spec close(Ref::pid()) -> ok.
 close(Ref) ->
     try
         gen_server:call(Ref, close, infinity)
@@ -176,8 +191,7 @@ async_receive_fold_range(PID,Fun,Acc0,Ref,Range) ->
     end.
 
 
-init([Dir]) ->
-
+init([Dir, Opts]) ->
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
             {ok, TopLevel} = open_levels(Dir),
@@ -189,7 +203,7 @@ init([Dir]) ->
             {ok, Nursery} = hanoi_nursery:new(Dir)
     end,
 
-    {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery }}.
+    {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts }}.
 
 
 
@@ -308,3 +322,25 @@ flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir}) ->
     ok = hanoi_nursery:finish(Nursery, Top),
     {ok, Nursery2} = hanoi_nursery:new(Dir),
     {ok, State#state{ nursery=Nursery2 }}.
+
+start_app() ->
+    case application:start(?MODULE) of
+        ok ->
+            ok;
+        {error, {already_started, ?MODULE}} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+get_opt(Key, Opts) ->
+    case proplists:get_value(Key, Opts) of
+        undefined ->
+            case application:get_env(?MODULE, Key) of
+                {ok, Value} -> Value;
+                undefined -> undefined
+            end;
+        Value ->
+            Value
+    end.
+
