@@ -170,7 +170,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
     BucketFolder =
         fun() ->
                 try
-                    hanoi:sync_fold_range(Tree, FoldFun, {Acc, []}, #btree_range{})
+                    hanoi:fold_range(Tree, FoldFun, {Acc, []}, #btree_range{})
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -213,7 +213,7 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
     KeyFolder =
         fun() ->
                 try
-                    hanoi:sync_fold_range(Tree, FoldFun, Acc, Range)
+                    hanoi:fold_range(Tree, FoldFun, Acc, Range)
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -250,7 +250,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     ObjectFolder =
         fun() ->
                 try
-                    hanoi:sync_fold_range(Tree, FoldFun, Acc, bucket_range(Bucket))
+                    hanoi:fold_range(Tree, FoldFun, Acc, bucket_range(Bucket))
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -276,7 +276,7 @@ is_empty(#state{tree=Tree}) ->
     FoldFun = fun(_K, _V, _Acc) -> throw(ok) end,
     try
         Range = #btree_range{},
-        [] =:= hanoi:sync_fold_range(Tree, FoldFun, [], Range)
+        [] =:= hanoi:fold_range(Tree, FoldFun, [], Range)
     catch
         _:ok ->
             false

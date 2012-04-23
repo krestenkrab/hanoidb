@@ -42,7 +42,7 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/3, lookup/2, inject/2, close/1, async_range/3, sync_range/3, incremental_merge/2]).
+-export([open/3, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3, incremental_merge/2]).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -81,14 +81,14 @@ close(Ref) ->
 
 
 
-async_range(Ref, FoldWorkerPID, Range) ->
+snapshot_range(Ref, FoldWorkerPID, Range) ->
     proc_lib:spawn(fun() ->
                            {ok, Folders} = call(Ref, {init_snapshot_range_fold, FoldWorkerPID, Range, []}),
                            FoldWorkerPID ! {initialize, Folders}
                    end),
     {ok, FoldWorkerPID}.
 
-sync_range(Ref, FoldWorkerPID, Range) ->
+blocking_range(Ref, FoldWorkerPID, Range) ->
     {ok, Folders} = call(Ref, {init_blocking_range_fold, FoldWorkerPID, Range, []}),
     FoldWorkerPID ! {initialize, Folders},
     {ok, FoldWorkerPID}.
@@ -381,9 +381,10 @@ main_loop(State = #state{ next=Next }) ->
 
             main_loop(State#state{ folding = FoldingPIDs });
 
-        {range_fold_done, PID, [_,$F|_]=FoldFileName} ->
+        {range_fold_done, PID, FoldFileName} ->
             ok = file:delete(FoldFileName),
-            main_loop(State#state{ folding = lists:delete(PID,State#state.folding) });
+            NewFolding = lists:delete(PID,State#state.folding),
+            main_loop(State#state{ folding = NewFolding });
 
         ?REQ(From, {init_blocking_range_fold, WorkerPID, Range, List}) ->
 
@@ -602,6 +603,7 @@ start_range_fold(FileName, WorkerPID, Range) ->
                                 {ok, File} = hanoi_reader:open(FileName, sequential),
                                 do_range_fold(File, WorkerPID, self(), Range),
                                 erlang:unlink(WorkerPID),
+                                hanoi_reader:close(File),
 
                                 %% this will release the pinning of the fold file
                                 Owner  ! {range_fold_done, self(), FileName}

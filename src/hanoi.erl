@@ -32,7 +32,8 @@
          terminate/2, code_change/3]).
 
 -export([open/1, close/1, get/2, lookup/2, delete/2, put/3,
-         async_range/2, async_fold_range/4, sync_range/2, sync_fold_range/4]).
+         async_fold/3, async_fold_range/4,
+         fold/3, fold_range/4]).
 
 -include("hanoi.hrl").
 -include_lib("kernel/include/file.hrl").
@@ -69,15 +70,15 @@ delete(Ref,Key) when is_binary(Key) ->
 put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
     gen_server:call(Ref, {put, Key, Value}, infinity).
 
-sync_range(Ref, #btree_range{}=Range) ->
-    gen_server:call(Ref, {sync_range, self(), Range}, infinity).
+fold(Ref,Fun,Acc0) ->
+    fold_range(Ref,Fun,Acc0,#btree_range{from_key= <<>>, to_key=undefined}).
 
-sync_fold_range(Ref,Fun,Acc0,Range) ->
-    {ok, PID} = sync_range(Ref, Range),
+fold_range(Ref,Fun,Acc0,Range) ->
+    {ok, PID} = gen_server:call(Ref, {snapshot_range, self(), Range}, infinity),
     MRef = erlang:monitor(process, PID),
-    sync_receive_fold_range(MRef, PID,Fun,Acc0).
+    receive_fold_range(MRef, PID,Fun,Acc0).
 
-sync_receive_fold_range(MRef, PID,Fun,Acc0) ->
+receive_fold_range(MRef, PID,Fun,Acc0) ->
     receive
 
         %% receive one K/V from fold_worker
@@ -92,7 +93,7 @@ sync_receive_fold_range(MRef, PID,Fun,Acc0) ->
                 end
             of
                 {ok, Acc1} ->
-                    sync_receive_fold_range(MRef, PID, Fun, Acc1);
+                    receive_fold_range(MRef, PID, Fun, Acc1);
                 Exit ->
                     %% kill the fold worker ...
                     erlang:exit(PID, kill),
@@ -111,7 +112,7 @@ sync_receive_fold_range(MRef, PID,Fun,Acc0) ->
                 end
             of
                 {ok, Acc1} ->
-                    sync_receive_fold_range(MRef, PID, Fun, Acc1);
+                    receive_fold_range(MRef, PID, Fun, Acc1);
                 Exit ->
                     %% kill the fold worker ...
                     erlang:exit(PID, kill),
@@ -152,13 +153,13 @@ drain_worker_and_throw(MRef, PID, ExitTuple) ->
     end.
 
 
-async_range(Ref, #btree_range{}=Range) ->
-    gen_server:call(Ref, {async_range, self(), Range}, infinity).
+async_fold(Ref,Fun,Acc0) ->
+    async_fold_range(Ref,Fun,Acc0,#btree_range{ from_key= <<>>, to_key=undefined }).
 
 async_fold_range(Ref,Fun,Acc0,Range) ->
     Range2 = Range#btree_range{ limit=?BTREE_ASYNC_CHUNK_SIZE },
     FoldMoreFun = fun() ->
-                          {ok, PID} = gen_server:call(Ref, {sync_range, self(), Range}, infinity),
+                          {ok, PID} = gen_server:call(Ref, {snapshot_range, self(), Range}, infinity),
                           async_receive_fold_range(PID,Fun,Acc0,Ref,Range2)
                   end,
     {async, FoldMoreFun}.
@@ -257,16 +258,16 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-handle_call({async_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
+handle_call({snapshot_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
     {ok, FoldWorkerPID} = hanoi_fold_worker:start(Sender),
     hanoi_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
-    Result = hanoi_level:async_range(TopLevel, FoldWorkerPID, Range),
+    Result = hanoi_level:snapshot_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
-handle_call({sync_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
+handle_call({blocking_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
     {ok, FoldWorkerPID} = hanoi_fold_worker:start(Sender),
     hanoi_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
-    Result = hanoi_level:sync_range(TopLevel, FoldWorkerPID, Range),
+    Result = hanoi_level:blocking_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
 handle_call({put, Key, Value}, _From, State) when is_binary(Key), is_binary(Value) ->
