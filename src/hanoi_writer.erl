@@ -187,8 +187,13 @@ add_record(Level, Key, Value, #state{ nodes=Nodes }=State) ->
 
 close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], compress=Compress} = State) ->
     OrderedMembers = lists:reverse(NodeMembers),
-    {ok, DataSize, Data} = hanoi_util:encode_index_node(Level, OrderedMembers, Compress),
+    {ok, BlockData} = hanoi_util:encode_index_node(OrderedMembers, Compress),
     NodePos = State#state.index_file_pos,
+
+    BlockSize = byte_size(BlockData),
+    Data = [ <<(BlockSize+2):32/unsigned, Level:16/unsigned>> | BlockData ],
+    DataSize = BlockData + 6,
+
     ok = file:write(State#state.index_file, Data),
 
     {FirstKey, _} = hd(OrderedMembers),
