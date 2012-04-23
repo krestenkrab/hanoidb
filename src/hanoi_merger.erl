@@ -133,11 +133,17 @@ scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKV
             scan(BT1, BT2, Out2, IsLastLevel, AT, BT, Count+1, step(Step))
     end.
 
-scan_only(BT, Out, IsLastLevel, [], Count, Step) ->
+scan_only(BT, Out, IsLastLevel, [], Count, {_, FromPID}=Step) ->
     case hanoi_reader:next_node(BT) of
         {node, KVs} ->
             scan_only(BT, Out, IsLastLevel, KVs, Count, step(Step));
         end_of_data ->
+            case FromPID of
+                none ->
+                    ok;
+                {PID, Ref} ->
+                    PID ! {Ref, step_done}
+            end,
             {ok, Count, Out}
     end;
 
