@@ -47,13 +47,24 @@ function periodic() {
     done
 }
 
+merge_diff() {
+    SA=`ls -l A-${ID}.data 2> /dev/null | awk '{print $5}'`
+    SB=`ls -l B-${ID}.data 2> /dev/null | awk '{print $5}'`
+    SX=`ls -l X-${ID}.data 2> /dev/null | awk '{print $5}'`
+    if [ \( -n "$SA" \) -a \( -n "$SB" \)  -a \( -n "$SX" \) ]; then
+      export RES=`expr ${SX}0 / \( $SA + $SB \)`
+    else
+      export RES="?"
+    fi
+}
+
 function dynamic() {
     local old s t start now
     t=0
     start=`date +%s`
     while true ; do
         s=""
-        for ((i=7; i<25; i++)) ; do
+        for ((i=8; i<22; i++)) ; do
             if [ -f "C-$i.data" ] ; then
                 s="${s}C"
             else
@@ -70,7 +81,9 @@ function dynamic() {
                 s="$s "
             fi
             if [ -f "X-$i.data" ] ; then
-                s="${s}X"
+                export ID="$i"
+                merge_diff
+                s="${s}$RES"
             elif [ -f "M-$i.data" ] ; then
                 s="${s}M"
             else
@@ -83,7 +96,9 @@ function dynamic() {
             let "t=t+1"
             now=`date +%s`
             let "now=now-start"
-            printf "%5d %6d [%s\n" "$t" "$now" "$s"
+            free=`df -m . | tail -1 | awk '{print $4}'`
+            used=`du -m | awk '{print $1}' `
+            printf "%5d %6d [%s\n" "$t" "$now" "$s ${used}Mb (${free}Mb free)"
             old="$s"
         else
             # Sleep a little bit:
