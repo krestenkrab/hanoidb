@@ -240,7 +240,7 @@ open_levels(Dir,Options) ->
                              {Level, NextMax}
                      end,
                      {undefined, 0},
-                     lists:seq(MaxLevel, ?TOP_LEVEL, -1)),
+                     lists:seq(MaxLevel, min(?TOP_LEVEL, MinLevel), -1)),
 
     %% we need to do this much merge work before we can guarantee
     %% response times ... this is the amount of "in flight" merging
