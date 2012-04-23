@@ -41,7 +41,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("include/hanoi.hrl").
 
--record(state, { top, nursery, dir, opt }).
+-record(state, { top, nursery, dir, opt, max_level }).
 
 
 %% PUBLIC API
@@ -196,16 +196,17 @@ async_receive_fold_range(PID,Fun,Acc0,Ref,Range) ->
 init([Dir, Opts]) ->
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
-            {ok, TopLevel} = open_levels(Dir,Opts),
+            {ok, TopLevel, MaxLevel} = open_levels(Dir,Opts),
             {ok, Nursery} = hanoi_nursery:recover(Dir, TopLevel);
 
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
-            {ok, TopLevel} = hanoi_level:open(Dir, ?TOP_LEVEL, undefined, Opts),
+            {ok, TopLevel} = hanoi_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
+            MaxLevel = ?TOP_LEVEL,
             {ok, Nursery} = hanoi_nursery:new(Dir)
     end,
 
-    {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts }}.
+    {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts, max_level=MaxLevel }}.
 
 
 
@@ -233,7 +234,7 @@ open_levels(Dir,Options) ->
 
     {TopLevel, MaxMerge} =
         lists:foldl( fun(LevelNo, {Prev, Max}) ->
-                             {ok, Level} = hanoi_level:open(Dir,LevelNo,Prev,Options),
+                             {ok, Level} = hanoi_level:open(Dir,LevelNo,Prev,Options,self()),
 
                              NextMax = max(Max, hanoi_level:unmerged_count(Level)),
 
@@ -250,7 +251,7 @@ open_levels(Dir,Options) ->
     %% second incremental merge blocks until the previous is done
     ok = hanoi_level:incremental_merge(TopLevel, 0),
 
-    {ok, TopLevel}.
+    {ok, TopLevel, MaxLevel}.
 
 parse_level(FileName) ->
     case re:run(FileName, "^[^\\d]+-(\\d+)\\.data$", [{capture,all_but_first,list}]) of
@@ -260,6 +261,9 @@ parse_level(FileName) ->
             nomatch
     end.
 
+
+handle_info({bottom_level, N}, State) when N > State#state.max_level ->
+    {noreply,State#state{ max_level = N }};
 
 handle_info(Info,State) ->
     error_logger:error_msg("Unknown info ~p~n", [Info]),

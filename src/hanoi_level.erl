@@ -42,7 +42,7 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/4, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3,
+-export([open/5, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3,
          incremental_merge/2, unmerged_count/1]).
 
 -include_lib("kernel/include/file.hrl").
@@ -50,16 +50,16 @@
 -record(state, {
           a, b, c, next, dir, level, inject_done_ref, merge_pid, folding = [],
           step_next_ref, step_caller, step_merge_ref,
-          opts = []
+          opts = [], owner
           }).
 
 %%%%% PUBLIC OPERATIONS
 
-open(Dir,Level,Next,Opts) when Level>0 ->
+open(Dir,Level,Next,Opts,Owner) when Level>0 ->
     PID = plain_fsm:spawn_link(?MODULE,
                               fun() ->
                                       process_flag(trap_exit,true),
-                                      initialize(#state{dir=Dir,level=Level,next=Next,opts=Opts})
+                                      initialize(#state{dir=Dir,level=Level,next=Next,opts=Opts,owner=Owner})
                               end),
     {ok, PID}.
 
@@ -481,7 +481,8 @@ main_loop(State = #state{ next=Next }) ->
             State1 =
                 if Next =:= undefined ->
                         {ok, PID} = ?MODULE:open(State#state.dir, State#state.level + 1, undefined,
-                                                 State#state.opts ),
+                                                 State#state.opts, State#state.owner ),
+                        State#state.owner ! { bottom_level, State#state.level + 1 },
                         State#state{ next=PID };
                    true ->
                         State
