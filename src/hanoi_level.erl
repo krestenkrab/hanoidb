@@ -42,22 +42,23 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/3, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3, incremental_merge/2]).
+-export([open/4, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3, incremental_merge/2]).
 
 -include_lib("kernel/include/file.hrl").
 
 -record(state, {
           a, b, c, next, dir, level, inject_done_ref, merge_pid, folding = [],
-          step_next_ref, step_caller, step_merge_ref
+          step_next_ref, step_caller, step_merge_ref,
+          opts = []
           }).
 
 %%%%% PUBLIC OPERATIONS
 
-open(Dir,Level,Next) when Level>0 ->
+open(Dir,Level,Next,Opts) when Level>0 ->
     PID = plain_fsm:spawn_link(?MODULE,
                               fun() ->
                                       process_flag(trap_exit,true),
-                                      initialize(#state{dir=Dir,level=Level,next=Next})
+                                      initialize(#state{dir=Dir,level=Level,next=Next,opts=Opts})
                               end),
     {ok, PID}.
 
@@ -465,7 +466,8 @@ main_loop(State = #state{ next=Next }) ->
         {merge_done, _, OutFileName} ->
             State1 =
                 if Next =:= undefined ->
-                        {ok, PID} = ?MODULE:open(State#state.dir, State#state.level + 1, undefined),
+                        {ok, PID} = ?MODULE:open(State#state.dir, State#state.level + 1, undefined,
+                                                 State#state.opts ),
                         State#state{ next=PID };
                    true ->
                         State
@@ -567,12 +569,20 @@ begin_merge(State) ->
     file:delete(XFileName),
 
     MergePID = proc_lib:spawn_link(fun() ->
+         try
                        {ok, OutCount} = hanoi_merger:merge(AFileName, BFileName, XFileName,
-                                                                   ?BTREE_SIZE(State#state.level + 1),
-                                                                   State#state.next =:= undefined),
+                                                           ?BTREE_SIZE(State#state.level + 1),
+                                                           State#state.next =:= undefined,
+                                                           State#state.opts ),
 %                       error_logger:info_msg("merge done ~p,~p -> ~p~n", [AFileName, BFileName, XFileName]),
 
                        Owner ! {merge_done, OutCount, XFileName}
+         catch
+            C:E ->
+                 error_logger:error_msg("merge failed ~p:~p ~p~n",
+                                        [C,E,erlang:get_stacktrace()]),
+                 erlang:raise(C,E,erlang:get_stacktrace())
+         end
                end),
 
     {ok, MergePID}.

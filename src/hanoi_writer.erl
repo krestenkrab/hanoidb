@@ -53,18 +53,19 @@
 
                  name :: string(),
 
-                 bloom
+                 bloom,
+                 block_size = ?NODE_SIZE,
+                 compress   = none :: none | snappy | gzip
                }).
 
 
 %%% PUBLIC API
 
-open(Name,Size) ->
-    gen_server:start_link(?MODULE, [Name,Size], []).
-
+open(Name,Options) ->
+    gen_server:start_link(?MODULE, [Name,Options], []).
 
 open(Name) ->
-    gen_server:start_link(?MODULE, [Name,2048], []).
+    gen_server:start_link(?MODULE, [Name,[]], []).
 
 
 add(Ref,Key,Data) ->
@@ -76,7 +77,9 @@ close(Ref) ->
 %%%
 
 
-init([Name,Size]) ->
+init([Name,Options]) ->
+
+    Size = proplists:get_value(size, Options, 2048),
 
 %    io:format("got name: ~p~n", [Name]),
 
@@ -86,7 +89,9 @@ init([Name,Size]) ->
             {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
             {ok, #state{ name=Name,
                          index_file_pos=0, index_file=IdxFile,
-                         bloom = BloomFilter
+                         bloom = BloomFilter,
+                         block_size = hanoi:get_opt(block_size, Options, ?NODE_SIZE),
+                         compress = hanoi:get_opt(compress, Options, none)
                        }};
         {error, _}=Error ->
             error_logger:error_msg("hanoi_writer cannot open ~p: ~p~n", [Name, Error]),
@@ -164,7 +169,7 @@ add_record(Level, Key, Value,
 
     NewSize = NodeSize + hanoi_util:estimate_node_size_increment(List, Key, Value),
 
-    ebloom:insert( State#state.bloom, Key ),
+    ok = ebloom:insert( State#state.bloom, Key ),
 
     NodeMembers = [{Key,Value} | List],
     if
@@ -180,9 +185,9 @@ add_record(Level, Key, Value, #state{ nodes=Nodes }=State) ->
 
 
 
-close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes]} = State) ->
+close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], compress=Compress} = State) ->
     OrderedMembers = lists:reverse(NodeMembers),
-    {ok, DataSize, Data} = hanoi_util:encode_index_node(Level, OrderedMembers),
+    {ok, DataSize, Data} = hanoi_util:encode_index_node(Level, OrderedMembers, Compress),
     NodePos = State#state.index_file_pos,
     ok = file:write(State#state.index_file, Data),
 

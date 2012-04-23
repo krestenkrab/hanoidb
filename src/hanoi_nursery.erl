@@ -161,7 +161,8 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, total_size=_TotalSize, 
         N when N>0 ->
             %% next, flush cache to a new BTree
             BTreeFileName = filename:join(Dir, "nursery.data"),
-            {ok, BT} = hanoi_writer:open(BTreeFileName, ?BTREE_SIZE(?TOP_LEVEL)),
+            {ok, BT} = hanoi_writer:open(BTreeFileName, [{size,?BTREE_SIZE(?TOP_LEVEL)},
+                                                         {compress, none}]),
             try
                 lists:foreach( fun({Key,Value}) ->
                                        ok = hanoi_writer:add(BT, Key, Value)

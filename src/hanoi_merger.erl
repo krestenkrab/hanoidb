@@ -29,7 +29,7 @@
 %% Merging two BTrees
 %%
 
--export([merge/5]).
+-export([merge/6]).
 
 -include("hanoi.hrl").
 
@@ -40,14 +40,14 @@
 %%
 -define(LOCAL_WRITER, true).
 
-merge(A,B,C, Size, IsLastLevel) ->
+merge(A,B,C, Size, IsLastLevel, Options) ->
     {ok, BT1} = hanoi_reader:open(A, sequential),
     {ok, BT2} = hanoi_reader:open(B, sequential),
     case ?LOCAL_WRITER of
         true ->
-            {ok, Out} = hanoi_writer:init([C, Size]);
+            {ok, Out} = hanoi_writer:init([C, [{size,Size} | Options]]);
         false ->
-            {ok, Out} = hanoi_writer:open(C, Size)
+            {ok, Out} = hanoi_writer:open(C, [{size,Size} | Options])
     end,
 
     {node, AKVs} = hanoi_reader:first_node(BT1),
@@ -79,11 +79,8 @@ scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {0, FromPID}) ->
             PID ! {Ref, step_done}
     end,
 
-%    error_logger:info_msg("waiting for step in ~p~n", [self()]),
-
     receive
         {step, From, HowMany} ->
-%            error_logger:info_msg("got step ~p,~p in ~p~n", [From,HowMany, self()]),
             scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {HowMany, From})
     end;
 

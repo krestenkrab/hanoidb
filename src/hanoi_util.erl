@@ -45,16 +45,40 @@ estimate_node_size_increment(_KVList,Key,Value) ->
                   13
           end.
 
-encode_index_node(Level, KVList) ->
-    Data = %zlib:zip(
-             erlang:term_to_binary(KVList)
-           % )
-        ,
-    Size = byte_size(Data)+2,
-    {ok, Size+4, [ <<Size:32/unsigned, Level:16/unsigned>> | Data ] }.
+-define(NO_COMPRESSION, 0).
+-define(SNAPPY_COMPRESSION, 1).
+-define(GZIP_COMPRESSION, 2).
 
-decode_index_node(Level, <<Data/binary>>) ->
-    KVList = erlang:binary_to_term(Data), %zlib:unzip(Data)),
+encode_index_node(Level, KVList, Compress) ->
+
+    TermData = erlang:term_to_binary(KVList),
+
+    case Compress of
+        snappy ->
+            {ok, Snappied} = snappy:compress(TermData),
+            CompressedData = [?SNAPPY_COMPRESSION|Snappied];
+        gzip ->
+            CompressedData = [?GZIP_COMPRESSION|zlib:gzip(TermData)];
+        _ ->
+            CompressedData = [?NO_COMPRESSION|TermData]
+    end,
+
+    Size = erlang:iolist_size(CompressedData),
+
+    {ok, Size+6, [ <<(Size+2):32/unsigned, Level:16/unsigned>> | CompressedData ] }.
+
+decode_index_node(Level, <<Tag, Data/binary>>) ->
+
+    case Tag of
+        ?NO_COMPRESSION ->
+            TermData = Data;
+        ?SNAPPY_COMPRESSION ->
+            {ok, TermData} = snappy:decompress(Data);
+        ?GZIP_COMPRESSION ->
+            TermData = zlib:gunzip(Data)
+    end,
+
+    KVList = erlang:binary_to_term(TermData),
     {ok, {node, Level, KVList}}.
 
 

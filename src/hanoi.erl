@@ -31,9 +31,11 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([open/1, close/1, get/2, lookup/2, delete/2, put/3,
+-export([open/1, open/2, close/1, get/2, lookup/2, delete/2, put/3,
          async_fold/3, async_fold_range/4,
          fold/3, fold_range/4]).
+
+-export([get_opt/2, get_opt/3]).
 
 -include("hanoi.hrl").
 -include_lib("kernel/include/file.hrl").
@@ -194,12 +196,12 @@ async_receive_fold_range(PID,Fun,Acc0,Ref,Range) ->
 init([Dir, Opts]) ->
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
-            {ok, TopLevel} = open_levels(Dir),
+            {ok, TopLevel} = open_levels(Dir,Opts),
             {ok, Nursery} = hanoi_nursery:recover(Dir, TopLevel);
 
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
-            {ok, TopLevel} = hanoi_level:open(Dir, ?TOP_LEVEL, undefined),
+            {ok, TopLevel} = hanoi_level:open(Dir, ?TOP_LEVEL, undefined, Opts),
             {ok, Nursery} = hanoi_nursery:new(Dir)
     end,
 
@@ -207,7 +209,7 @@ init([Dir, Opts]) ->
 
 
 
-open_levels(Dir) ->
+open_levels(Dir,Options) ->
     {ok, Files} = file:list_dir(Dir),
 
     %% parse file names and find max level
@@ -231,7 +233,7 @@ open_levels(Dir) ->
 
     TopLevel =
         lists:foldl( fun(LevelNo, Prev) ->
-                             {ok, Level} = hanoi_level:open(Dir,LevelNo,Prev),
+                             {ok, Level} = hanoi_level:open(Dir,LevelNo,Prev,Options),
                              Level
                      end,
                      undefined,
@@ -334,11 +336,14 @@ start_app() ->
     end.
 
 get_opt(Key, Opts) ->
+    get_opt(Key, Opts, undefined).
+
+get_opt(Key, Opts, Default) ->
     case proplists:get_value(Key, Opts) of
         undefined ->
             case application:get_env(?MODULE, Key) of
                 {ok, Value} -> Value;
-                undefined -> undefined
+                undefined -> Default
             end;
         Value ->
             Value
