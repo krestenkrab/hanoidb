@@ -32,7 +32,7 @@
 -include("hanoi.hrl").
 -include_lib("kernel/include/file.hrl").
 
--record(nursery, { log_file, dir, cache, total_size=0, count=0 }).
+-record(nursery, { log_file, dir, cache, total_size=0, count=0, last_sync=now() }).
 
 -spec new(string()) -> {ok, #nursery{}} | {error, term()}.
 
@@ -116,10 +116,24 @@ add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Co
                      ++ if Value /= ?TOMBSTONE -> [<<(byte_size(Value)):32>>, Value];
                            true -> [] end),
 
-    ok = file:datasync(File),
+    case application:get_env(hanoi, sync_strategy) of
+        {ok, sync} ->
+            file:datasync(File),
+            LastSync = now();
+        {ok, {seconds, N}} ->
+            MicrosSinceLastSync = timer:now_diff(now(), Nursery#nursery.last_sync),
+            if (MicrosSinceLastSync / 1000000) >= N ->
+                    file:datasync(File),
+                    LastSync = now();
+               true ->
+                    LastSync = Nursery#nursery.last_sync
+            end;
+        _ ->
+            LastSync = Nursery#nursery.last_sync
+    end,
 
     Cache2 = gb_trees:enter(Key, Value, Cache),
-    Nursery2 = Nursery#nursery{ cache=Cache2, total_size=TotalSize+Size+16, count=Count+1 },
+    Nursery2 = Nursery#nursery{ cache=Cache2, total_size=TotalSize+Size+16, count=Count+1, last_sync=LastSync },
     if
        Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
             {full, Nursery2};
