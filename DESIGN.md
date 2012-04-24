@@ -1,6 +1,6 @@
+# Hanoi's Design
 
-# Hanoi's Design: How this LSM-BTree Works
-
+### Basics
 If there are N records, there are in log<sub>2</sub>(N)  levels (each being a plain B-tree in a file named "A-*level*.data").  The file `A-0.data` has 1 record, `A-1.data` has 2 records, `A-2.data` has 4 records, and so on: `A-n.data` has 2<sup>n</sup> records.
 
 In "stable state", each level file is either full (there) or empty (not there); so if there are e.g. 20 records stored, then there are only data in filed `A-2.data` (4 records) and `A-4.data` (16 records).
@@ -28,7 +28,6 @@ Deletes are the same: they are also done by inserting a tombstone (a special val
 
 
 ## Merge Logic
-
 The really clever thing about this storage mechanism is that merging is guaranteed to be able to "keep up" with insertion.   Bitcask for instance has a similar merging phase, but it is separated from insertion.  This means that there can suddenly be a lot of catching up to do.  The flip side is that you can then decide to do all merging at off-peak hours, but it is yet another thing that need to be configured.
 
 With LSM B-Trees; back-pressure is provided by the injection mechanism, which only returns when an injection is complete.  Thus, every 2nd insert needs to wait for level #0 to finish the required merging; which - assuming merging has linear I/O complexity - is enough to guarantee that the merge mechanism can keep up at higher-numbered levels.
@@ -71,6 +70,4 @@ When X is closed and clean, it is actually intermittently renamed M so that if t
 ABC files have 2^level KVs in it, regardless of the size of those KVs. XM files have 2^(level+1) approximately ... since tombstone merges might reduce the numbers or repeat PUTs of cause.
 
 ### File Descriptors
-
 Hanoi needs a lot of file descriptors, currently   6*⌈log<sub>2</sub>(N)-TOP_LEVEL⌉, with a nursery of size 2<sup>TOP_LEVEL</sup>, and N Key/Value pairs in the store.   Thus, storing 1.000.000 KV's need 72 file descriptors, storing 1.000.000.000 records needs 132 file descriptors, 1.000.000.000.000 records needs 192.
-
