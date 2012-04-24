@@ -153,7 +153,6 @@ do_range_fold(Fun, Acc0, File, Range, N0) ->
             end
     end.
 
-
 lookup_node(_File,_FromKey,#node{level=0},Pos) ->
     {ok, Pos};
 lookup_node(File,FromKey,#node{members=Members,level=N},_) ->
@@ -246,8 +245,7 @@ read_node(File) ->
         0 -> eof;
         _ ->
             {ok, Data} = file:read(File, Len-2),
-            {ok, Node} = hanoi_util:decode_index_node(Level, Data),
-            {ok, Node}
+            hanoi_util:decode_index_node(Level, Data)
     end.
 
 
