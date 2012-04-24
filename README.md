@@ -6,15 +6,12 @@ The storage engine can function as an alternative backend for Basho's Riak/KV.
 
 Here's the bullet list:
 
-- Very fast writes and deletes,
-- Reasonably fast reads (N records are stored in log<sub>2</sub>(N) B-trees),
-- Operations-friendly "append-only" storage (allows you to backup live system, and crash-recovery is very simple)
+- Insert, Delete and Read all have worst case log<sub>2</sub>(N) complexity. 
 - The cost of evicting stale key/values is amortized into insertion, so you don't need to schedule merge to happen at off-peak hours.
+- Operations-friendly "append-only" storage (allows you to backup live system, and crash-recovery is very fast)
 - Supports range queries (and thus eventually Riak 2i.)
-- Doesn't need a boat load of RAM
-- All in 1000 lines of pure Erlang code
-
-Once we're a bit more stable, we'll provide a Riak backend.
+- Doesn't need much RAM, but does need a lot of file descriptors
+- All around 3000 lines of pure Erlang code
 
 ### Deploying the hanoi for testing with Riak/KV
 
@@ -29,3 +26,4 @@ settings of the resulting dev nodes to use the hanoi storage backend.
 1. `git clone git://github.com/basho/hanoi.git`
 1. `cd ..`
 1. `./deps/hanoi/enable-hanoi` # which does `make all devrel`
+
