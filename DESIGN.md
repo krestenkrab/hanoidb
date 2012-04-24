@@ -69,3 +69,8 @@ When merge finishes, X is moved to the next level [becomes first open slot, in o
 When X is closed and clean, it is actually intermittently renamed M so that if there is a crash after a merge finishes, and before it is accepted at the next level then the merge work is not lost, i.e. an M file is also clean/closed properly. Thus, if there are M's that means that the incremental merge was not fast enough.
 
 ABC files have 2^level KVs in it, regardless of the size of those KVs. XM files have 2^(level+1) approximately ... since tombstone merges might reduce the numbers or repeat PUTs of cause.
+
+### File Descriptors
+
+Hanoi needs a lot of file descriptors, currently   6*⌈log<sub>2</sub>(N)-TOP_LEVEL⌉, with a nursery of size 2<sup>TOP_LEVEL</sup>, and N Key/Value pairs in the store.   Thus, storing 1.000.000 KV's need 72 file descriptors, storing 1.000.000.000 records needs 132 file descriptors, 1.000.000.000.000 records needs 192.
+
