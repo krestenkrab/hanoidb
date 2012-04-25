@@ -181,13 +181,15 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
 %            error_logger:info_msg("dumping log (count=~p, size=~p, outsize=~p)~n",
 %                                  [ gb_trees:size(Cache), TotalSize, FileInfo#file_info.size ]),
 
-            %% inject the B-Tree (blocking RPC)
-            ok = hanoi_level:inject(TopLevel, BTreeFileName),
-
             %% issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
             hanoi_level:incremental_merge(TopLevel,
                                           (MaxLevel-?TOP_LEVEL+1)*?BTREE_SIZE(?TOP_LEVEL)),
+
+
+            %% inject the B-Tree (blocking RPC)
+            ok = hanoi_level:inject(TopLevel, BTreeFileName),
+
             ok;
 
         _ ->
