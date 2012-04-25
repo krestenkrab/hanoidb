@@ -26,7 +26,7 @@
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -export([new/2, recover/3, add/3, finish/2, lookup/2, add_maybe_flush/4]).
--export([do_level_fold/3, set_max_level/2]).
+-export([do_level_fold/3, set_max_level/2, ensure_space/3]).
 
 -include("include/hanoi.hrl").
 -include("hanoi.hrl").
@@ -201,15 +201,30 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
     file:delete(LogFileName),
     ok.
 
-add_maybe_flush(Key, Value, Nursery=#nursery{ dir=Dir, max_level=MaxLevel }, Top) ->
+add_maybe_flush(Key, Value, Nursery, Top) ->
     case add(Nursery, Key, Value) of
         {ok, _} = OK ->
             OK;
         {full, Nursery2} ->
-            ok = hanoi_nursery:finish(Nursery2, Top),
-            {error, enoent} = file:read_file_info( filename:join(Dir, "nursery.log")),
-            hanoi_nursery:new(Dir, MaxLevel)
+            flush(Nursery2, Top)
     end.
+
+flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel }, Top) ->
+    ok = hanoi_nursery:finish(Nursery, Top),
+    {error, enoent} = file:read_file_info( filename:join(Dir, "nursery.log")),
+    hanoi_nursery:new(Dir, MaxLevel).
+
+has_room(#nursery{ count=Count }, N) ->
+    (Count+N) < ?BTREE_SIZE(?TOP_LEVEL).
+
+ensure_space(Nursery, NeededRoom, Top) ->
+    case has_room(Nursery, NeededRoom) of
+        true ->
+            Nursery;
+        false ->
+            flush(Nursery, Top)
+    end.
+
 
 do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, KeyRange) ->
     Ref = erlang:make_ref(),
