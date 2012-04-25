@@ -9,7 +9,7 @@
   * Riak/KV secondary index (2i) support
     * atomic multi-commit/recovery
   * support for time based expiry, merge should eliminate expired data
-  * statistics
+  * status and statistics
     * for each level {#merges, {merge-time-min, max, average}}
   * add @doc strings and and -spec's
   * check to make sure every error returns with a reason {error, Reason}
