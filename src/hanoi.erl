@@ -264,8 +264,16 @@ parse_level(FileName) ->
 
 handle_info({bottom_level, N}, #state{ nursery=Nursery }=State)
   when N > State#state.max_level ->
-    {noreply,State#state{ max_level = N,
-                          nursery= hanoi_nursery:set_max_level(Nursery, N) }};
+    State2 = State#state{ max_level = N,
+                          nursery= hanoi_nursery:set_max_level(Nursery, N) },
+
+    %% when this happens, there is a race condition because inserts can already
+    %% be in process of being executed in the levels.  The remedy is to initiate
+    %% some extra incremental merge.
+
+    ok = hanoi_level:incremental_merge( State#state.top, ?BTREE_SIZE(?TOP_LEVEL)),
+
+    {noreply, State2};
 
 handle_info(Info,State) ->
     error_logger:error_msg("Unknown info ~p~n", [Info]),
