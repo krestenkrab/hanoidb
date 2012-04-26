@@ -1,16 +1,14 @@
-# Hanoi Key/Value Storage Engine
+# Hanoi Ordered Key/Value Storage
 
-This storage engine implements a structure somewhat like LSM-trees
-(Log-Structured Merge Trees, see docs/10.1.1.44.2782.pdf).  The notes in
-DESIGN.md describe how this storage engine work; I have not done extensive
-studies as how it differs from other storage mechanisms, but a brief review of
-available research on LSM-trees indicates that this storage engine is quite
-different in several respects.
+Hanoi implements an ordered key/value storage engine, implemented
+using "doubling sizes" persistent ordered sets of key/value pairs,
+much like LevelDB.
 
 Here's the bullet list:
 
-- Insert, Delete and Read all have worst case log<sub>2</sub>(N) complexity.
-- The cost of evicting stale key/values is amortized into insertion
+- Insert, Delete and Read all have worst case log<sub>2</sub>(N) latency.
+- Incremental space reclaimation: The cost of evicting stale key/values
+  is amortized into insertion
   - you don't need a separate eviction thread to keep memory use low
   - you don't need to schedule merges to happen at off-peak hours
 - Operations-friendly "append-only" storage
@@ -24,6 +22,9 @@ Here's the bullet list:
   - IO is generally balanced between random and sequential
   - Low CPU overhead
 - ~2000 lines of pure Erlang code in src/*.erl
+
+Hanoi is developed by Trifork, a Riak expert solutions provider.  You're most
+welcome to contact us if you want help optimizing your Riak setup.
 
 ### How to deploy Hanoi as a Riak/KV backend
 
