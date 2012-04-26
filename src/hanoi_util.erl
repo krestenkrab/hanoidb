@@ -29,8 +29,33 @@
 
 -include("src/hanoi.hrl").
 
+-define(ERLANG_ENCODED,  131).
+-define(CRC_ENCODED,     127).
+
+-define(TAG_KV_DATA,  16#80).
+-define(TAG_DELETED,  16#81).
+-define(TAG_POSLEN32, 16#82).
+-define(TAG_TRANSACT, 16#83).
+-define(TAG_END,      16#FF).
+
+-compile({inline, [
+                   crc_encapsulate/1, crc_encapsulate_kv_entry/2
+                  ]}).
+
+
 index_file_name(Name) ->
     Name.
+
+file_exists(FileName) ->
+    case file:read_file_info(FileName) of
+        {ok, _} ->
+            true;
+        {error, enoent} ->
+            false
+    end.
+
+
+
 
 estimate_node_size_increment(_KVList,Key,Value) ->
     byte_size(Key)
@@ -52,7 +77,11 @@ estimate_node_size_increment(_KVList,Key,Value) ->
 
 encode_index_node(KVList, Compress) ->
 
-    TermData = encode_kv_list(KVList),
+    TermData = [ ?CRC_ENCODED |
+                 lists:map(fun ({Key,Value}) ->
+                                   crc_encapsulate_kv_entry(Key, Value)
+                           end,
+                           KVList) ],
 
     case Compress of
         snappy ->
@@ -77,6 +106,7 @@ encode_index_node(KVList, Compress) ->
 
     {ok, OutData}.
 
+
 decode_index_node(Level, <<Tag, Data/binary>>) ->
 
     case Tag of
@@ -92,40 +122,27 @@ decode_index_node(Level, <<Tag, Data/binary>>) ->
     {ok, {node, Level, KVList}}.
 
 
-file_exists(FileName) ->
-    case file:read_file_info(FileName) of
-        {ok, _} ->
-            true;
-        {error, enoent} ->
-            false
-    end.
+crc_encapsulate_kv_entry(Key, ?TOMBSTONE) ->
+    crc_encapsulate( [?TAG_DELETED | Key] );
+crc_encapsulate_kv_entry(Key, Value) when is_binary(Value) ->
+    crc_encapsulate( [?TAG_KV_DATA, <<(byte_size(Key)):32/unsigned>>, Key | Value] );
+crc_encapsulate_kv_entry(Key, {Pos,Len}) when Len < 16#ffffffff ->
+    crc_encapsulate( [?TAG_POSLEN32, <<Pos:64/unsigned, Len:32/unsigned>>, Key ] ).
 
 
--define(ERLANG_ENCODED,  131).
--define(CRC_ENCODED,     127).
+crc_encapsulate_transaction(TransactionSpec) ->
+    crc_encapsulate( [?TAG_TRANSACT |
+             lists:map( fun({delete, Key}) ->
+                                crc_encapsulate_kv_entry(Key, ?TOMBSTONE);
+                           ({put, Key, Value}) ->
+                                crc_encapsulate_kv_entry(Key, Value)
+                        end,
+                        TransactionSpec)] ).
 
--define(TAG_KV_DATA,  16#80).
--define(TAG_DELETED,  16#81).
--define(TAG_POSLEN32, 16#82).
--define(TAG_END,      16#FF).
-
-encode(Blob) ->
+crc_encapsulate(Blob) ->
     CRC = erlang:crc32(Blob),
     Size = erlang:iolist_size(Blob),
     [ << (Size):32/unsigned, CRC:32/unsigned >>, Blob, ?TAG_END ].
-
-encode_kv_list(KVList) ->
-    [ ?CRC_ENCODED |
-      lists:foldl(fun({Key,Value}, Acc) when is_binary(Key), is_binary(Value) ->
-                          [ encode( [?TAG_KV_DATA, <<(byte_size(Key)):32/unsigned>>, Key, Value] ) | Acc ];
-                     ({Key, ?TOMBSTONE}, Acc) ->
-                          [ encode( [?TAG_DELETED, Key] ) | Acc ];
-                     ({Key, {Pos,Len}}, Acc) when Len < 16#ffffffff ->
-                          [ encode( [?TAG_POSLEN32, <<Pos:64/unsigned, Len:32/unsigned>>, Key ] ) | Acc ]
-                  end,
-                  [],
-                  KVList) ].
-
 
 decode_kv_list(<<?ERLANG_ENCODED, _/binary>>=TermData) ->
     erlang:term_to_binary(TermData);
@@ -136,7 +153,7 @@ decode_kv_list(<<?CRC_ENCODED, Custom/binary>>) ->
 
 
 decode_crc_data(<<>>, Acc) ->
-    Acc;
+    lists:reverse(Acc);
 
 decode_crc_data(<< BinSize:32/unsigned, CRC:32/unsigned, Bin:BinSize/binary, ?TAG_END, Rest/binary >>, Acc) ->
     CRCTest = erlang:crc32( Bin ),
@@ -176,6 +193,10 @@ decode_kv_data(<<?TAG_DELETED, Key/binary>>) ->
     {Key, ?TOMBSTONE};
 
 decode_kv_data(<<?TAG_POSLEN32, Pos:64/unsigned, Len:32/unsigned, Key/binary>>) ->
-    {Key, {Pos,Len}}.
+    {Key, {Pos,Len}};
+
+decode_kv_data(<<?TAG_TRANSACT, Rest/binary>>) ->
+    decode_crc_data(Rest, []).
+
 
 

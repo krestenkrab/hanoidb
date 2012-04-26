@@ -31,7 +31,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([open/1, open/2, write/2, close/1, get/2, lookup/2, delete/2, put/3,
+-export([open/1, open/2, transact/2, close/1, get/2, lookup/2, delete/2, put/3,
          async_fold/3, async_fold_range/4,
          fold/3, fold_range/4]).
 
@@ -43,8 +43,9 @@
 
 -record(state, { top, nursery, dir, opt, max_level }).
 
-
 %% PUBLIC API
+
+-type hanoi() :: pid().
 
 % @doc
 % Create or open existing hanoi store.  Argument `Dir' names a
@@ -81,17 +82,21 @@ get(Ref,Key) when is_binary(Key) ->
 lookup(Ref,Key) when is_binary(Key) ->
     gen_server:call(Ref, {get, Key}, infinity).
 
+-spec delete(hanoi(), binary()) ->
+                    ok | {error, term()}.
 delete(Ref,Key) when is_binary(Key) ->
     gen_server:call(Ref, {delete, Key}, infinity).
 
+-spec put(hanoi(), binary(), binary()) ->
+                 ok | {error, term()}.
 put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
     gen_server:call(Ref, {put, Key, Value}, infinity).
 
--type write_spec() :: {put, binary(), binary()} | {delete, binary()}.
--spec write(hanoi(), [write_spec()]) ->
+-type transact_spec() :: {put, binary(), binary()} | {delete, binary()}.
+-spec transact(hanoi(), [transact_spec()]) ->
                  ok | {error, term()}.
-write(Ref, Spec) ->
-    gen_server:call(Ref, {write, Spec}, infinity).
+transact(Ref, TransactionSpec) ->
+    gen_server:call(Ref, {transact, TransactionSpec}, infinity).
 
 fold(Ref,Fun,Acc0) ->
     fold_range(Ref,Fun,Acc0,#btree_range{from_key= <<>>, to_key=undefined}).
@@ -319,8 +324,8 @@ handle_call({put, Key, Value}, _From, State) when is_binary(Key), is_binary(Valu
     {ok, State2} = do_put(Key, Value, State),
     {reply, ok, State2};
 
-handle_call({write, Spec}, _From, State) ->
-    {ok, State2} = do_write(Spec, State),
+handle_call({transact, TransactionSpec}, _From, State) ->
+    {ok, State2} = do_transact(TransactionSpec, State),
     {reply, ok, State2};
 
 handle_call({delete, Key}, _From, State) when is_binary(Key) ->
@@ -353,18 +358,15 @@ do_put(Key, Value, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = hanoi_nursery:add_maybe_flush(Key, Value, Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
 
-do_write(Spec, State=#state{ nursery=Nursery, top=Top }) ->
-    {ok, Nursery2} = hanoi_nursery:ensure_space(Nursery, length(Spec), Top),
-    State2 = State#state{ nursery=Nursery2 },
-    lists:foldl(fun({put, Key, Value}, {ok, State3}) ->
-                        do_put(Key, Value, State3);
-                   ({delete, Key}, {ok, State3}) ->
-                        do_put(Key, ?TOMBSTONE, State3);
-                   (_, {error, _}=Error) ->
-                        Error
-                end,
-                {ok, State2},
-                Spec).
+do_transact([{put, Key, Value}], State) ->
+    do_put(Key, Value, State);
+do_transact([{delete, Key}], State) ->
+    do_put(Key, ?TOMBSTONE, State);
+do_transact([], _State) ->
+    ok;
+do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->
+    {ok, Nursery2} = hanoi_nursery:transact(TransactionSpec, Nursery, Top),
+    {ok, State#state{ nursery=Nursery2 }}.
 
 flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel}) ->
     ok = hanoi_nursery:finish(Nursery, Top),

@@ -26,7 +26,7 @@
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -export([new/2, recover/3, add/3, finish/2, lookup/2, add_maybe_flush/4]).
--export([do_level_fold/3, set_max_level/2, ensure_space/3]).
+-export([do_level_fold/3, set_max_level/2, transact/3]).
 
 -include("include/hanoi.hrl").
 -include("hanoi.hrl").
@@ -67,40 +67,17 @@ do_recover(Directory, TopLevel, MaxLevel) ->
 
     ok.
 
+fill_cache({Key,Value}, Cache)
+  when is_binary(Value); Value =:= ?TOMBSTONE ->
+    gb_trees:enter(Key, Value, Cache);
+fill_cache(Transaction, Cache) when is_list(Transaction) ->
+    lists:foldl(fun fill_cache/2, Cache, Transaction).
+
 read_nursery_from_log(Directory, MaxLevel) ->
-    {ok, LogFile} = file:open( ?LOGFILENAME(Directory), [raw, read, read_ahead, binary] ),
-    {ok, Cache} = load_good_chunks(LogFile, gb_trees:empty()),
-    ok = file:close(LogFile),
+    {ok, LogBinary} = file:read_file( ?LOGFILENAME(Directory) ),
+    KVs = hanoi_util:decode_crc_data( LogBinary, [] ),
+    Cache = fill_cache(KVs, gb_trees:empty()),
     {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel }}.
-
-%% Just read the log file into a cache (gb_tree).
-%% If any errors happen here, then we simply ignore them and return
-%% the values we got so far.
-load_good_chunks(File, Cache) ->
-    case file:read(File, 8) of
-        {ok, <<Length:32, BNotLength:32>>} when BNotLength =:= bnot Length->
-            case file:read(File, Length) of
-                {ok, EncData} when byte_size(EncData) == Length ->
-                    try
-                        <<KeySize:32/unsigned, Key:KeySize/binary, ValBin/binary>> = EncData,
-                        case ValBin of
-                            <<>> -> Value=?TOMBSTONE;
-                            <<ValueSize:32/unsigned, Value/binary>> when ValueSize==byte_size(Value) -> ok
-                        end,
-
-                        %% TODO: is this tail recursive?  I don't think so
-                        load_good_chunks(File, gb_trees:enter(Key, Value, Cache))
-                    catch
-                        _:_ -> {ok, Cache}
-                    end;
-                eof ->
-                    {ok, Cache};
-                {error, _} ->
-                    {ok, Cache}
-            end;
-        _ ->
-            {ok, Cache}
-    end.
 
 
 % @doc
@@ -109,15 +86,21 @@ load_good_chunks(File, Cache) ->
 -spec add(#nursery{}, binary(), binary()|?TOMBSTONE) -> {ok, #nursery{}}.
 add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Count }, Key, Value) ->
 
-    Size = 4 + byte_size(Key)
-        + if Value=:=?TOMBSTONE -> 0;
-             true -> 4 + byte_size(Value) end,
+    Data = hanoi_util:crc_encapsulate_kv_entry( Key, Value ),
+    ok = file:write(File, Data),
 
-    file:write(File, [<<Size:32/unsigned>>, <<(bnot Size):32/unsigned>>,
-                      <<(byte_size(Key)):32>>, Key]
-                     ++ if Value /= ?TOMBSTONE -> [<<(byte_size(Value)):32>>, Value];
-                           true -> [] end),
+    Nursery1 = do_sync(File, Nursery),
 
+    Cache2 = gb_trees:enter(Key, Value, Cache),
+    Nursery2 = Nursery1#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data), count=Count+1 },
+    if
+       Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
+            {full, Nursery2};
+       true ->
+            {ok, Nursery2}
+    end.
+
+do_sync(File, Nursery) ->
     case application:get_env(hanoi, sync_strategy) of
         {ok, sync} ->
             file:datasync(File),
@@ -134,14 +117,8 @@ add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Co
             LastSync = Nursery#nursery.last_sync
     end,
 
-    Cache2 = gb_trees:enter(Key, Value, Cache),
-    Nursery2 = Nursery#nursery{ cache=Cache2, total_size=TotalSize+Size+16, count=Count+1, last_sync=LastSync },
-    if
-       Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
-            {full, Nursery2};
-       true ->
-            {ok, Nursery2}
-    end.
+    Nursery#nursery{ last_sync = LastSync }.
+
 
 lookup(Key, #nursery{ cache=Cache }) ->
     gb_trees:lookup(Key, Cache).
@@ -224,6 +201,26 @@ ensure_space(Nursery, NeededRoom, Top) ->
         false ->
             flush(Nursery, Top)
     end.
+
+transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSize }, Top) ->
+    Nursery1 = ensure_space(Nursery, length(Spec), Top),
+
+    Data = hanoi_util:crc_encapsulate_transaction( Spec ),
+    ok = file:write(File, Data),
+
+    Nursery2 = do_sync(File, Nursery1),
+
+    Cache2 = lists:foldl(fun({put, Key, Value}, Cache) ->
+                                 gb_trees:enter(Key, Value, Cache);
+                            ({delete, Key}, Cache) ->
+                                 gb_trees:enter(Key, ?TOMBSTONE, Cache)
+                         end,
+                         Cache0,
+                         Spec),
+
+    Count = gb_trees:size(Cache2),
+
+    {ok, Nursery2#nursery{ cache=Cache2, total_size=TotalSize+byte_size(Data), count=Count }}.
 
 
 do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, KeyRange) ->
