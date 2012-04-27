@@ -36,8 +36,7 @@
          get_fail/2,
          open/1, close/1,
          put/3,
-         sync_range/2,
-         sync_fold_range/4,
+         fold_range/4,
          stop/0]).
 
 %% gen_server callbacks
@@ -75,11 +74,8 @@ close(N) ->
 put(N, K, V) ->
     call({put, N, K, V}).
 
-sync_range(T, Range) ->
-    call({sync_range, T, Range}).
-
-sync_fold_range(T, Fun, Acc0, Range) ->
-    call({sync_fold_range, T, Fun, Acc0, Range}).
+fold_range(T, Fun, Acc0, Range) ->
+    call({fold_range, T, Fun, Acc0, Range}).
 
 stop() ->
     call(stop).
@@ -104,17 +100,11 @@ handle_call({close, N}, _, #state { btrees = D} = State) ->
         Otherwise ->
             {reply, {error, Otherwise}, State}
     end;
-handle_call({sync_range, Name, Range}, _From,
-            #state { btrees = D} = State) ->
-    Tree = dict:fetch(Name, D),
-    {ok, Ref} = hanoi:sync_range(Tree, Range),
-    Result = sync_range_gather(Ref),
-    {reply, Result, State};
-handle_call({sync_fold_range, Name, Fun, Acc0, Range},
+handle_call({fold_range, Name, Fun, Acc0, Range},
             _From,
             #state { btrees = D } = State) ->
     Tree = dict:fetch(Name, D),
-    Result = hanoi:sync_fold_range(Tree, Fun, Acc0, Range),
+    Result = hanoi:fold_range(Tree, Fun, Acc0, Range),
     {reply, Result, State};
 handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
@@ -151,16 +141,3 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%===================================================================
-sync_range_gather(Ref) ->
-    sync_range_gather(Ref, []).
-
-sync_range_gather(Ref, Acc) ->
-    receive
-        {fold_result, Ref, K, V} ->
-            sync_range_gather(Ref, [{K, V} | Acc]);
-        {fold_done, Ref} ->
-            {ok, Acc}
-    after 3000 ->
-            {error, timeout}
-    end.

@@ -60,10 +60,18 @@ full_test_() ->
      [
       ?_test(test_tree_simple_1()),
       ?_test(test_tree_simple_2()),
-      ?_test(test_tree_simple_3()),
-      ?_test(test_tree_simple_4()),
-      {timeout, 300, ?_test(test_tree())},
-      {timeout, 120, ?_test(test_qc())}
+      ?_test(test_tree_simple_4())
+%      {timeout, 300, ?_test(test_tree())},
+%      {timeout, 120, ?_test(test_qc())}
+     ]}.
+
+full2_test_() ->
+    {setup,
+     spawn,
+     fun () -> ok end,
+     fun (_) -> ok end,
+     [
+      {timeout, 300, ?_test(test_tree())}
      ]}.
 
 -ifdef(TRIQ).
@@ -152,16 +160,12 @@ command(#state { open = Open, closed = Closed } = S) ->
         || open_dicts(S), open_dicts_with_keys(S)]
       ++ [ {500, {call, ?SERVER, delete_exist, cmd_delete_args(S)}}
            || open_dicts(S), open_dicts_with_keys(S)]
-      ++ [ {125, {call, ?SERVER, sync_fold_range, cmd_sync_fold_range_args(S)}}
-           || open_dicts(S), open_dicts_with_keys(S)]
-      ++ [ {125, {call, ?SERVER, sync_range, cmd_sync_range_args(S)}}
+      ++ [ {125, {call, ?SERVER, fold_range, cmd_sync_fold_range_args(S)}}
            || open_dicts(S), open_dicts_with_keys(S)]
      ).
 
 %% Precondition (abstract)
-precondition(S, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, Range]}) ->
-    is_valid_range(Range) andalso open_dicts(S) andalso open_dicts_with_keys(S);
-precondition(S, {call, ?SERVER, sync_range, [_Tree, Range]}) ->
+precondition(S, {call, ?SERVER, fold_range, [_Tree, _F, _A0, Range]}) ->
     is_valid_range(Range) andalso open_dicts(S) andalso open_dicts_with_keys(S);
 precondition(S, {call, ?SERVER, delete_exist, [_Name, _K]}) ->
     open_dicts(S) andalso open_dicts_with_keys(S);
@@ -199,9 +203,7 @@ is_valid_range(_) ->
 
 
 %% Next state manipulation (abstract / concrete)
-next_state(S, _Res, {call, ?SERVER, sync_fold_range, [_Tree, _F, _A0, _Range]}) ->
-    S;
-next_state(S, _Res, {call, ?SERVER, sync_range, [_Tree, _Range]}) ->
+next_state(S, _Res, {call, ?SERVER, fold_range, [_Tree, _F, _A0, _Range]}) ->
     S;
 next_state(S, _Res, {call, ?SERVER, get_fail, [_Name, _Key]}) ->
     S;
@@ -235,15 +237,9 @@ next_state(#state { open = Open, closed=Closed} = S, _Res,
 
 %% Postcondition check (concrete)
 postcondition(#state { open = Open},
-              {call, ?SERVER, sync_fold_range, [Tree, F, A0, Range]}, Result) ->
+              {call, ?SERVER, fold_range, [Tree, F, A0, Range]}, Result) ->
     #tree { elements = TDict } = dict:fetch(Tree, Open),
     DictResult = lists:sort(dict_range_query(TDict, F, A0, Range)),
-    CallResult = lists:sort(Result),
-    DictResult == CallResult;
-postcondition(#state { open = Open},
-              {call, ?SERVER, sync_range, [Tree, Range]}, {ok, Result}) ->
-    #tree { elements = TDict } = dict:fetch(Tree, Open),
-    DictResult = lists:sort(dict_range_query(TDict, Range)),
     CallResult = lists:sort(Result),
     DictResult == CallResult;
 postcondition(_S,
@@ -295,17 +291,6 @@ test_tree_simple_2() ->
     ok = hanoi:delete(Tree, <<"ã">>),
     ok = hanoi:close(Tree).
 
-test_tree_simple_3() ->
-    {ok, Tree} = hanoi:open("simple"),
-    ok = hanoi:put(Tree, <<"X">>, <<"Y">>),
-    {ok, Ref} = hanoi:sync_range(Tree, #btree_range{from_key= <<"X">>, to_key= <<"X">>}),
-    ?assertEqual(ok,
-                 receive
-                     {fold_done, Ref} -> ok
-                 after 1000 -> {error, timeout}
-                 end),
-    ok = hanoi:close(Tree).
-
 test_tree_simple_4() ->
     Key = <<56,11,62,42,35,163,16,100,9,224,8,228,130,94,198,2,126,117,243,
             1,122,175,79,159,212,177,30,153,71,91,85,233,41,199,190,58,3,
@@ -324,6 +309,8 @@ test_tree() ->
                 end,
                 ok,
                 lists:seq(2,100000,1)),
+    io:format(user, "INSERT DONE 1~n", []),
+
     lists:foldl(fun(N,_) ->
                         ok = hanoi:put(Tree,
                                                <<N:128>>, <<"data",N:128>>)
@@ -331,7 +318,12 @@ test_tree() ->
                 ok,
                 lists:seq(4000,6000,1)),
 
+    io:format(user, "INSERT DONE 2~n", []),
+
+
     hanoi:delete(Tree, <<1500:128>>),
+
+    io:format(user, "INSERT DONE 3~n", []),
 
     {Time,{ok,Count}} = timer:tc(?MODULE, run_fold, [Tree,1000,2000]),
 
@@ -341,26 +333,13 @@ test_tree() ->
     ok = hanoi:close(Tree).
 
 run_fold(Tree,From,To) ->
-    {ok, PID} = hanoi:sync_range(Tree, #btree_range{from_key= <<From:128>>, to_key= <<(To+1):128>>}),
-    lists:foreach(fun(1500) -> ok;
-                     (N) ->
-                          receive
-                              {fold_result, PID, <<N:128>>,_} -> ok
-                          after 100 ->
-                                  error_logger:info_msg("timed out on #~p~n", [N])
-                          end
-                  end,
-                  lists:seq(From,To,1)),
-    receive
-        {fold_done, PID} -> ok
-    after 1000 ->
-            error_logger:info_msg("timed out on fold_done! ~n", [])
-    end,
-
-    %% we should now have no spurious messages
-    {messages,[]} = erlang:process_info(self(),messages),
-
-    {ok, To-From}.
+    {_, Count} = hanoi:fold_range(Tree,
+                             fun(<<N:128>>,_Value, {N, C}) ->
+                                     {N + 1, C + 1}
+                             end,
+                             {From, 0},
+                             #btree_range{from_key= <<From:128>>, to_key= <<(To+1):128>>}),
+    {ok, Count}.
 
 
 
