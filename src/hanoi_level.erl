@@ -537,7 +537,7 @@ main_loop(State = #state{ next=Next }) ->
     end.
 
 do_step(StepFrom, HowMuch, State) ->
-    if State#state.b =/= undefined ->
+    if (State#state.b =/= undefined) andalso (State#state.merge_pid =/= undefined) ->
             WorkLeftHere = max(0, (2 * ?BTREE_SIZE(State#state.level)) - State#state.work_done);
        true ->
             WorkLeftHere = 0
