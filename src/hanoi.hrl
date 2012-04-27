@@ -22,8 +22,6 @@
 %%
 %% ----------------------------------------------------------------------------
 
--author('Kresten Krab Thorup <krab@trifork.com>').
-
 
 %% smallest levels are 256 entries
 -define(TOP_LEVEL, 8).

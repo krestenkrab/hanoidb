@@ -43,14 +43,17 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-export([to_index_key/4,from_index_key/1,
+         to_object_key/2,from_object_key/1,
+         to_key_range/1]).
 -endif.
 
 -include("include/hanoi.hrl").
 
 -define(API_VERSION, 1).
 %% TODO: for when this backend supports 2i
-%%-define(CAPABILITIES, [async_fold, indexes]).
--define(CAPABILITIES, [async_fold]).
+-define(CAPABILITIES, [async_fold, indexes]).
+%-define(CAPABILITIES, [async_fold]).
 
 -record(state, {tree,
                 partition :: integer()}).
@@ -142,18 +145,39 @@ get(Bucket, Key, #state{tree=Tree}=State) ->
 -spec put(riak_object:bucket(), riak_object:key(), [index_spec()], binary(), state()) ->
                  {ok, state()} |
                  {error, term(), state()}.
-put(Bucket, Key, _IndexSpecs, Val, #state{tree=Tree}=State) ->
-    BKey = to_object_key(Bucket, Key),
-    ok = hanoi:put(Tree, BKey, Val),
+put(Bucket, PrimaryKey, IndexSpecs, Val, #state{tree=Tree}=State) ->
+    %% Create the KV update...
+    StorageKey = to_object_key(Bucket, PrimaryKey),
+    Updates1 = [{put, StorageKey, Val}],
+
+    %% Convert IndexSpecs to index updates...
+    F = fun({add, Field, Value}) ->
+                {put, to_index_key(Bucket, PrimaryKey, Field, Value), <<>>};
+           ({remove, Field, Value}) ->
+                {delete, to_index_key(Bucket, PrimaryKey, Field, Value)}
+        end,
+    Updates2 = [F(X) || X <- IndexSpecs],
+
+    ok = hanoi:transact(Tree, Updates1 ++ Updates2),
     {ok, State}.
 
 %% @doc Delete an object from the hanoi backend
 -spec delete(riak_object:bucket(), riak_object:key(), [index_spec()], state()) ->
                     {ok, state()} |
                     {error, term(), state()}.
-delete(Bucket, Key, _IndexSpecs, #state{tree=Tree}=State) ->
-    BKey = to_object_key(Bucket, Key),
-    case hanoi:delete(Tree, BKey) of
+delete(Bucket, PrimaryKey, IndexSpecs, #state{tree=Tree}=State) ->
+
+    %% Create the KV delete...
+    StorageKey = to_object_key(Bucket, PrimaryKey),
+    Updates1 = [{delete, StorageKey}],
+
+    %% Convert IndexSpecs to index deletes...
+    F = fun({remove, Field, Value}) ->
+                {delete, to_index_key(Bucket, PrimaryKey, Field, Value)}
+        end,
+    Updates2 = [F(X) || X <- IndexSpecs],
+
+    case hanoi:transact(Tree, Updates1 ++ Updates2) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -170,7 +194,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
     BucketFolder =
         fun() ->
                 try
-                    hanoi:fold_range(Tree, FoldFun, {Acc, []}, #btree_range{})
+                    hanoi:fold_range(Tree, FoldFun, {Acc, []}, to_key_range(undefined))
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -196,20 +220,14 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
 
     %% Multiple limiters may exist. Take the most specific limiter.
     Limiter =
-        if Index /= false  ->
-                %% TODO: figure out the proper key prefixes for Index!
-                Range = #btree_range{},
-                Index;
-           Bucket /= false ->
-                Range = bucket_range(Bucket),
-                Bucket;
-           true            ->
-                Range = #btree_range{},
-                undefined
+        if Index /= false  -> Index;
+           Bucket /= false -> Bucket;
+           true            -> undefined
         end,
 
     %% Set up the fold...
     FoldFun = fold_keys_fun(FoldKeysFun, Limiter),
+    Range   = to_key_range(Limiter),
     KeyFolder =
         fun() ->
                 try
@@ -226,19 +244,6 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
             {ok, KeyFolder()}
     end.
 
-%% @doc Get btree_range object for entire bucket
-bucket_range(undefined) ->
-    #btree_range{};
-bucket_range(Bucket) ->
-    #btree_range{}.
-%    #btree_range{
-%              from_key       = to_object_key(Bucket, '_'),
-%              from_inclusive = true,
-%              to_key         = to_object_key(<<Bucket, 0>>, '_'),
-%              to_inclusive   = false
-%             }.
-
-
 %% @doc Fold over all the objects for one or all buckets.
 -spec fold_objects(riak_kv_backend:fold_objects_fun(),
                    any(),
@@ -250,7 +255,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     ObjectFolder =
         fun() ->
                 try
-                    hanoi:fold_range(Tree, FoldFun, Acc, bucket_range(Bucket))
+                    hanoi:fold_range(Tree, FoldFun, Acc, to_key_range(Bucket))
                 catch
                     {break, AccFinal} ->
                         AccFinal
@@ -275,7 +280,7 @@ drop(#state{}=State) ->
 is_empty(#state{tree=Tree}) ->
     FoldFun = fun(_K, _V, _Acc) -> throw(ok) end,
     try
-        Range = #btree_range{},
+        Range = to_key_range(undefined),
         [] =:= hanoi:fold_range(Tree, FoldFun, [], Range)
     catch
         _:ok ->
@@ -329,9 +334,7 @@ fold_keys_fun(FoldKeysFun, undefined) ->
     fun(K, _V, Acc) ->
             case from_object_key(K) of
                 {Bucket, Key} ->
-                    FoldKeysFun(Bucket, Key, Acc);
-                _ ->
-                    Acc
+                    FoldKeysFun(Bucket, Key, Acc)
             end
     end;
 fold_keys_fun(FoldKeysFun, {bucket, FilterBucket}) ->
@@ -339,9 +342,35 @@ fold_keys_fun(FoldKeysFun, {bucket, FilterBucket}) ->
     fun(K, _V, Acc) ->
             case from_object_key(K) of
                 {Bucket, Key} when Bucket == FilterBucket ->
-                    FoldKeysFun(Bucket, Key, Acc);
-                _ ->
-                    Acc
+                    FoldKeysFun(Bucket, Key, Acc)
+            end
+    end;
+fold_keys_fun(FoldKeysFun, {index, FilterBucket, {eq, <<"$bucket">>, _}}) ->
+    %% 2I exact match query on special $bucket field...
+    fold_keys_fun(FoldKeysFun, {bucket, FilterBucket});
+fold_keys_fun(FoldKeysFun, {index, FilterBucket, {eq, FilterField, FilterTerm}}) ->
+    %% Rewrite 2I exact match query as a range...
+    NewQuery = {range, FilterField, FilterTerm, FilterTerm},
+    fold_keys_fun(FoldKeysFun, {index, FilterBucket, NewQuery});
+fold_keys_fun(FoldKeysFun, {index, FilterBucket, {range, <<"$key">>, StartKey, EndKey}}) ->
+    %% 2I range query on special $key field...
+    fun(StorageKey, Acc) ->
+            case from_object_key(StorageKey) of
+                {Bucket, Key} when FilterBucket == Bucket,
+                                   StartKey =< Key,
+                                   EndKey >= Key ->
+                    FoldKeysFun(Bucket, Key, Acc)
+            end
+    end;
+fold_keys_fun(FoldKeysFun, {index, FilterBucket, {range, FilterField, StartTerm, EndTerm}}) ->
+    %% 2I range query...
+    fun(StorageKey, Acc) ->
+            case from_index_key(StorageKey) of
+                {Bucket, Key, Field, Term} when FilterBucket == Bucket,
+                                                FilterField == Field,
+                                                StartTerm =< Term,
+                                                EndTerm >= Term ->
+                    FoldKeysFun(Bucket, Key, Acc)
             end
     end;
 fold_keys_fun(_FoldKeysFun, Other) ->
@@ -360,6 +389,44 @@ fold_objects_fun(FoldObjectsFun, FilterBucket) ->
             end
     end.
 
+
+%% This is guaranteed larger than any object key
+-define(MAX_OBJECT_KEY, <<16,0,0,0,4>>).
+
+%% This is guaranteed larger than any index key
+-define(MAX_INDEX_KEY, <<16,0,0,0,6>>).
+
+to_key_range(undefined) ->
+    #btree_range{ from_key       = to_object_key(<<>>, <<>>),
+                  from_inclusive = true,
+                  to_key         = ?MAX_OBJECT_KEY,
+                  to_inclusive   = false
+                };
+to_key_range({bucket, Bucket}) ->
+    #btree_range{ from_key       = to_object_key(Bucket, <<>>),
+                  from_inclusive = true,
+                  to_key         = to_object_key(<<Bucket/binary, 0>>, <<>>),
+                  to_inclusive   = false };
+to_key_range({index, Bucket, {eq, <<"$bucket">>, _Term}}) ->
+    to_key_range(Bucket);
+to_key_range({index, Bucket, {eq, Field, Term}}) ->
+    to_key_range({index, Bucket, {range, Field, Term, Term}});
+to_key_range({index, Bucket, {range, <<"$key">>, StartTerm, EndTerm}}) ->
+    #btree_range{ from_key       = to_object_key(Bucket, StartTerm),
+                  from_inclusive = true,
+                  to_key         = to_object_key(Bucket, EndTerm),
+                  to_inclusive   = true };
+to_key_range({index, Bucket, {range, Field, StartTerm, EndTerm}}) ->
+    #btree_range{ from_key       = to_index_key(Bucket, <<>>, Field, StartTerm),
+                  from_inclusive = true,
+                  to_key         = to_index_key(Bucket, <<>>, Field, <<EndTerm/binary, 0>>),
+                  to_inclusive   = false };
+to_key_range(Other) ->
+    erlang:throw({unknown_limiter, Other}).
+
+
+
+
 to_object_key(Bucket, Key) ->
     sext:encode({o, Bucket, Key}).
 
@@ -371,10 +438,41 @@ from_object_key(LKey) ->
             undefined
     end.
 
+to_index_key(Bucket, Key, Field, Term) ->
+    sext:encode({i, Bucket, Field, Term, Key}).
+
+from_index_key(LKey) ->
+    case sext:decode(LKey) of
+        {i, Bucket, Field, Term, Key} ->
+            {Bucket, Key, Field, Term};
+        _ ->
+            undefined
+    end.
+
 %% ===================================================================
 %% EUnit tests
 %% ===================================================================
 -ifdef(TEST).
+
+-include("src/hanoi.hrl").
+
+key_range_test() ->
+    Range = to_key_range({bucket, <<"a">>}),
+
+    ?assertEqual(true,  ?KEY_IN_RANGE( to_object_key(<<"a">>, <<>>) , Range)),
+    ?assertEqual(true,  ?KEY_IN_RANGE( to_object_key(<<"a">>, <<16#ff,16#ff,16#ff,16#ff>>), Range )),
+    ?assertEqual(false, ?KEY_IN_RANGE( to_object_key(<<>>, <<>>), Range )),
+    ?assertEqual(false, ?KEY_IN_RANGE( to_object_key(<<"a",0>>, <<>>), Range )).
+
+index_range_test() ->
+    Range = to_key_range({index, <<"idx">>, {range, <<"f">>, <<6>>, <<7,3>>}}),
+
+    ?assertEqual(false, ?KEY_IN_RANGE( to_index_key(<<"idx">>, <<"key1">>, <<"f">>, <<5>>) , Range)),
+    ?assertEqual(true,  ?KEY_IN_RANGE( to_index_key(<<"idx">>, <<"key1">>, <<"f">>, <<6>>) , Range)),
+    ?assertEqual(true,  ?KEY_IN_RANGE( to_index_key(<<"idx">>, <<"key1">>, <<"f">>, <<7>>) , Range)),
+    ?assertEqual(false, ?KEY_IN_RANGE( to_index_key(<<"idx">>, <<"key1">>, <<"f">>, <<7,4>>) , Range)),
+    ?assertEqual(false, ?KEY_IN_RANGE( to_index_key(<<"idx">>, <<"key1">>, <<"f">>, <<9>>) , Range)).
+
 
 simple_test_() ->
     ?assertCmd("rm -rf test/hanoi-backend"),
