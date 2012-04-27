@@ -187,7 +187,7 @@ add_maybe_flush(Key, Value, Nursery, Top) ->
     end.
 
 flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel }, Top) ->
-    ok = hanoi_nursery:finish(Nursery, Top),
+    ok = finish(Nursery, Top),
     {error, enoent} = file:read_file_info( filename:join(Dir, "nursery.log")),
     hanoi_nursery:new(Dir, MaxLevel).
 

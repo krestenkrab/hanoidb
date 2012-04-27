@@ -116,7 +116,8 @@ receive_fold_range(MRef, PID,Fun,Acc0) ->
                     {ok, Fun(K,V,Acc0)}
                 catch
                     Class:Exception ->
-                        lager:warning("Exception in hanoi fold: ~p", [Exception]),
+                        io:format(user, "Exception in hanoi fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
+                        %% lager:warning("Exception in hanoi fold: ~p", [Exception]),
                         {'EXIT', Class, Exception, erlang:get_stacktrace()}
                 end
             of

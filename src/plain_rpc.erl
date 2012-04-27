@@ -57,6 +57,9 @@ call(PID,Request) ->
             Reply;
         {'DOWN', MRef, _, _, Reason} ->
             exit(Reason)
+%    after 3000 ->
+%            erlang:demonitor(MRef, [flush]),
+%            exit({rpc_timeout, Request})
     end.
 
 
