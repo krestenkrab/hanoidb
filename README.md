@@ -15,6 +15,8 @@ Here's the bullet list:
   - allows you to backup live system
   - crash-recovery is very fast and the logic is straight forward
 - Supports efficient range queries
+  - Riak secondary indexing
+  - Fast key and bucket listing
 - Uses bloom filters to avoid unnecessary lookups on disk
 - Efficient resource utilization
   - Doesn't store all keys in memory
