@@ -335,7 +335,9 @@ test_tree() ->
 run_fold(Tree,From,To) ->
     {_, Count} = hanoi:fold_range(Tree,
                              fun(<<N:128>>,_Value, {N, C}) ->
-                                     {N + 1, C + 1}
+                                     {N + 1, C + 1};
+                                (<<1501:128>>,_Value, {1500, C}) ->
+                                     {1502, C + 1}
                              end,
                              {From, 0},
                              #btree_range{from_key= <<From:128>>, to_key= <<(To+1):128>>}),

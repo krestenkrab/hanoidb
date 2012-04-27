@@ -56,7 +56,7 @@ merge_test() ->
 
 
     self() ! {step, {self(), none}, 2000000000},
-    {Time,{ok,Count}} = timer:tc(hanoi_merger, merge, ["test1", "test2", "test3", 10000, true]),
+    {Time,{ok,Count}} = timer:tc(hanoi_merger, merge, ["test1", "test2", "test3", 10000, true, []]),
 
     error_logger:info_msg("time to merge: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 
