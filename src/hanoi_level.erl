@@ -110,10 +110,8 @@ close(Ref) ->
 
 
 snapshot_range(Ref, FoldWorkerPID, Range) ->
-    proc_lib:spawn(fun() ->
-                           {ok, Folders} = plain_rpc:call(Ref, {init_snapshot_range_fold, FoldWorkerPID, Range, []}),
-                           FoldWorkerPID ! {initialize, Folders}
-                   end),
+    {ok, Folders} = plain_rpc:call(Ref, {init_snapshot_range_fold, FoldWorkerPID, Range, []}),
+    FoldWorkerPID ! {initialize, Folders},
     {ok, FoldWorkerPID}.
 
 blocking_range(Ref, FoldWorkerPID, Range) ->
@@ -527,8 +525,10 @@ main_loop(State = #state{ next=Next }) ->
 
             ?log("*** merge_died: ~p~n", [Reason]),
             restart_merge_then_loop(State#state{merge_pid=undefined}, Reason);
-        {'EXIT', PID, _} when [PID] == tl(State#state.folding);
-                              hd(State#state.folding) == PID ->
+        {'EXIT', PID, _} when PID == hd(State#state.folding);
+                              PID == hd(tl(State#state.folding));
+                              PID == hd(tl(tl(State#state.folding)))
+                              ->
             main_loop(State#state{ folding = lists:delete(PID,State#state.folding) });
         {'EXIT', PID, Reason} ->
             error_logger:info_msg("got unexpected exit ~p from ~p~n", [Reason, PID])
