@@ -190,15 +190,9 @@ delete(Bucket, PrimaryKey, IndexSpecs, #state{tree=Tree}=State) ->
                    [],
                    state()) -> {ok, any()} | {async, fun()}.
 fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
-    FoldFun = fold_buckets_fun(FoldBucketsFun),
     BucketFolder =
         fun() ->
-                try
-                    hanoi:fold_range(Tree, FoldFun, {Acc, []}, to_key_range(undefined))
-                catch
-                    {break, AccFinal} ->
-                        AccFinal
-                end
+                fold_list_buckets(<<>>, Tree, FoldBucketsFun, Acc)
         end,
     case lists:member(async_fold, Opts) of
         true ->
@@ -206,6 +200,40 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
         false ->
             {ok, BucketFolder()}
     end.
+
+
+fold_list_buckets(PrevBucket, Tree, FoldBucketsFun, Acc) ->
+
+    case Acc of
+        undefined ->
+            RangeStart = to_object_key(<<>>, '_');
+        _ ->
+            RangeStart = to_object_key(<<PrevBucket/binary, 0>>, '_')
+    end,
+
+    Range = #btree_range{ from_key=RangeStart, from_inclusive=true,
+                          to_key=undefined, to_inclusive=undefined,
+                          limit=1 },
+
+    %% grab next bucket, it's a limit=1 range query :-)
+    case hanoi:fold_range(Tree,
+                          fun(BucketKey,_Value,none) ->
+                                  case from_object_key(BucketKey) of
+                                      {o, Bucket, _Key} ->
+                                          [Bucket];
+                                      _ ->
+                                          none
+                                  end
+                          end,
+                          none,
+                          Range)
+    of
+        none ->
+            Acc;
+        [Bucket] ->
+            fold_list_buckets(Bucket, Tree, FoldBucketsFun, FoldBucketsFun(Bucket, Acc))
+    end.
+
 
 %% @doc Fold over all the keys for one or all buckets.
 -spec fold_keys(riak_kv_backend:fold_keys_fun(),
@@ -313,18 +341,6 @@ get_data_dir(DataRoot, Partition) ->
         {error, Reason} ->
             lager:error("Failed to create hanoi dir ~s: ~p", [PartitionDir, Reason]),
             {error, Reason}
-    end.
-
-%% @private
-%% Return a function to fold over the buckets on this backend
-fold_buckets_fun(FoldBucketsFun) ->
-    fun(K, _V, {Acc, LastBucket}) ->
-            case from_object_key(K) of
-                {LastBucket, _} ->
-                    {Acc, LastBucket};
-                {Bucket, _} ->
-                    {FoldBucketsFun(Bucket, Acc), Bucket}
-            end
     end.
 
 %% @private
