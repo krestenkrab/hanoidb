@@ -14,6 +14,7 @@ Here's the bullet list:
 - Operations-friendly "append-only" storage
   - allows you to backup live system
   - crash-recovery is very fast and the logic is straight forward
+  - All data subject to CRC32 checksums
 - Supports efficient range queries
   - Riak secondary indexing
   - Fast key and bucket listing
@@ -27,6 +28,19 @@ Here's the bullet list:
 
 Hanoi is developed by Trifork, a Riak expert solutions provider.  You're most
 welcome to contact us if you want help optimizing your Riak setup.
+
+### Configuration options
+
+Put these values in your `app.config` in the `hanoi` section
+
+```erlang
+ {hanoi, [
+          {data_root, "./data/hanoi"},
+          {compress, none | snappy | gzip},
+          {sync_strategy, none | sync | {seconds, N}},
+          {page_size, 32768}
+         ]},
+```
 
 ### How to deploy Hanoi as a Riak/KV backend
 
