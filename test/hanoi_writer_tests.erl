@@ -29,10 +29,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-include("include/hanoi.hrl").
+
 -compile(export_all).
 
 simple_test() ->
 
+    file:delete("testdata"),
     {ok, BT} = hanoi_writer:open("testdata"),
     ok = hanoi_writer:add(BT, <<"A">>, <<"Avalue">>),
     ok = hanoi_writer:add(BT, <<"B">>, <<"Bvalue">>),
@@ -47,9 +50,10 @@ simple_test() ->
 
 simple1_test() ->
 
-    {ok, BT} = hanoi_writer:open("testdata"),
+    file:delete("testdata"),
+    {ok, BT} = hanoi_writer:open("testdata", [{block_size, 1024}]),
 
-    Max = 30*1024,
+    Max = 1024,
     Seq = lists:seq(0, Max),
 
     {Time1,_} = timer:tc(
@@ -66,7 +70,8 @@ simple1_test() ->
     error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
 
     {ok, IN} = hanoi_reader:open("testdata"),
-    {ok, <<"valuevalue/", 2048:128>>} = hanoi_reader:lookup(IN, <<2048:128>>),
+    Middle = Max div 2,
+    {ok, <<"valuevalue/", Middle:128>>} = hanoi_reader:lookup(IN, <<Middle:128>>),
 
 
     {Time2,Count} = timer:tc(
@@ -82,7 +87,21 @@ simple1_test() ->
 
     Max = Count-1,
 
+    {Time3,{done,Count2}} = timer:tc(
+                      fun() -> hanoi_reader:range_fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
+                                                               N+1
+                                                       end,
+                                                       0,
+                                                       IN,
+                                                      #btree_range{ from_key= <<>>, to_key=undefined })
+                      end,
+                      []),
 
-    ok = hanoi_reader:close(IN),
+    error_logger:info_msg("time to range_fold: ~p/sec~n", [1000000/(Time3/Max)]),
 
-    ok = file:delete("testdata").
+    error_logger:info_msg("count2=~p~n", [Count2]),
+
+    Max = Count2-1,
+
+    ok = hanoi_reader:close(IN).
+

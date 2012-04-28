@@ -49,7 +49,7 @@
                  last_node_pos :: pos_integer(),
                  last_node_size :: pos_integer(),
 
-                 nodes = [] :: [ #node{} ], % B-tree stack
+                 nodes = [] :: [ #node{} ],
 
                  name :: string(),
 
@@ -126,7 +126,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%%%% INTERNAL FUNCTIONS
 
-
+% @doc flush pending nodes and write trailer
 
 flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Ref }=State) ->
 
@@ -144,7 +144,8 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
 
     {ok, State#state{ index_file=undefined }};
 
-flush_nodes(State=#state{ nodes=[#node{level=N, members=[_]}] }) when N>0 ->
+%% stack consists of one node with one {pos,len} member.  Just ignore this node.
+flush_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos }) when N>0 ->
     flush_nodes(State#state{ nodes=[] });
 
 flush_nodes(State) ->
@@ -172,16 +173,19 @@ add_record(Level, Key, Value,
     ok = ebloom:insert( State#state.bloom, Key ),
 
     NodeMembers = [{Key,Value} | List],
+    State2 = State#state{ nodes=[CurrNode#node{ members=NodeMembers, size=NewSize} | RestNodes] },
     if
-       NewSize >= ?NODE_SIZE ->
-            close_node(State#state{ nodes=[CurrNode#node{ members=NodeMembers, size=NewSize} | RestNodes] });
+       NewSize >= State#state.block_size ->
+            close_node(State2);
         true ->
-            {ok, State#state{ nodes=[ CurrNode#node{ members=NodeMembers, size=NewSize } | RestNodes ] }}
+            {ok, State2}
     end;
 
-add_record(Level, Key, Value, #state{ nodes=Nodes }=State) ->
-    %% There is no top-of-stack node, or it is not at the level we wish to insert at.
-    add_record(Level, Key, Value, State#state{ nodes = [ #node{ level=Level, members=[] } | Nodes ] }).
+add_record(Level, Key, Value, State=#state{ nodes=[] }) ->
+    add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=Level } ] });
+
+add_record(Level, Key, Value, State=#state{ nodes=[ #node{level=Level2 } |_]=Stack }) when Level < Level2 ->
+    add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=(Level2-1) } | Stack] }).
 
 
 
