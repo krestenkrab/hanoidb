@@ -46,7 +46,7 @@ open(Name) ->
 
 %% this is how to open a btree for sequential scanning (merge, fold)
 open(Name, sequential) ->
-    {ok, File} = file:open(Name, [raw,read,{read_ahead, 1024 * 512},binary]),
+    {ok, File} = file:open(Name, [raw,read,{read_ahead, 1024 * 32},binary]),
     open2(Name, File);
 
 %% this is how to open a btree for random access

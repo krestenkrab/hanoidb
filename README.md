@@ -38,7 +38,7 @@ Put these values in your `app.config` in the `hanoi` section
           {data_root, "./data/hanoi"},
           {compress, none | snappy | gzip},
           {sync_strategy, none | sync | {seconds, N}},
-          {page_size, 32768}
+          {page_size, 8192}
          ]},
 ```
 
