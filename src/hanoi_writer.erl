@@ -37,7 +37,7 @@
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+         terminate/2, code_change/3, serialize/1, deserialize/1]).
 
 -export([open/1, open/2, add/3,close/1]).
 
@@ -125,6 +125,15 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 %%%%% INTERNAL FUNCTIONS
+
+serialize(#state{ bloom=Bloom }=State) ->
+    erlang:term_to_binary( { State, ebloom:serialize(Bloom) } ).
+
+deserialize(Binary) ->
+    { State, BinBloom } = erlang:binary_to_term( Binary ),
+    {ok, Bloom } = ebloom:deserialize(BinBloom),
+    State#state{ bloom = Bloom }.
+
 
 % @doc flush pending nodes and write trailer
 

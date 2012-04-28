@@ -75,8 +75,8 @@ hibernate_scan(Keep) ->
     receive
         {step, From, HowMany} ->
             error_logger:info_msg("waking up ~p~n", [self()]),
-            {BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
-            scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {HowMany, From})
+            {BT1, BT2, OutBin, IsLastLevel, AKVs, BKVs, Count} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
+            scan(BT1, BT2, hanoi_writer:deserialize(OutBin), IsLastLevel, AKVs, BKVs, Count, {HowMany, From})
     end.
 
 scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {0, FromPID}) ->
@@ -91,9 +91,14 @@ scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {0, FromPID}) ->
         {step, From, HowMany} ->
             scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {HowMany, From})
     after 10000 ->
-            Args = {BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count},
-            Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
-            hibernate_scan(Keep)
+            case ?LOCAL_WRITER of
+                true ->
+                    Args = {BT1, BT2, hanoi_writer:serialize(Out), IsLastLevel, AKVs, BKVs, Count},
+                    Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
+                    hibernate_scan(Keep);
+                false ->
+                    scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {0, none})
+            end
     end;
 
 scan(BT1, BT2, Out, IsLastLevel, [], BKVs, Count, Step) ->
