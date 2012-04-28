@@ -435,7 +435,14 @@ to_key_range({index, Bucket, {range, <<"$key">>, StartTerm, EndTerm}}) ->
 to_key_range({index, Bucket, {range, Field, StartTerm, EndTerm}}) ->
     #btree_range{ from_key       = to_index_key(Bucket, <<>>, Field, StartTerm),
                   from_inclusive = true,
-                  to_key         = to_index_key(Bucket, <<>>, Field, <<EndTerm/binary, 0>>),
+                  to_key         = to_index_key(Bucket, <<16#ff,16#ff,16#ff,16#ff,
+                                                          16#ff,16#ff,16#ff,16#ff,
+                                                          16#ff,16#ff,16#ff,16#ff,
+                                                          16#ff,16#ff,16#ff,16#ff,
+                                                          16#ff,16#ff,16#ff,16#ff,
+                                                          16#ff,16#ff,16#ff,16#ff,
+                                                          16#ff,16#ff,16#ff,16#ff,
+                                                          16#ff,16#ff,16#ff,16#ff >>, Field, EndTerm),
                   to_inclusive   = false };
 to_key_range(Other) ->
     erlang:throw({unknown_limiter, Other}).
