@@ -67,9 +67,10 @@ debug_log(State,Fmt,Args) ->
     Files = [if State#state.c == undefined -> $ ; true -> $C end,
              if State#state.b == undefined -> $ ; true -> $B end,
              if State#state.a == undefined -> $ ; true -> $A end ],
-    io:format(user,"~s~p[~s]: " ++ Fmt, [if State#state.level < 10 -> "0"; true -> "" end,
-                                    State#state.level,
-                                    Files] ++ Args),
+    io:format(user,"~p ~s~p[~s]: " ++ Fmt, [self(),
+                                            if State#state.level < 10 -> "0"; true -> "" end,
+                                            State#state.level,
+                                            Files] ++ Args),
     ok.
 -else.
 -define(log(Fmt,Args),ok).
@@ -158,53 +159,63 @@ initialize2(State) ->
     case file:read_file_info(MFileName) of
         {ok, _} ->
 
-            %% recover from post-merge crash
+            %% recover from post-merge crash. This is the case where
+            %% a merge completed, resulting in a file that needs to
+            %% stay at the *same* level because the resulting size
+            %% is smaller than or equal to this level's files.
             file:delete(AFileName),
             file:delete(BFileName),
             ok = file:rename(MFileName, AFileName),
 
-            {ok, BT} = hanoi_reader:open(AFileName, random),
+            {ok, BTA} = hanoi_reader:open(AFileName, random),
 
             case file:read_file_info(CFileName) of
                 {ok, _} ->
                     file:rename(CFileName, BFileName),
-                    {ok, BT2} = hanoi_reader:open(BFileName, random),
-                    check_begin_merge_then_loop(State#state{ a= BT, b=BT2 });
+                    {ok, BTB} = hanoi_reader:open(BFileName, random),
+                    check_begin_merge_then_loop(init_state(State#state{ a= BTA, b=BTB }));
 
                 {error, enoent} ->
-                    main_loop(State#state{ a= BT, b=undefined })
+                    main_loop(init_state(State#state{ a= BTA, b=undefined }))
             end;
 
         {error, enoent} ->
             case file:read_file_info(BFileName) of
                 {ok, _} ->
-                    {ok, BT1} = hanoi_reader:open(AFileName, random),
-                    {ok, BT2} = hanoi_reader:open(BFileName, random),
+                    {ok, BTA} = hanoi_reader:open(AFileName, random),
+                    {ok, BTB} = hanoi_reader:open(BFileName, random),
 
                     case file:read_file_info(CFileName) of
                         {ok, _} ->
-                            {ok, BT3} = hanoi_reader:open(CFileName, random);
+                            {ok, BTC} = hanoi_reader:open(CFileName, random);
                         {error, enoent} ->
-                            BT3 = undefined
+                            BTC = undefined
                     end,
 
-                    check_begin_merge_then_loop(State#state{ a=BT1, b=BT2, c=BT3 });
+                    check_begin_merge_then_loop(init_state(State#state{ a=BTA, b=BTB, c=BTC }));
 
                 {error, enoent} ->
 
+                    %% assert that there is no C file
+                    {error, enoent} = file:read_file_info(CFileName),
+
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
-                            {ok, BT1} = hanoi_reader:open(AFileName, random),
-                            main_loop(State#state{ a=BT1 });
+                            {ok, BTA} = hanoi_reader:open(AFileName, random),
+                            main_loop(init_state(State#state{ a=BTA }));
 
                         {error, enoent} ->
-                            main_loop(State)
+                            main_loop(init_state(State))
                     end
             end
     end.
 
-check_begin_merge_then_loop(State=#state{a=BT1, b=BT2, merge_pid=undefined})
-  when BT1/=undefined, BT2 /= undefined ->
+init_state(State) ->
+    ?log("opened level ~p, state=~p", [State#state.level, State]),
+    State.
+
+check_begin_merge_then_loop(State=#state{a=BTA, b=BTB, merge_pid=undefined})
+  when BTA/=undefined, BTB /= undefined ->
     {ok, MergePID} = begin_merge(State),
     main_loop(State#state{merge_pid=MergePID,work_done=0 });
 check_begin_merge_then_loop(State) ->

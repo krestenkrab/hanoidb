@@ -245,8 +245,8 @@ open_levels(Dir,Options) ->
     file:delete(filename:join(Dir,"nursery.data")),
 
     {TopLevel, MaxMerge} =
-        lists:foldl( fun(LevelNo, {Prev, MergeWork0}) ->
-                             {ok, Level} = hanoi_level:open(Dir,LevelNo,Prev,Options,self()),
+        lists:foldl( fun(LevelNo, {NextLevel, MergeWork0}) ->
+                             {ok, Level} = hanoi_level:open(Dir,LevelNo,NextLevel,Options,self()),
 
                              MergeWork = MergeWork0 + hanoi_level:unmerged_count(Level),
 
