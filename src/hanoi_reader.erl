@@ -28,6 +28,7 @@
 -include_lib("kernel/include/file.hrl").
 -include("include/hanoi.hrl").
 -include("hanoi.hrl").
+-include("include/plain_rpc.hrl").
 
 -export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4]).
 -export([first_node/1,next_node/1]).
@@ -50,7 +51,7 @@ open(Name, sequential) ->
 
 %% this is how to open a btree for random access
 open(Name, random) ->
-    {ok, File} = file:open(Name, [raw,read,binary]),
+    {ok, File} = file:open(Name, [read,binary]),
     open2(Name, File).
 
 open2(Name, File) ->
@@ -211,8 +212,35 @@ lookup_in_node(_File,#node{level=0,members=Members},Key) ->
 lookup_in_node(File,#node{members=Members},Key) ->
     case find_1(Key, Members) of
         {ok, {Pos,Size}} ->
+            %% do this in separate process, to avoid having to
+            %% garbage collect all the inner node junk
+            PID = proc_lib:spawn_link(fun() ->
+                                              receive
+                                                  ?CALL(From,read) ->
+                                                      {ok, Node} = read_node(File, {Pos,Size}),
+                                                      Result = lookup_in_node2(File, Node, Key),
+                                                      plain_rpc:send_reply(From, Result)
+                                              end
+                                      end),
+            plain_rpc:call(PID, read);
+        not_found ->
+            not_found
+    end.
+
+
+lookup_in_node2(_File,#node{level=0,members=Members},Key) ->
+    case lists:keyfind(Key,1,Members) of
+        false ->
+            not_found;
+        {_,Value} ->
+            {ok, Value}
+    end;
+
+lookup_in_node2(File,#node{members=Members},Key) ->
+    case find_1(Key, Members) of
+        {ok, {Pos,Size}} ->
             {ok, Node} = read_node(File, {Pos,Size}),
-            lookup_in_node(File, Node, Key);
+            lookup_in_node2(File, Node, Key);
         not_found ->
             not_found
     end.
