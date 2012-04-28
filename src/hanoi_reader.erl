@@ -156,7 +156,7 @@ do_range_fold(Fun, Acc0, File, Range, N0) ->
 lookup_node(_File,_FromKey,#node{level=0},Pos) ->
     {ok, Pos};
 lookup_node(File,FromKey,#node{members=Members,level=N},_) ->
-    case find(FromKey, Members) of
+    case find_start(FromKey, Members) of
         {ok, ChildPos} when N==1 ->
             {ok, ChildPos};
         {ok, ChildPos} ->
@@ -209,7 +209,7 @@ lookup_in_node(_File,#node{level=0,members=Members},Key) ->
     end;
 
 lookup_in_node(File,#node{members=Members},Key) ->
-    case find(Key, Members) of
+    case find_1(Key, Members) of
         {ok, {Pos,Size}} ->
             {ok, Node} = read_node(File, {Pos,Size}),
             lookup_in_node(File, Node, Key);
@@ -218,14 +218,24 @@ lookup_in_node(File,#node{members=Members},Key) ->
     end.
 
 
-find(K, [{K1,V},{K2,_}|_]) when K >= K1, K < K2 ->
+find_1(K, [{K1,V},{K2,_}|_]) when K >= K1, K < K2 ->
     {ok, V};
-find(K, [{K1,V}]) when K >= K1 ->
+find_1(K, [{K1,V}]) when K >= K1 ->
     {ok, V};
-find(K, [_|T]) ->
-    find(K,T);
-find(_, _) ->
+find_1(K, [_|T]) ->
+    find_1(K,T);
+find_1(_, _) ->
     not_found.
+
+
+find_start(K, [{_,V},{K2,_}|_]) when K < K2 ->
+    {ok, V};
+find_start(_, [{_,{_,_}=V}]) ->
+    {ok, V};
+find_start(K, KVs) ->
+    find_1(K, KVs).
+
+
 
 
 read_node(File,{Pos,Size}) ->
