@@ -70,11 +70,9 @@ step({N, From}) ->
     {N-1, From}.
 
 hibernate_scan(Keep) ->
-    error_logger:info_msg("hibernating ~p~n", [self()]),
     erlang:garbage_collect(),
     receive
         {step, From, HowMany} ->
-            error_logger:info_msg("waking up ~p~n", [self()]),
             {BT1, BT2, OutBin, IsLastLevel, AKVs, BKVs, Count} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
             scan(BT1, BT2, hanoi_writer:deserialize(OutBin), IsLastLevel, AKVs, BKVs, Count, {HowMany, From})
     end.
