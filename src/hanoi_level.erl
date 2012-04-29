@@ -132,8 +132,8 @@ code_change(_OldVsn, _State, _Extra) ->
 initialize(State) ->
 
     try
-        Result = initialize2(State),
-        ?log(" ** terminated ~p", [Result])
+        _Result = initialize2(State),
+        ?log(" ** terminated ~p", [_Result])
     catch
         Class:Ex when not (Class == exit andalso Ex == normal) ->
             ?log("crashing ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()]),
@@ -311,13 +311,13 @@ main_loop(State = #state{ next=Next }) ->
 
             main_loop(State2#state{ step_merge_ref=undefined });
 
-        {MRef, step_done}=Msg ->
+        {_MRef, step_done}=Msg ->
             ?log("unexpected step_done", []),
             exit({bad_msg, Msg});
 
-        {'DOWN', MRef, _, _, Reason} when MRef == State#state.step_merge_ref ->
+        {'DOWN', MRef, _, _, _Reason} when MRef == State#state.step_merge_ref ->
 
-            ?log("merge worker died ~p", [Reason]),
+            ?log("merge worker died ~p", [_Reason]),
             %% current merge worker died (or just finished)
 
             case State#state.step_next_ref of
