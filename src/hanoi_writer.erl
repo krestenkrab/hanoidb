@@ -80,11 +80,12 @@ close(Ref) ->
 init([Name,Options]) ->
 
     Size = proplists:get_value(size, Options, 2048),
+    WriteBufferSize = hanoi:get_opt(write_buffer_size, Options, 512 * 1024),
 
 %    io:format("got name: ~p~n", [Name]),
     BlockSize = hanoi:get_opt(block_size, Options, ?NODE_SIZE),
     case file:open( hanoi_util:index_file_name(Name),
-                               [raw, exclusive, write, {delayed_write, BlockSize * 4, 2000}]) of
+                               [raw, exclusive, write, {delayed_write, WriteBufferSize, 2000}]) of
         {ok, IdxFile} ->
             {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
             {ok, #state{ name=Name,

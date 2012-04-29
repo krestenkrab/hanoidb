@@ -41,8 +41,8 @@
 -define(LOCAL_WRITER, true).
 
 merge(A,B,C, Size, IsLastLevel, Options) ->
-    {ok, BT1} = hanoi_reader:open(A, sequential),
-    {ok, BT2} = hanoi_reader:open(B, sequential),
+    {ok, BT1} = hanoi_reader:open(A, [sequential|Options]),
+    {ok, BT2} = hanoi_reader:open(B, [sequential|Options]),
     case ?LOCAL_WRITER of
         true ->
             {ok, Out} = hanoi_writer:init([C, [{size,Size} | Options]]);

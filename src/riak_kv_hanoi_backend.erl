@@ -103,7 +103,7 @@ start(Partition, Config) ->
                 ok ->
                     case get_data_dir(DataRoot, integer_to_list(Partition)) of
                         {ok, DataDir} ->
-                            case hanoi:open(DataDir) of
+                            case hanoi:open(DataDir, Config) of
                                 {ok, Tree} ->
                                     {ok, #state{tree=Tree, partition=Partition}};
                                 {error, OpenReason}=OpenError ->

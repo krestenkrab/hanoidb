@@ -40,21 +40,21 @@
 
 -spec open(Name::string()) -> read_file().
 open(Name) ->
-    open(Name, random).
+    open(Name, [random]).
 
--spec open(Name::string(), sequential|random) -> read_file().
+-type config() :: [sequential | random | {atom(), term()}].
 
-%% this is how to open a btree for sequential scanning (merge, fold)
-open(Name, sequential) ->
-    {ok, File} = file:open(Name, [raw,read,{read_ahead, 1024 * 32},binary]),
-    open2(Name, File);
+-spec open(Name::string(), config()) -> read_file().
 
-%% this is how to open a btree for random access
-open(Name, random) ->
-    {ok, File} = file:open(Name, [read,binary]),
-    open2(Name, File).
+open(Name, Config) ->
+    case proplists:get_bool(sequential, Config) of
+        true ->
+            ReadBufferSize = hanoi:get_opt(read_buffer_size, Config, 512 * 1024),
+            {ok, File} = file:open(Name, [raw,read,{read_ahead, ReadBufferSize},binary]);
+        false ->
+            {ok, File} = file:open(Name, [read,binary])
+    end,
 
-open2(Name, File) ->
     {ok, FileInfo} = file:read_file_info(Name),
 
     %% read root position

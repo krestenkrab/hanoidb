@@ -167,12 +167,12 @@ initialize2(State) ->
             file:delete(BFileName),
             ok = file:rename(MFileName, AFileName),
 
-            {ok, BTA} = hanoi_reader:open(AFileName, random),
+            {ok, BTA} = hanoi_reader:open(AFileName, [random|State#state.opts]),
 
             case file:read_file_info(CFileName) of
                 {ok, _} ->
                     file:rename(CFileName, BFileName),
-                    {ok, BTB} = hanoi_reader:open(BFileName, random),
+                    {ok, BTB} = hanoi_reader:open(BFileName, [random|State#state.opts]),
                     check_begin_merge_then_loop(init_state(State#state{ a= BTA, b=BTB }));
 
                 {error, enoent} ->
@@ -182,12 +182,12 @@ initialize2(State) ->
         {error, enoent} ->
             case file:read_file_info(BFileName) of
                 {ok, _} ->
-                    {ok, BTA} = hanoi_reader:open(AFileName, random),
-                    {ok, BTB} = hanoi_reader:open(BFileName, random),
+                    {ok, BTA} = hanoi_reader:open(AFileName, [random|State#state.opts]),
+                    {ok, BTB} = hanoi_reader:open(BFileName, [random|State#state.opts]),
 
                     case file:read_file_info(CFileName) of
                         {ok, _} ->
-                            {ok, BTC} = hanoi_reader:open(CFileName, random);
+                            {ok, BTC} = hanoi_reader:open(CFileName, [random|State#state.opts]);
                         {error, enoent} ->
                             BTC = undefined
                     end,
@@ -201,7 +201,7 @@ initialize2(State) ->
 
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
-                            {ok, BTA} = hanoi_reader:open(AFileName, random),
+                            {ok, BTA} = hanoi_reader:open(AFileName, [random|State#state.opts]),
                             main_loop(init_state(State#state{ a=BTA }));
 
                         {error, enoent} ->
@@ -259,7 +259,7 @@ main_loop(State = #state{ next=Next }) ->
 
             plain_rpc:send_reply(From, ok),
 
-            case hanoi_reader:open(ToFileName, random) of
+            case hanoi_reader:open(ToFileName, [random|State#state.opts]) of
                 {ok, BT} ->
                     if SetPos == #state.b ->
                             check_begin_merge_then_loop(setelement(SetPos, State, BT));
@@ -471,7 +471,7 @@ main_loop(State = #state{ next=Next }) ->
             % then, rename M to A, and open it
             AFileName = filename("A",State2),
             ok = file:rename(MFileName, AFileName),
-            {ok, BT} = hanoi_reader:open(AFileName, random),
+            {ok, BT} = hanoi_reader:open(AFileName, [random|State#state.opts]),
 
             % iff there is a C file, then move it to B position
             % TODO: consider recovery for this
@@ -703,7 +703,7 @@ start_range_fold(FileName, WorkerPID, Range, State) ->
         proc_lib:spawn( fun() ->
                                 ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
                                 erlang:link(WorkerPID),
-                                {ok, File} = hanoi_reader:open(FileName, sequential),
+                                {ok, File} = hanoi_reader:open(FileName, [sequential|State#state.opts]),
                                 do_range_fold(File, WorkerPID, self(), Range),
                                 erlang:unlink(WorkerPID),
                                 hanoi_reader:close(File),

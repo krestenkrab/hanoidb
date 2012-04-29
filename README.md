@@ -39,6 +39,8 @@ Put these values in your `app.config` in the `hanoi` section
           {compress, none | snappy | gzip},
           {sync_strategy, none | sync | {seconds, N}},
           {page_size, 8192}
+          {write_buffer_size, 524288}  % 512kB
+          {read_buffer_size, 524288}  % 512kB
          ]},
 ```
 
