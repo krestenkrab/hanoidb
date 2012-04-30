@@ -179,7 +179,7 @@ scan_only(BT, Out, IsLastLevel, KVs, Count, {N, FromPID}) when N < 1, KVs =/= []
     after 10000 ->
             Args = {BT, hanoi_writer:serialize(Out), IsLastLevel, KVs, Count, N},
             Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
-            hibernate_scan_only(Keep);
+            hibernate_scan_only(Keep)
     end;
 
 scan_only(BT, Out, IsLastLevel, [], Count, {_, FromPID}=Step) ->
