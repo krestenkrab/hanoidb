@@ -244,7 +244,7 @@ open_levels(Dir,Options) ->
     %% remove old nursery file
     file:delete(filename:join(Dir,"nursery.data")),
 
-    {TopLevel, MaxMerge} =
+    {TopLevel, _MaxMerge} =
         lists:foldl( fun(LevelNo, {NextLevel, MergeWork0}) ->
                              {ok, Level} = hanoi_level:open(Dir,LevelNo,NextLevel,Options,self()),
 
@@ -258,10 +258,10 @@ open_levels(Dir,Options) ->
     %% we need to do this much merge work before we can guarantee
     %% response times ... this is the amount of "in flight" merging
     %% we lost when the hanoi store was closed.
-    ok = hanoi_level:incremental_merge(TopLevel, MaxMerge),
+    ok = hanoi_level:begin_incremental_merge(TopLevel),
 
     %% second incremental merge blocks until the previous is done
-    ok = hanoi_level:incremental_merge(TopLevel, 0),
+    ok = hanoi_level:await_incremental_merge(TopLevel),
 
     {ok, TopLevel, MaxLevel}.
 
@@ -274,16 +274,12 @@ parse_level(FileName) ->
     end.
 
 
-handle_info({bottom_level, N}, #state{ nursery=Nursery }=State)
+handle_info({bottom_level, N}, #state{ nursery=Nursery, top=TopLevel }=State)
   when N > State#state.max_level ->
     State2 = State#state{ max_level = N,
                           nursery= hanoi_nursery:set_max_level(Nursery, N) },
 
-    %% when this happens, there is a race condition because inserts can already
-    %% be in process of being executed in the levels.  The remedy is to initiate
-    %% some extra incremental merge.
-
-    ok = hanoi_level:incremental_merge( State#state.top, ?BTREE_SIZE(?TOP_LEVEL)),
+    hanoi_level:set_max_level(TopLevel, N),
 
     {noreply, State2};
 

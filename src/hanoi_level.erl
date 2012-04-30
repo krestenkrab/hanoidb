@@ -45,14 +45,15 @@
 -export([data_vsn/0, code_change/3]).
 
 -export([open/5, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3,
-         incremental_merge/2, unmerged_count/1]).
+         begin_incremental_merge/1, await_incremental_merge/1, set_max_level/2,
+         unmerged_count/1]).
 
 -include_lib("kernel/include/file.hrl").
 
 -record(state, {
           a, b, c, next, dir, level, inject_done_ref, merge_pid, folding = [],
           step_next_ref, step_caller, step_merge_ref,
-          opts = [], owner, work_in_progress=0, work_done=0
+          opts = [], owner, work_in_progress=0, work_done=0, max_level=?TOP_LEVEL
           }).
 
 
@@ -94,11 +95,17 @@ inject(Ref, FileName) ->
     Result = plain_rpc:call(Ref, {inject, FileName}),
     Result.
 
-incremental_merge(Ref,HowMuch) ->
-    plain_rpc:call(Ref, {incremental_merge, HowMuch}).
+begin_incremental_merge(Ref) ->
+    plain_rpc:call(Ref, begin_incremental_merge).
+
+await_incremental_merge(Ref) ->
+    plain_rpc:call(Ref, await_incremental_merge).
 
 unmerged_count(Ref) ->
     plain_rpc:call(Ref, unmerged_count).
+
+set_max_level(Ref, LevelNo) ->
+    plain_rpc:send_cast(Ref, {set_max_level, LevelNo}).
 
 close(Ref) ->
     try
@@ -275,24 +282,35 @@ main_loop(State = #state{ next=Next }) ->
             plain_rpc:send_reply(From, total_unmerged(State)),
             main_loop(State);
 
+        %% propagate knowledge of new max level
+        ?CAST(_From, {set_max_level, Max}) ->
+            if Next =/= undefined ->
+                    set_max_level(Next, Max);
+               true ->
+                    ok
+            end,
+            main_loop(State#state{ max_level=Max });
+
         %% replies OK when there is no current step in progress
-        ?CALL(From, {incremental_merge, HowMuch})
+        ?CALL(From, begin_incremental_merge)
           when State#state.step_merge_ref == undefined,
                State#state.step_next_ref == undefined ->
             plain_rpc:send_reply(From, ok),
-            if HowMuch > 0 ->
-                    do_step(undefined, HowMuch, State);
-               true ->
-                    main_loop(State)
-            end;
+            do_step(undefined, 0, State);
+
+        ?CALL(From, await_incremental_merge)
+          when State#state.step_merge_ref == undefined,
+               State#state.step_next_ref == undefined ->
+            plain_rpc:send_reply(From, ok),
+            main_loop(State);
 
         %% accept step any time there is not an outstanding step
-        ?CALL(StepFrom, {step, HowMuch})
+        ?CALL(StepFrom, {step_level, DoneWork})
           when State#state.step_merge_ref == undefined,
                State#state.step_caller    == undefined,
                State#state.step_next_ref  == undefined
                ->
-            do_step(StepFrom, HowMuch, State);
+            do_step(StepFrom, DoneWork, State);
 
         {MRef, step_done} when MRef == State#state.step_merge_ref ->
             demonitor(MRef, [flush]),
@@ -558,23 +576,26 @@ main_loop(State = #state{ next=Next }) ->
 
     end.
 
-do_step(StepFrom, HowMuch, State) ->
+do_step(StepFrom, PreviousWork, State) ->
     if (State#state.b =/= undefined) andalso (State#state.merge_pid =/= undefined) ->
             WorkLeftHere = max(0, (2 * ?BTREE_SIZE(State#state.level)) - State#state.work_done);
        true ->
             WorkLeftHere = 0
     end,
-    WorkToDoHere = min(WorkLeftHere, HowMuch),
-    DelegateWork = max(0,HowMuch - WorkToDoHere),
+    MaxLevel      = max(State#state.max_level, State#state.level),
+    TotalWork     = (MaxLevel-?TOP_LEVEL+1) * ?BTREE_SIZE(?TOP_LEVEL),
+    WorkUnitsLeft = max(0, TotalWork-PreviousWork),
+    WorkToDoHere  = min(WorkLeftHere, WorkUnitsLeft),
+    WorkIncludingHere  = PreviousWork + WorkToDoHere,
 
-    ?log("step:~p, do:~p, left:~p ~n", [HowMuch, WorkToDoHere, WorkLeftHere]),
+    ?log("do_step prev:~p, do:~p of ~p ~n", [PreviousWork, WorkToDoHere, WorkLeftHere]),
 
-    %% delegate the step request to the next level
+    %% delegate the step_level request to the next level
     Next = State#state.next,
-    if Next =:= undefined; DelegateWork == 0 ->
+    if Next =:= undefined ->
             DelegateRef = undefined;
        true ->
-            DelegateRef = plain_rpc:send_call(Next, {step, DelegateWork})
+            DelegateRef = plain_rpc:send_call(Next, {step_level, WorkIncludingHere})
     end,
 
     if WorkToDoHere > 0 ->
@@ -587,12 +608,6 @@ do_step(StepFrom, HowMuch, State) ->
 
     if (DelegateRef =:= undefined) andalso (MergeRef =:= undefined) ->
             %% nothing to do ... just return OK
-
-            if (DelegateWork > 0) ->
-                    ?log("undone work: ~p", [DelegateWork]);
-               true ->
-                    ok
-            end,
 
             State2 = reply_step_ok(State#state { step_caller = StepFrom }),
             main_loop(State2);

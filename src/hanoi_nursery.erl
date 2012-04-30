@@ -164,8 +164,7 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
 
             %% issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
-            hanoi_level:incremental_merge(TopLevel,
-                                          (MaxLevel-?TOP_LEVEL+1)*?BTREE_SIZE(?TOP_LEVEL)),
+            hanoi_level:begin_incremental_merge(TopLevel),
 
             ok;
 

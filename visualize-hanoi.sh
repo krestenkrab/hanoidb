@@ -96,13 +96,13 @@ function dynamic() {
             let "t=t+1"
             now=`date +%s`
             let "now=now-start"
-            free=`df -m . | tail -1 | awk '{print $4}'`
-            used=`du -m | awk '{print $1}' `
+            free=`df -m . 2> /dev/null | tail -1 | awk '{print $4}'`
+            used=`du -m 2> /dev/null | awk '{print $1}' `
             printf "%5d %6d [%s\n" "$t" "$now" "$s ${used}Mb (${free}Mb free)"
             old="$s"
         else
             # Sleep a little bit:
-            perl -e 'use Time::HiRes; Time::HiRes::usleep(100000)'
+            sleep 1
         fi
     done
 }

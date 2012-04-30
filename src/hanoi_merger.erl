@@ -91,7 +91,7 @@ scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {N, FromPID}) when N < 1, AK
     receive
         {step, From, HowMany} ->
             scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {N+HowMany, From})
-    after 10000 ->
+    after 5000 ->
             case ?LOCAL_WRITER of
                 true ->
                     Args = {BT1, BT2, hanoi_writer:serialize(Out), IsLastLevel, AKVs, BKVs, Count, N},
@@ -176,7 +176,7 @@ scan_only(BT, Out, IsLastLevel, KVs, Count, {N, FromPID}) when N < 1, KVs =/= []
     receive
         {step, From, HowMany} ->
             scan_only(BT, Out, IsLastLevel, KVs, Count, {N+HowMany, From})
-    after 10000 ->
+    after 5000 ->
             Args = {BT, hanoi_writer:serialize(Out), IsLastLevel, KVs, Count, N},
             Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
             hibernate_scan_only(Keep)
