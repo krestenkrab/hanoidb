@@ -565,7 +565,7 @@ do_step(StepFrom, HowMuch, State) ->
             WorkLeftHere = 0
     end,
     WorkToDoHere = min(WorkLeftHere, HowMuch),
-    DelegateWork = max(0,HowMuch - max(?BTREE_SIZE(?TOP_LEVEL), WorkToDoHere)),
+    DelegateWork = max(0,HowMuch - WorkToDoHere),
 
     ?log("step:~p, do:~p, left:~p ~n", [HowMuch, WorkToDoHere, WorkLeftHere]),
 
