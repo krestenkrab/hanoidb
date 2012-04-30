@@ -155,6 +155,16 @@ scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKV
             scan(BT1, BT2, Out2, IsLastLevel, AT, BT, Count+1, step(Step, 2))
     end.
 
+
+hibernate_scan_only(Keep) ->
+    erlang:garbage_collect(),
+    receive
+        {step, From, HowMany} ->
+            {BT, OutBin, IsLastLevel, KVs, Count, N} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
+            scan_only(BT, hanoi_writer:deserialize(OutBin), IsLastLevel, KVs, Count, {N+HowMany, From})
+    end.
+
+
 scan_only(BT, Out, IsLastLevel, KVs, Count, {N, FromPID}) when N < 1, KVs =/= [] ->
     case FromPID of
         none ->
@@ -166,6 +176,10 @@ scan_only(BT, Out, IsLastLevel, KVs, Count, {N, FromPID}) when N < 1, KVs =/= []
     receive
         {step, From, HowMany} ->
             scan_only(BT, Out, IsLastLevel, KVs, Count, {N+HowMany, From})
+    after 10000 ->
+            Args = {BT, hanoi_writer:serialize(Out), IsLastLevel, KVs, Count, N},
+            Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
+            hibernate_scan_only(Keep);
     end;
 
 scan_only(BT, Out, IsLastLevel, [], Count, {_, FromPID}=Step) ->
