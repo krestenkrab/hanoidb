@@ -577,17 +577,22 @@ do_step(StepFrom, HowMuch, State) ->
             DelegateRef = plain_rpc:send_call(Next, {step, DelegateWork})
     end,
 
-    if (State#state.merge_pid == undefined)
-       orelse (WorkToDoHere =< 0) ->
-            MergeRef = undefined;
-       true ->
+    if WorkToDoHere > 0 ->
             MergePID = State#state.merge_pid,
             MergeRef = monitor(process, MergePID),
-            MergePID ! {step, {self(), MergeRef}, WorkToDoHere}
+            MergePID ! {step, {self(), MergeRef}, WorkToDoHere};
+       true ->
+            MergeRef = undefined
     end,
 
-    if (Next =:= undefined) andalso (MergeRef =:= undefined) ->
+    if (DelegateRef =:= undefined) andalso (MergeRef =:= undefined) ->
             %% nothing to do ... just return OK
+
+            if (DelegateWork > 0) ->
+                    ?log("undone work: ~p", [DelegateWork]);
+               true ->
+                    ok
+            end,
 
             State2 = reply_step_ok(State#state { step_caller = StepFrom }),
             main_loop(State2);
