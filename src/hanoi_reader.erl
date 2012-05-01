@@ -32,9 +32,10 @@
 
 -export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4]).
 -export([first_node/1,next_node/1]).
+-export([serialize/1, deserialize/1]).
 
 -record(node, { level, members=[] }).
--record(index, {file, root, bloom}).
+-record(index, {file, root, bloom, name, config=[]}).
 
 -type read_file() :: #index{}.
 
@@ -42,7 +43,7 @@
 open(Name) ->
     open(Name, [random]).
 
--type config() :: [sequential | random | {atom(), term()}].
+-type config() :: [sequential | folding | random | {atom(), term()}].
 
 -spec open(Name::string(), config()) -> read_file().
 
@@ -50,24 +51,43 @@ open(Name, Config) ->
     case proplists:get_bool(sequential, Config) of
         true ->
             ReadBufferSize = hanoi:get_opt(read_buffer_size, Config, 512 * 1024),
-            {ok, File} = file:open(Name, [raw,read,{read_ahead, ReadBufferSize},binary]);
+            {ok, File} = file:open(Name, [raw,read,{read_ahead, ReadBufferSize},binary]),
+            {ok, #index{file=File, name=Name, config=Config}};
+
         false ->
-            {ok, File} = file:open(Name, [read,binary])
-    end,
+            case proplists:get_bool(folding, Config) of
+                true ->
+                    ReadBufferSize = hanoi:get_opt(read_buffer_size, Config, 512 * 1024),
+                    {ok, File} = file:open(Name, [read,{read_ahead, ReadBufferSize},binary]);
+                false ->
+                    {ok, File} = file:open(Name, [read,binary])
+            end,
 
-    {ok, FileInfo} = file:read_file_info(Name),
+            {ok, FileInfo} = file:read_file_info(Name),
 
-    %% read root position
-    {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size-8, 8),
-    {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size-12, 4),
-    {ok, BloomData} = file:pread(File, FileInfo#file_info.size-12-BloomSize ,BloomSize),
+            %% read root position
+            {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size-8, 8),
+            {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size-12, 4),
+            {ok, BloomData} = file:pread(File, FileInfo#file_info.size-12-BloomSize ,BloomSize),
 
-    {ok, Bloom} = ebloom:deserialize(zlib:unzip(BloomData)),
+            {ok, Bloom} = ebloom:deserialize(zlib:unzip(BloomData)),
 
-    %% suck in the root
-    {ok, Root} = read_node(File, RootPos),
+            %% suck in the root
+            {ok, Root} = read_node(File, RootPos),
 
-    {ok, #index{file=File, root=Root, bloom=Bloom}}.
+            {ok, #index{file=File, root=Root, bloom=Bloom, name=Name, config=Config}}
+    end.
+
+serialize(#index{file=File, bloom=undefined }=Index) ->
+    {ok, Position} = file:position(File, cur),
+    ok = file:close(File),
+    {seq_read_file, Index, Position}.
+
+deserialize({seq_read_file, Index, Position}) ->
+    {ok, #index{file=File}=Index2} = open(Index#index.name, Index#index.config),
+    {ok, Position} = file:position(File, {bof, Position}),
+    Index2.
+
 
 
 fold(Fun, Acc0, #index{file=File}) ->
@@ -222,7 +242,13 @@ lookup_in_node(File,#node{members=Members},Key) ->
                                                       plain_rpc:send_reply(From, Result)
                                               end
                                       end),
-            plain_rpc:call(PID, read);
+            try plain_rpc:call(PID, read)
+            catch
+                Class:Ex ->
+                    error_logger:error_msg("crashX: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()]),
+                    not_found
+            end;
+
         not_found ->
             not_found
     end.

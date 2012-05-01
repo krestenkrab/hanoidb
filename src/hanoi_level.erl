@@ -723,7 +723,7 @@ start_range_fold(FileName, WorkerPID, Range, State) ->
         proc_lib:spawn( fun() ->
                                 ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
                                 erlang:link(WorkerPID),
-                                {ok, File} = hanoi_reader:open(FileName, [sequential|State#state.opts]),
+                                {ok, File} = hanoi_reader:open(FileName, [folding|State#state.opts]),
                                 do_range_fold(File, WorkerPID, self(), Range),
                                 erlang:unlink(WorkerPID),
                                 hanoi_reader:close(File),

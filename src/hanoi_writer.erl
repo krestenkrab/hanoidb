@@ -55,7 +55,9 @@
 
                  bloom,
                  block_size = ?NODE_SIZE,
-                 compress   = none :: none | snappy | gzip
+                 compress   = none :: none | snappy | gzip,
+
+                 opts  = []
                }).
 
 
@@ -80,19 +82,18 @@ close(Ref) ->
 init([Name,Options]) ->
 
     Size = proplists:get_value(size, Options, 2048),
-    WriteBufferSize = hanoi:get_opt(write_buffer_size, Options, 512 * 1024),
 
 %    io:format("got name: ~p~n", [Name]),
-    BlockSize = hanoi:get_opt(block_size, Options, ?NODE_SIZE),
-    case file:open( hanoi_util:index_file_name(Name),
-                               [raw, exclusive, write, {delayed_write, WriteBufferSize, 2000}]) of
+    case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
             {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
+            BlockSize = hanoi:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,
                          index_file_pos=0, index_file=IdxFile,
                          bloom = BloomFilter,
                          block_size = BlockSize,
-                         compress = hanoi:get_opt(compress, Options, none)
+                         compress = hanoi:get_opt(compress, Options, none),
+                         opts = Options
                        }};
         {error, _}=Error ->
             error_logger:error_msg("hanoi_writer cannot open ~p: ~p~n", [Name, Error]),
@@ -127,13 +128,30 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%%%% INTERNAL FUNCTIONS
 
-serialize(#state{ bloom=Bloom }=State) ->
-    erlang:term_to_binary( { State, ebloom:serialize(Bloom) } ).
+serialize(#state{ bloom=Bloom, index_file=File }=State) ->
+%    io:format("serializing ~p @ ~p~n", [State#state.name,
+%                                        State#state.index_file_pos]),
+
+    %% assert that we're on track
+    Position = State#state.index_file_pos,
+    {ok, Position} = file:position(File, cur),
+
+    ok = file:close(File),
+    erlang:term_to_binary( { State#state{ index_file=closed }, ebloom:serialize(Bloom) } ).
 
 deserialize(Binary) ->
     { State, BinBloom } = erlang:binary_to_term( Binary ),
+%    io:format("deserializing ~p @ ~p~n", [State#state.name,
+%                                        State#state.index_file_pos]),
     {ok, Bloom } = ebloom:deserialize(BinBloom),
-    State#state{ bloom = Bloom }.
+    {ok, IdxFile} = do_open(State#state.name, State#state.opts, []),
+    State#state{ bloom = Bloom, index_file=IdxFile }.
+
+
+do_open(Name, Options, OpenOpts) ->
+    WriteBufferSize = hanoi:get_opt(write_buffer_size, Options, 512 * 1024),
+    file:open( hanoi_util:index_file_name(Name),
+               [raw, append, {delayed_write, WriteBufferSize, 2000} | OpenOpts]).
 
 
 % @doc flush pending nodes and write trailer
