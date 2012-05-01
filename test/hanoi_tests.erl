@@ -60,9 +60,9 @@ full_test_() ->
      [
       ?_test(test_tree_simple_1()),
       ?_test(test_tree_simple_2()),
-      ?_test(test_tree_simple_4())
+      ?_test(test_tree_simple_4()),
 %      {timeout, 300, ?_test(test_tree())},
-%      {timeout, 120, ?_test(test_qc())}
+      {timeout, 120, ?_test(test_qc())}
      ]}.
 
 full2_test_() ->
