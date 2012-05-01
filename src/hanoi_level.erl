@@ -514,7 +514,7 @@ main_loop(State = #state{ next=Next }) ->
                         {ok, PID} = ?MODULE:open(State#state.dir, State#state.level + 1, undefined,
                                                  State#state.opts, State#state.owner ),
                         State#state.owner ! { bottom_level, State#state.level + 1 },
-                        State#state{ next=PID };
+                        State#state{ next=PID, max_level= State#state.level+1 };
                    true ->
                         State
                 end,
@@ -582,10 +582,18 @@ do_step(StepFrom, PreviousWork, State) ->
        true ->
             WorkLeftHere = 0
     end,
+    WorkUnit      = ?BTREE_SIZE(?TOP_LEVEL),
     MaxLevel      = max(State#state.max_level, State#state.level),
-    TotalWork     = (MaxLevel-?TOP_LEVEL+1) * ?BTREE_SIZE(?TOP_LEVEL),
+    TotalWork     = (MaxLevel-?TOP_LEVEL+1) * WorkUnit,
     WorkUnitsLeft = max(0, TotalWork-PreviousWork),
-    WorkToDoHere  = min(WorkLeftHere, WorkUnitsLeft),
+
+    case hanoi:get_opt( merge_strategy, State#state.opts, predictable) of
+        fast ->
+            WorkToDoHere = min(WorkLeftHere, WorkUnitsLeft);
+        predictable ->
+            WorkToDoHere = min(WorkLeftHere, WorkUnit)
+    end,
+
     WorkIncludingHere  = PreviousWork + WorkToDoHere,
 
     ?log("do_step prev:~p, do:~p of ~p ~n", [PreviousWork, WorkToDoHere, WorkLeftHere]),

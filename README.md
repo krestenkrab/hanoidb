@@ -38,9 +38,16 @@ Put these values in your `app.config` in the `hanoi` section
           {data_root, "./data/hanoi"},
           {compress, none | snappy | gzip},
           {sync_strategy, none | sync | {seconds, N}},
-          {page_size, 8192}
-          {write_buffer_size, 524288}  % 512kB
-          {read_buffer_size, 524288}  % 512kB
+          {page_size, 8192},
+          {write_buffer_size, 524288},  % 512kB
+          {read_buffer_size, 524288},  % 512kB
+
+          %%
+          %% The merge strategy is one of `fast' or `predictable'.
+          %% Both have same log2(N) worst case, but `fast' is
+          %% sometimes faster; yielding latency fluctuations.
+          %%
+          {merge_strategy, fast | predictable}
          ]},
 ```
 
