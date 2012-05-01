@@ -244,7 +244,10 @@ open_levels(Dir,Options) ->
     %% remove old nursery file
     file:delete(filename:join(Dir,"nursery.data")),
 
-    {TopLevel, _MaxMerge} =
+    %%
+    %% Do enough incremental merge to be sure we won't deadlock in insert
+    %%
+    {TopLevel, MaxMerge} =
         lists:foldl( fun(LevelNo, {NextLevel, MergeWork0}) ->
                              {ok, Level} = hanoi_level:open(Dir,LevelNo,NextLevel,Options,self()),
 
@@ -255,15 +258,19 @@ open_levels(Dir,Options) ->
                      {undefined, 0},
                      lists:seq(MaxLevel, min(?TOP_LEVEL, MinLevel), -1)),
 
-    %% we need to do this much merge work before we can guarantee
-    %% response times ... this is the amount of "in flight" merging
-    %% we lost when the hanoi store was closed.
-    ok = hanoi_level:begin_incremental_merge(TopLevel),
-
-    %% second incremental merge blocks until the previous is done
-    ok = hanoi_level:await_incremental_merge(TopLevel),
+    WorkPerIter = (MaxLevel-MinLevel+1)*?BTREE_SIZE(?TOP_LEVEL),
+    do_merge(TopLevel, WorkPerIter, MaxMerge),
 
     {ok, TopLevel, MaxLevel}.
+
+do_merge(TopLevel, _Inc, N) when N =< 0 ->
+    ok = hanoi_level:await_incremental_merge(TopLevel);
+
+do_merge(TopLevel, Inc, N) ->
+    ok = hanoi_level:begin_incremental_merge(TopLevel),
+    do_merge(TopLevel, Inc, N-Inc).
+
+
 
 parse_level(FileName) ->
     case re:run(FileName, "^[^\\d]+-(\\d+)\\.data$", [{capture,all_but_first,list}]) of
