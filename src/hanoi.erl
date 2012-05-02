@@ -126,7 +126,7 @@ receive_fold_range(MRef, PID,Fun,Acc0) ->
                     Class:Exception ->
                         % io:format(user, "Exception in hanoi fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
                         % lager:warn("Exception in hanoi fold: ~p", [Exception]),
-                        {'EXIT', Class, Exception}
+                        {'EXIT', Class, Exception, erlang:get_stacktrace()}
                 end
             of
                 {ok, Acc1} ->
