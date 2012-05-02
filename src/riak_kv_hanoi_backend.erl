@@ -197,7 +197,7 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
         fun() ->
                 fold_list_buckets(<<>>, Tree, FoldBucketsFun, Acc)
         end,
-    case lists:member(async_fold, Opts) of
+    case proplists:get_bool(async_fold, Opts) of
         true ->
             {async, BucketFolder};
         false ->
@@ -221,8 +221,9 @@ fold_list_buckets(PrevBucket, Tree, FoldBucketsFun, Acc) ->
     %% grab next bucket, it's a limit=1 range query :-)
     case hanoi:fold_range(Tree,
                           fun(BucketKey,_Value,none) ->
+                                  ?log( "IN_FOLDER ~p~n", [BucketKey]),
                                   case from_object_key(BucketKey) of
-                                      {o, Bucket, _Key} ->
+                                      {Bucket, _Key} ->
                                           [Bucket];
                                       _ ->
                                           none
@@ -232,8 +233,10 @@ fold_list_buckets(PrevBucket, Tree, FoldBucketsFun, Acc) ->
                           Range)
     of
         none ->
+            ?log( "NO_MORE_BUCKETS~n", []),
             Acc;
         [Bucket] ->
+            ?log( "NEXT_BUCKET ~p~n", [Bucket]),
             fold_list_buckets(Bucket, Tree, FoldBucketsFun, FoldBucketsFun(Bucket, Acc))
     end.
 
@@ -259,20 +262,11 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
     %% Set up the fold...
     FoldFun = fold_keys_fun(FoldKeysFun, Limiter),
     Range   = to_key_range(Limiter),
-    KeyFolder =
-        fun() ->
-                try
-                    hanoi:fold_range(Tree, FoldFun, Acc, Range)
-                catch
-                    {break, AccFinal} ->
-                        AccFinal
-                end
-        end,
-    case lists:member(async_fold, Opts) of
+    case proplists:get_bool(async_fold, Opts) of
         true ->
-            {async, KeyFolder};
+            {async, fun() -> hanoi:fold_range(Tree, FoldFun, Acc, Range) end};
         false ->
-            {ok, KeyFolder()}
+            {ok, hanoi:fold_range(Tree, FoldFun, Acc, Range)}
     end.
 
 %% @doc Fold over all the objects for one or all buckets.
@@ -285,14 +279,9 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     FoldFun = fold_objects_fun(FoldObjectsFun, Bucket),
     ObjectFolder =
         fun() ->
-                try
-                    hanoi:fold_range(Tree, FoldFun, Acc, to_key_range(Bucket))
-                catch
-                    {break, AccFinal} ->
-                        AccFinal
-                end
+                hanoi:fold_range(Tree, FoldFun, Acc, to_key_range(Bucket))
         end,
-    case lists:member(async_fold, Opts) of
+    case proplists:get_bool(async_fold, Opts) of
         true ->
             {async, ObjectFolder};
         false ->
@@ -398,13 +387,12 @@ fold_keys_fun(_FoldKeysFun, Other) ->
 %% @private
 %% Return a function to fold over the objects on this backend
 fold_objects_fun(FoldObjectsFun, FilterBucket) ->
-    fun(Key, Value, Acc) ->
-            case from_object_key(Key) of
+    fun(StorageKey, Value, Acc) ->
+            ?log( "OFOLD: ~p, filter=~p~n", [sext:decode(StorageKey), FilterBucket]),
+            case from_object_key(StorageKey) of
                 {Bucket, Key} when FilterBucket == undefined;
                                    Bucket == FilterBucket ->
-                    FoldObjectsFun(Bucket, Key, Value, Acc);
-                _ ->
-                    Acc
+                    FoldObjectsFun(Bucket, Key, Value, Acc)
             end
     end.
 

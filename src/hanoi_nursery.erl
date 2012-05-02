@@ -225,17 +225,38 @@ transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSi
 do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, KeyRange) ->
     Ref = erlang:make_ref(),
     FoldWorkerPID ! {prefix, [Ref]},
-    lists:foreach(fun({Key,Value}) ->
-                          case ?KEY_IN_RANGE(Key,KeyRange) of
-                              true ->
-                                  FoldWorkerPID ! {level_result, Ref, Key, Value};
-                              false ->
-                                  ok
-                          end
-                  end,
-                  gb_trees:to_list(Cache)),
-    FoldWorkerPID ! {level_done, Ref},
+    case lists:foldl(fun(_,{LastKey,limit}) ->
+                        {LastKey,limit};
+                  ({Key,Value}, {LastKey,Count}) ->
+                       case ?KEY_IN_RANGE(Key,KeyRange) of
+                           true ->
+                               FoldWorkerPID ! {level_result, Ref, Key, Value},
+                               case Value of
+                                   ?TOMBSTONE ->
+                                       {Key, Count};
+                                   _ ->
+                                       {Key, decrement(Count)}
+                               end;
+                           false ->
+                               {LastKey, Count}
+                       end
+               end,
+               {undefined, KeyRange#btree_range.limit},
+               gb_trees:to_list(Cache))
+    of
+        {LastKey, limit} when LastKey =/= undefined ->
+            FoldWorkerPID ! {level_limit, Ref, LastKey};
+        _ ->
+            FoldWorkerPID ! {level_done, Ref}
+    end,
     ok.
 
 set_max_level(Nursery = #nursery{}, MaxLevel) ->
     Nursery#nursery{ max_level = MaxLevel }.
+
+decrement(undefined) ->
+    undefined;
+decrement(1) ->
+    limit;
+decrement(Number) ->
+    Number-1.

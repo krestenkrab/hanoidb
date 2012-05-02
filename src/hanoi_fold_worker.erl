@@ -25,6 +25,7 @@
 -module(hanoi_fold_worker).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
+-define(log(Fmt,Args),ok).
 
 %%
 %% This worker is used to merge fold results from individual
@@ -77,6 +78,9 @@ initialize(State, PrefixFolders) ->
 
     Parent = plain_fsm:info(parent),
     receive
+        die ->
+            ok;
+
         {prefix, [_]=Folders} ->
             initialize(State, Folders);
 
@@ -92,6 +96,7 @@ initialize(State, PrefixFolders) ->
 
         {'EXIT', Parent, Reason} ->
             plain_fsm:parent_EXIT(Reason, State)
+
     end.
 
 
@@ -100,11 +105,17 @@ fill(State, Values, []) ->
 
 fill(State, Values, [PID|Rest]=PIDs) ->
     receive
+        die ->
+            ok;
+
         {level_done, PID} ->
+            ?log( "{level_done, ~p}~n", [PID]),
             fill(State, lists:keydelete(PID, 1, Values), Rest);
         {level_limit, PID, Key} ->
+            ?log( "{level_limit, ~p}~n", [PID]),
             fill(State, lists:keyreplace(PID, 1, Values, {PID,{Key,limit}}), Rest);
         {level_result, PID, Key, Value} ->
+            ?log( "{level_result, ~p, ~p, ...}~n", [PID, Key]),
             fill(State, lists:keyreplace(PID, 1, Values, {PID,{Key,Value}}), Rest);
 
         %% gen_fsm handling
@@ -124,10 +135,15 @@ fill(State, Values, [PID|Rest]=PIDs) ->
     end.
 
 emit_next(State, []) ->
-    State#state.sendto ! {fold_done, self()},
+    ?log( "emit_next ~p~n", [[]]),
+    Msg =  {fold_done, self()},
+    Target = State#state.sendto,
+    ?log( "~p ! ~p~n", [Target, Msg]),
+    Target ! Msg,
     end_of_fold(State);
 
 emit_next(State, [{FirstPID,FirstKV}|Rest]=Values) ->
+    ?log( "emit_next ~p~n", [Values]),
     case
         lists:foldl(fun({P,{K1,_}=KV}, {{K2,_},_}) when K1 < K2 ->
                             {KV,[P]};
@@ -142,10 +158,12 @@ emit_next(State, [{FirstPID,FirstKV}|Rest]=Values) ->
         {{_, ?TOMBSTONE}, FillFrom} ->
             fill(State, Values, FillFrom);
         {{Key, limit}, _} ->
+            ?log( "~p ! ~p~n", [State#state.sendto, {fold_limit, self(), Key}]),
             State#state.sendto ! {fold_limit, self(), Key},
             end_of_fold(State);
-        {{FoundKey, FoundValue}, FillFrom} ->
-            State#state.sendto ! {fold_result, self(), FoundKey, FoundValue},
+        {{Key, Value}, FillFrom} ->
+            ?log( "~p ! ~p~n", [State#state.sendto, {fold_result, self(), Key, '...'}]),
+            State#state.sendto ! {fold_result, self(), Key, Value},
             fill(State, Values, FillFrom)
     end.
 

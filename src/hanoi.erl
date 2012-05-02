@@ -32,7 +32,6 @@
          terminate/2, code_change/3]).
 
 -export([open/1, open/2, transact/2, close/1, get/2, lookup/2, delete/2, put/3,
-         async_fold/3, async_fold_range/4,
          fold/3, fold_range/4]).
 
 -export([get_opt/2, get_opt/3]).
@@ -46,6 +45,7 @@
 %% PUBLIC API
 
 -type hanoi() :: pid().
+-type key_range() :: #btree_range{}.
 
 % @doc
 % Create or open existing hanoi store.  Argument `Dir' names a
@@ -98,11 +98,19 @@ put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
 transact(Ref, TransactionSpec) ->
     gen_server:call(Ref, {transact, TransactionSpec}, infinity).
 
+-type kv_fold_fun() ::  fun((binary(),binary(),any())->any()).
+
+-spec fold(hanoi(),kv_fold_fun(),any()) -> any().
 fold(Ref,Fun,Acc0) ->
     fold_range(Ref,Fun,Acc0,#btree_range{from_key= <<>>, to_key=undefined}).
 
+-spec fold_range(hanoi(),kv_fold_fun(),any(),key_range()) -> any().
 fold_range(Ref,Fun,Acc0,Range) ->
-    {ok, PID} = gen_server:call(Ref, {snapshot_range, self(), Range}, infinity),
+    if Range#btree_range.limit < 10 ->
+            {ok, PID} = gen_server:call(Ref, {blocking_range, self(), Range}, infinity);
+       true ->
+            {ok, PID} = gen_server:call(Ref, {snapshot_range, self(), Range}, infinity)
+    end,
     MRef = erlang:monitor(process, PID),
     receive_fold_range(MRef, PID,Fun,Acc0).
 
@@ -116,16 +124,16 @@ receive_fold_range(MRef, PID,Fun,Acc0) ->
                     {ok, Fun(K,V,Acc0)}
                 catch
                     Class:Exception ->
-                        io:format(user, "Exception in hanoi fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
-                        %% lager:warning("Exception in hanoi fold: ~p", [Exception]),
-                        {'EXIT', Class, Exception, erlang:get_stacktrace()}
+                        % io:format(user, "Exception in hanoi fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
+                        % lager:warn("Exception in hanoi fold: ~p", [Exception]),
+                        {'EXIT', Class, Exception}
                 end
             of
                 {ok, Acc1} ->
                     receive_fold_range(MRef, PID, Fun, Acc1);
                 Exit ->
                     %% kill the fold worker ...
-                    erlang:exit(PID, kill),
+                    PID ! die,
                     drain_worker_and_throw(MRef,PID,Exit)
             end;
 
@@ -179,29 +187,6 @@ drain_worker_and_throw(MRef, PID, ExitTuple) ->
         {fold_done, PID} ->
             erlang:demonitor(MRef, [flush]),
             raise(ExitTuple)
-    end.
-
-
-async_fold(Ref,Fun,Acc0) ->
-    async_fold_range(Ref,Fun,Acc0,#btree_range{ from_key= <<>>, to_key=undefined }).
-
-async_fold_range(Ref,Fun,Acc0,Range) ->
-    Range2 = Range#btree_range{ limit=?BTREE_ASYNC_CHUNK_SIZE },
-    FoldMoreFun = fun() ->
-                          {ok, PID} = gen_server:call(Ref, {snapshot_range, self(), Range}, infinity),
-                          async_receive_fold_range(PID,Fun,Acc0,Ref,Range2)
-                  end,
-    {async, FoldMoreFun}.
-
-async_receive_fold_range(PID,Fun,Acc0,Ref,Range) ->
-    receive
-        {fold_result, PID, K,V} ->
-            async_receive_fold_range(PID, Fun, Fun(K,V,Acc0), Ref, Range);
-        {fold_limit, PID, Key} ->
-            Range2 = Range#btree_range{ from_key = Key, from_inclusive=true },
-            async_fold_range(Ref, Fun, Acc0, Range2);
-        {fold_done, PID} ->
-            {ok, Acc0}
     end.
 
 
