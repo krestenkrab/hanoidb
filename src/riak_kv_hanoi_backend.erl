@@ -41,6 +41,9 @@
          status/1,
          callback/3]).
 
+
+-define(log(Fmt,Args),ok).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -export([to_index_key/4,from_index_key/1,
@@ -506,5 +509,41 @@ custom_config_test_() ->
     ?assertCmd("rm -rf test/hanoi-backend"),
     application:set_env(hanoi, data_root, ""),
     hanoi_temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/hanoi-backend"}]).
+
+-ifdef(PROPER).
+
+eqc_test_() ->
+    {spawn,
+     [{inorder,
+       [{setup,
+         fun setup/0,
+         fun cleanup/1,
+         [
+          {timeout, 60,
+           [?_assertEqual(true,
+                          backend_eqc:test(?MODULE, false,
+                                           [{data_root,
+                                             "test/hanoidb-backend"},
+                                         {async_fold, false}]))]},
+          {timeout, 60,
+            [?_assertEqual(true,
+                          backend_eqc:test(?MODULE, false,
+                                           [{data_root,
+                                             "test/hanoidb-backend"}]))]}
+         ]}]}]}.
+
+setup() ->
+    application:load(sasl),
+    application:set_env(sasl, sasl_error_logger, {file, "riak_kv_hanoidb_backend_eqc_sasl.log"}),
+    error_logger:tty(false),
+    error_logger:logfile({open, "riak_kv_hanoidb_backend_eqc.log"}),
+
+    ok.
+
+cleanup(_) ->
+    ?_assertCmd("rm -rf test/hanoidb-backend").
+
+-endif. % EQC
+
 
 -endif.

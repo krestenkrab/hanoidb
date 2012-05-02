@@ -306,9 +306,9 @@ main_loop(State = #state{ next=Next }) ->
 
         %% accept step any time there is not an outstanding step
         ?CALL(StepFrom, {step_level, DoneWork})
-          when State#state.step_merge_ref == undefined,
-               State#state.step_caller    == undefined,
-               State#state.step_next_ref  == undefined
+          when State#state.step_merge_ref  == undefined,
+               State#state.step_caller     == undefined,
+               State#state.step_next_ref   == undefined
                ->
             do_step(StepFrom, DoneWork, State);
 
@@ -729,6 +729,7 @@ start_range_fold(FileName, WorkerPID, Range, State) ->
     Owner = self(),
     PID =
         proc_lib:spawn( fun() ->
+try
                                 ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
                                 erlang:link(WorkerPID),
                                 {ok, File} = hanoi_reader:open(FileName, [folding|State#state.opts]),
@@ -739,6 +740,10 @@ start_range_fold(FileName, WorkerPID, Range, State) ->
                                 %% this will release the pinning of the fold file
                                 Owner  ! {range_fold_done, self(), FileName},
                                 ok
+catch
+    Class:Ex ->
+        io:format(user, "BAD: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()])
+end
                         end ),
     {ok, PID}.
 
