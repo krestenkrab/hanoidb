@@ -25,7 +25,11 @@
 -module(hanoi_fold_worker).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
+-ifdef(DEBUG).
+-define(log(Fmt,Args),io:format(user,Fmt,Args)).
+-else.
 -define(log(Fmt,Args),ok).
+-endif.
 
 %%
 %% This worker is used to merge fold results from individual
@@ -61,6 +65,7 @@
 -export([data_vsn/0, code_change/3]).
 
 -include("hanoi.hrl").
+-include("plain_rpc.hrl").
 
 -record(state, {sendto}).
 
@@ -118,7 +123,7 @@ fill(State, Values, Queues, [PID|Rest]=PIDs) ->
         {PID, Q} ->
             case queue:out(Q) of
                 {empty, Q} ->
-                    fill_from_inbox(State, Values, Queues, PIDs, PIDs);
+                    fill_from_inbox(State, Values, Queues, [PID], PIDs);
 
                 {{value, Msg}, Q2} ->
                     Queues2 = lists:keyreplace(PID, 1, Queues, {PID, Q2}),
@@ -135,35 +140,32 @@ fill(State, Values, Queues, [PID|Rest]=PIDs) ->
 fill_from_inbox(State, Values, Queues, [], PIDs) ->
     fill(State, Values, Queues, PIDs);
 
-fill_from_inbox(State, Values, Queues, PIDs, SavePIDs) ->
-
+fill_from_inbox(State, Values, Queues, [PID|_]=PIDs, SavePIDs) ->
+    ?log("waiting for ~p~n", [PIDs]),
     receive
         die ->
             ok;
 
         {level_done, PID} ->
+            ?log("got {done, ~p}~n", [PID]),
             Queues2 = enter(PID, done, Queues),
-            if PID == hd(PIDs) ->
-                    fill_from_inbox(State, Values, Queues2, tl(PIDs), SavePIDs);
-               true ->
-                    fill_from_inbox(State, Values, Queues2, PIDs, SavePIDs)
-            end;
+            fill_from_inbox(State, Values, Queues2, lists:delete(PID,PIDs), SavePIDs);
 
         {level_limit, PID, Key} ->
+            ?log("got {limit, ~p}~n", [PID]),
             Queues2 = enter(PID, {Key, limit}, Queues),
-            if PID == hd(PIDs) ->
-                    fill_from_inbox(State, Values, Queues2, tl(PIDs), SavePIDs);
-               true ->
-                    fill_from_inbox(State, Values, Queues2, PIDs, SavePIDs)
-            end;
+            fill_from_inbox(State, Values, Queues2, lists:delete(PID,PIDs), SavePIDs);
 
         {level_result, PID, Key, Value} ->
+            ?log("got {result, ~p}~n", [PID]),
             Queues2 = enter(PID, {Key, Value}, Queues),
-            if PID == hd(PIDs) ->
-                    fill_from_inbox(State, Values, Queues2, tl(PIDs), SavePIDs);
-               true ->
-                    fill_from_inbox(State, Values, Queues2, PIDs, SavePIDs)
-            end;
+            fill_from_inbox(State, Values, Queues2, lists:delete(PID,PIDs), SavePIDs);
+
+        ?CALL(From,{level_results, PID, KVs}) ->
+            ?log("got {results, ~p}~n", [PID]),
+            plain_rpc:send_reply(From,ok),
+            Queues2 = enter_many(PID, KVs, Queues),
+            fill_from_inbox(State, Values, Queues2, lists:delete(PID,PIDs), SavePIDs);
 
         %% gen_fsm handling
         {system, From, Req} ->
@@ -184,6 +186,11 @@ fill_from_inbox(State, Values, Queues, PIDs, SavePIDs) ->
 enter(PID, Msg, Queues) ->
     {PID, Q} = lists:keyfind(PID, 1, Queues),
     Q2 = queue:in(Msg, Q),
+    lists:keyreplace(PID, 1, Queues, {PID, Q2}).
+
+enter_many(PID, Msgs, Queues) ->
+    {PID, Q} = lists:keyfind(PID, 1, Queues),
+    Q2 = lists:foldl(fun queue:in/2, Q, Msgs),
     lists:keyreplace(PID, 1, Queues, {PID, Q2}).
 
 emit_next(State, [], _Queues) ->

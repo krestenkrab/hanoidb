@@ -751,7 +751,7 @@ try
                                 ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
                                 erlang:link(WorkerPID),
                                 {ok, File} = hanoi_reader:open(FileName, [folding|State#state.opts]),
-                                do_range_fold(File, WorkerPID, self(), Range),
+                                do_range_fold2(File, WorkerPID, self(), Range),
                                 erlang:unlink(WorkerPID),
                                 hanoi_reader:close(File),
 
@@ -785,3 +785,35 @@ do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
 
     end,
     ok.
+
+-define(FOLD_CHUNK_SIZE, 100).
+
+-spec do_range_fold2(BT        :: hanoi_reader:read_file(),
+                    WorkerPID :: pid(),
+                    SelfOrRef :: pid() | reference(),
+                    Range     :: #btree_range{} ) -> ok.
+do_range_fold2(BT, WorkerPID, SelfOrRef, Range) ->
+    case hanoi_reader:range_fold(fun(Key,Value,{0,KVs}) ->
+                                         send(WorkerPID, SelfOrRef, [{Key,Value}|KVs]),
+                                         {?FOLD_CHUNK_SIZE-1, []};
+                                    (Key,Value,{N,KVs}) ->
+                                         {N-1,[{Key,Value}|KVs]}
+                                 end,
+                                 {?FOLD_CHUNK_SIZE-1,[]},
+                                 BT,
+                                 Range) of
+        {limit, {_,KVs}, LastKey} ->
+            send(WorkerPID, SelfOrRef, KVs),
+            WorkerPID ! {level_limit, SelfOrRef, LastKey};
+        {done, {_, KVs}} ->
+            %% tell fold merge worker we're done
+            send(WorkerPID, SelfOrRef, KVs),
+            WorkerPID ! {level_done, SelfOrRef}
+
+    end,
+    ok.
+
+send(_,_,[]) ->
+    [];
+send(WorkerPID,Ref,ReverseKVs) ->
+    plain_rpc:call(WorkerPID, {level_results, Ref, lists:reverse(ReverseKVs)}).
