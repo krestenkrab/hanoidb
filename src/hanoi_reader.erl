@@ -161,6 +161,8 @@ do_range_fold(Fun, Acc0, File, Range, N0) ->
                                          {stop, {limit, Acc, Key}};
                                     ({Key,_}, {_,Acc}) when not ?KEY_IN_TO_RANGE(Key,Range)->
                                          {stop, {done, Acc}};
+                                    ({Key,?TOMBSTONE}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
+                                         {continue, {N1, Fun(Key, ?TOMBSTONE, Acc)}};
                                     ({Key,Value}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
                                          {continue, {N1-1, Fun(Key, Value, Acc)}};
                                     (_, Acc) ->
