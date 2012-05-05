@@ -180,7 +180,7 @@ initialize2(State) ->
                 {ok, _} ->
                     file:rename(CFileName, BFileName),
                     {ok, BTB} = hanoi_reader:open(BFileName, [random|State#state.opts]),
-                    check_begin_merge_then_loop(init_state(State#state{ a= BTA, b=BTB }));
+                    check_begin_merge_then_loop0(init_state(State#state{ a= BTA, b=BTB }));
 
                 {error, enoent} ->
                     main_loop(init_state(State#state{ a= BTA, b=undefined }))
@@ -199,7 +199,7 @@ initialize2(State) ->
                             BTC = undefined
                     end,
 
-                    check_begin_merge_then_loop(init_state(State#state{ a=BTA, b=BTB, c=BTC }));
+                    check_begin_merge_then_loop0(init_state(State#state{ a=BTA, b=BTB, c=BTC }));
 
                 {error, enoent} ->
 
@@ -220,6 +220,24 @@ initialize2(State) ->
 init_state(State) ->
     ?log("opened level ~p, state=~p", [State#state.level, State]),
     State.
+
+check_begin_merge_then_loop0(State=#state{a=BTA, b=BTB, merge_pid=undefined})
+  when BTA/=undefined, BTB /= undefined ->
+    {ok, MergePID} = begin_merge(State),
+    MergeRef = monitor(process, MergePID),
+    if State#state.c == undefined ->
+            WIP = ?BTREE_SIZE(State#state.level);
+       true ->
+            WIP = 2*?BTREE_SIZE(State#state.level)
+    end,
+
+    MergePID ! {step, {self(), MergeRef}, WIP},
+    main_loop(State#state{merge_pid=MergePID,work_done=0,
+                          work_in_progress=WIP,step_merge_ref=MergeRef});
+
+check_begin_merge_then_loop0(State) ->
+    check_begin_merge_then_loop(State).
+
 
 check_begin_merge_then_loop(State=#state{a=BTA, b=BTB, merge_pid=undefined})
   when BTA/=undefined, BTB /= undefined ->
