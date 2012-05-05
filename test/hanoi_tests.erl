@@ -257,8 +257,8 @@ postcondition(_S, {call, ?SERVER, open, [_Name]}, ok) ->
     true;
 postcondition(_S, {call, ?SERVER, close, [_Name]}, ok) ->
     true;
-postcondition(_, _, _) ->
-    error_logger:error_report([{not_matching_any_postcondition}]),
+postcondition(_State, _Call, _Result) ->
+%    error_logger:error_report([{not_matching_any_postcondition, _State, _Call, _Result}]),
     false.
 
 
@@ -308,7 +308,7 @@ test_tree() ->
                                                <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
-                lists:seq(2,100000,1)),
+                lists:seq(2,10000,1)),
     io:format(user, "INSERT DONE 1~n", []),
 
     lists:foldl(fun(N,_) ->
