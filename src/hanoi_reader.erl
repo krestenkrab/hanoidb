@@ -30,7 +30,7 @@
 -include("hanoi.hrl").
 -include("include/plain_rpc.hrl").
 
--export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4]).
+-export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4, destroy/1]).
 -export([first_node/1,next_node/1]).
 -export([serialize/1, deserialize/1]).
 
@@ -77,6 +77,10 @@ open(Name, Config) ->
 
             {ok, #index{file=File, root=Root, bloom=Bloom, name=Name, config=Config}}
     end.
+
+destroy(#index{file=File, name=Name}) ->
+    ok = file:close(File),
+    file:delete(Name).
 
 serialize(#index{file=File, bloom=undefined }=Index) ->
     {ok, Position} = file:position(File, cur),

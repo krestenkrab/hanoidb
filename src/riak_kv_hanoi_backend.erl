@@ -59,7 +59,8 @@
 %-define(CAPABILITIES, [async_fold]).
 
 -record(state, {tree,
-                partition :: integer()}).
+                partition :: integer(),
+                config :: config() }).
 
 -type state() :: #state{}.
 -type config() :: [{atom(), term()}].
@@ -108,7 +109,7 @@ start(Partition, Config) ->
                         {ok, DataDir} ->
                             case hanoi:open(DataDir, Config) of
                                 {ok, Tree} ->
-                                    {ok, #state{tree=Tree, partition=Partition}};
+                                    {ok, #state{tree=Tree, partition=Partition, config=Config }};
                                 {error, OpenReason}=OpenError ->
                                     lager:error("Failed to open hanoi: ~p\n", [OpenReason]),
                                     OpenError
@@ -290,9 +291,13 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
 
 %% @doc Delete all objects from this hanoi backend
 -spec drop(state()) -> {ok, state()} | {error, term(), state()}.
-drop(#state{}=State) ->
-    %% TODO: not yet implemented
-    {ok, State}.
+drop(#state{ tree=Tree, partition=Partition, config=Config }=State) ->
+    case hanoi:destroy(Tree) of
+        ok ->
+            start(Partition, Config);
+        {error, Term} ->
+            {error, Term, State}
+    end.
 
 %% @doc Returns true if this hanoi backend contains any
 %% non-tombstone values; otherwise returns false.

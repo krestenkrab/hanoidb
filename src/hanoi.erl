@@ -32,7 +32,7 @@
          terminate/2, code_change/3]).
 
 -export([open/1, open/2, transact/2, close/1, get/2, lookup/2, delete/2, put/3,
-         fold/3, fold_range/4]).
+         fold/3, fold_range/4, destroy/1]).
 
 -export([get_opt/2, get_opt/3]).
 
@@ -68,6 +68,17 @@ open(Dir, Opts) ->
 close(Ref) ->
     try
         gen_server:call(Ref, close, infinity)
+    catch
+        exit:{noproc,_} -> ok;
+        exit:noproc -> ok;
+        %% Handle the case where the monitor triggers
+        exit:{normal, _} -> ok
+    end.
+
+-spec destroy(Ref::pid()) -> ok.
+destroy(Ref) ->
+    try
+        gen_server:call(Ref, destroy, infinity)
     catch
         exit:{noproc,_} -> ok;
         exit:noproc -> ok;
@@ -341,7 +352,13 @@ handle_call(close, _From, State=#state{top=Top}) ->
         E:R ->
             error_logger:info_msg("exception from close ~p:~p~n", [E,R]),
             {stop, normal, ok, State}
-    end.
+    end;
+
+handle_call(destroy, _From, State=#state{top=Top, nursery=Nursery }) ->
+    ok = hanoi_nursery:destroy(Nursery),
+    ok = hanoi_level:destroy(Top),
+    {stop, normal, ok, State#state{ top=undefined, nursery=undefined, max_level=?TOP_LEVEL }}.
+
 
 do_put(Key, Value, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = hanoi_nursery:add_maybe_flush(Key, Value, Nursery, Top),

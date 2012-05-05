@@ -26,7 +26,7 @@
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -export([new/2, recover/3, add/3, finish/2, lookup/2, add_maybe_flush/4]).
--export([do_level_fold/3, set_max_level/2, transact/3]).
+-export([do_level_fold/3, set_max_level/2, transact/3, destroy/1]).
 
 -include("include/hanoi.hrl").
 -include("hanoi.hrl").
@@ -176,6 +176,19 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
     LogFileName = filename:join(Dir, "nursery.log"),
     file:delete(LogFileName),
     ok.
+
+destroy(#nursery{ dir=Dir, log_file=LogFile }) ->
+    %% first, close the log file
+    if LogFile /= undefined ->
+            ok = file:close(LogFile);
+       true ->
+            ok
+    end,
+    %% then delete it
+    LogFileName = filename:join(Dir, "nursery.log"),
+    file:delete(LogFileName),
+    ok.
+
 
 add_maybe_flush(Key, Value, Nursery, Top) ->
     case add(Nursery, Key, Value) of

@@ -293,7 +293,7 @@ running(#qcst{backend=Backend,
      {history, {call, Backend, fold_keys, [fold_keys_fun(), get_fold_buffer(), g_opts(), State]}},
      {history, {call, Backend, fold_objects, [fold_objects_fun(), get_fold_buffer(), g_opts(), State]}},
      {history, {call, Backend, is_empty, [State]}},
-%     {history, {call, ?MODULE, drop, [Backend, State]}},
+     {history, {call, ?MODULE, drop, [Backend, State]}},
      {stopped, {call, Backend, stop, [State]}}
     ].
 

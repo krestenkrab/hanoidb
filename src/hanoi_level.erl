@@ -46,7 +46,7 @@
 
 -export([open/5, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3,
          begin_incremental_merge/1, await_incremental_merge/1, set_max_level/2,
-         unmerged_count/1]).
+         unmerged_count/1, destroy/1]).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -112,10 +112,18 @@ close(Ref) ->
         plain_rpc:call(Ref, close)
     catch
         exit:{noproc,_} -> ok;
-        exit:noproc -> ok
+        exit:noproc -> ok;
+        exit:{normal, _} -> ok
     end.
 
-
+destroy(Ref) ->
+    try
+        plain_rpc:call(Ref, destroy)
+    catch
+        exit:{noproc,_} -> ok;
+        exit:noproc -> ok;
+        exit:{normal, _} -> ok
+    end.
 
 snapshot_range(Ref, FoldWorkerPID, Range) ->
     {ok, Folders} = plain_rpc:call(Ref, {init_snapshot_range_fold, FoldWorkerPID, Range, []}),
@@ -381,8 +389,7 @@ main_loop(State = #state{ next=Next }) ->
             close_if_defined(State#state.a),
             close_if_defined(State#state.b),
             close_if_defined(State#state.c),
-            stop_if_defined(State#state.merge_pid),
-            plain_rpc:send_reply(From, ok),
+            [stop_if_defined(PID) || PID <- [State#state.merge_pid | State#state.folding]],
 
             %% this is synchronous all the way down, because our
             %% caller is monitoring *this* proces, and thus the
@@ -391,7 +398,24 @@ main_loop(State = #state{ next=Next }) ->
                true ->
                     hanoi_level:close(Next)
             end,
+            plain_rpc:send_reply(From, ok),
             {ok, closing};
+
+        ?CALL(From, destroy) ->
+            destroy_if_defined(State#state.a),
+            destroy_if_defined(State#state.b),
+            destroy_if_defined(State#state.c),
+            [stop_if_defined(PID) || PID <- [State#state.merge_pid | State#state.folding]],
+
+            %% this is synchronous all the way down, because our
+            %% caller is monitoring *this* proces, and thus the
+            %% rpc would fail when we fall off the cliff
+            if Next == undefined -> ok;
+               true ->
+                    hanoi_level:destroy(Next)
+            end,
+            plain_rpc:send_reply(From, ok),
+            {ok, destroying};
 
         ?CALL(From, {init_snapshot_range_fold, WorkerPID, Range, List}) when State#state.folding == [] ->
 
@@ -683,6 +707,9 @@ do_lookup(Key, [BT|Rest]) ->
 
 close_if_defined(undefined) -> ok;
 close_if_defined(BT)        -> hanoi_reader:close(BT).
+
+destroy_if_defined(undefined) -> ok;
+destroy_if_defined(BT)        -> hanoi_reader:destroy(BT).
 
 stop_if_defined(undefined) -> ok;
 stop_if_defined(MergePid) when is_pid(MergePid) ->
