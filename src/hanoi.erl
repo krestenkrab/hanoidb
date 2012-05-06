@@ -211,12 +211,14 @@ drain_worker_and_throw(MRef, PID, ExitTuple) ->
         ?CAST(_,{fold_done, PID}) ->
             erlang:demonitor(MRef, [flush]),
             raise(ExitTuple)
+    after 0 ->
+            raise(ExitTuple)
     end.
 
 drain_worker_and_return(MRef, PID, Value) ->
     receive
         ?CALL(_From,{fold_result, PID, _, _}) ->
-            drain_worker_and_throw(MRef, PID, Value);
+            drain_worker_and_return(MRef, PID, Value);
         {'DOWN', MRef, _, _, _} ->
             Value;
         ?CAST(_,{fold_limit, PID, _}) ->
@@ -224,6 +226,8 @@ drain_worker_and_return(MRef, PID, Value) ->
             Value;
         ?CAST(_,{fold_done, PID}) ->
             erlang:demonitor(MRef, [flush]),
+            Value
+    after 0 ->
             Value
     end.
 

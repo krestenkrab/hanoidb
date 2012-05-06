@@ -196,7 +196,7 @@ delete(Bucket, PrimaryKey, IndexSpecs, #state{tree=Tree}=State) ->
 fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
     BucketFolder =
         fun() ->
-                fold_list_buckets(<<>>, Tree, FoldBucketsFun, Acc)
+                fold_list_buckets(undefined, Tree, FoldBucketsFun, Acc)
         end,
     case proplists:get_bool(async_fold, Opts) of
         true ->
@@ -207,8 +207,8 @@ fold_buckets(FoldBucketsFun, Acc, Opts, #state{tree=Tree}) ->
 
 
 fold_list_buckets(PrevBucket, Tree, FoldBucketsFun, Acc) ->
-
-    case Acc of
+    ?log("fold_list_buckets prev=~p~n", [PrevBucket]),
+    case PrevBucket of
         undefined ->
             RangeStart = to_object_key(<<>>, '_');
         _ ->
