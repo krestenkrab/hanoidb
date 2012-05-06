@@ -90,7 +90,7 @@ initialize(State, PrefixFolders) ->
 
     Parent = plain_fsm:info(parent),
     receive
-        die ->
+        shutdown ->
             ok;
 
         {prefix, [_]=Folders} ->
@@ -144,7 +144,9 @@ fill_from_inbox(State, Values, Queues, [], PIDs) ->
 fill_from_inbox(State, Values, Queues, [PID|_]=PIDs, SavePIDs) ->
     ?log("waiting for ~p~n", [PIDs]),
     receive
-        die ->
+        shutdown ->
+            [ erlang:kill(QPID, shutdown) || {QPID,_} <- Queues,
+                                            is_pid(QPID) ],
             ok;
 
         {level_done, PID} ->

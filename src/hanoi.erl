@@ -145,7 +145,7 @@ receive_fold_range(MRef, PID,Fun,Acc0) ->
                     receive_fold_range(MRef, PID, Fun, Acc1);
                 Exit ->
                     %% kill the fold worker ...
-                    PID ! die,
+                    PID ! shutdown,
                     drain_worker_and_throw(MRef,PID,Exit)
             end;
 
