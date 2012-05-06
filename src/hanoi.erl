@@ -134,11 +134,15 @@ fold_range(Ref,Fun,Acc0,Range) ->
     end,
     MRef = erlang:monitor(process, FoldWorkerPID),
     ?log("fold_range begin: self=~p, worker=~p~n", [self(), FoldWorkerPID]),
-    Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0),
+    Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0, Range#btree_range.limit),
     ?log("fold_range done: self:~p, result=~P~n", [self(), Result, 20]),
     Result.
 
-receive_fold_range(MRef,PID,Fun,Acc0) ->
+receive_fold_range(MRef,PID,_,Acc0, 0) ->
+    erlang:exit(PID, shutdown),
+    drain_worker_and_return(MRef,PID,Acc0);
+
+receive_fold_range(MRef,PID,Fun,Acc0, Limit) ->
     ?log("receive_fold_range:~p,~P~n", [PID,Acc0,10]),
     receive
 
@@ -156,7 +160,7 @@ receive_fold_range(MRef,PID,Fun,Acc0) ->
                 end
             of
                 {ok, Acc1} ->
-                    receive_fold_range(MRef, PID, Fun, Acc1);
+                    receive_fold_range(MRef, PID, Fun, Acc1, decr(Limit));
                 Exit ->
                     %% kill the fold worker ...
                     erlang:exit(PID, shutdown),
@@ -178,6 +182,11 @@ receive_fold_range(MRef,PID,Fun,Acc0) ->
             ?log("> fold worker ~p DOWN reason:~p~n", [_PID, Reason]),
             error({fold_worker_died, Reason})
     end.
+
+decr(undefined) ->
+    undefined;
+decr(N) ->
+    N-1.
 
 %%
 %% Just calls erlang:raise with appropriate arguments
@@ -202,6 +211,20 @@ drain_worker_and_throw(MRef, PID, ExitTuple) ->
         ?CAST(_,{fold_done, PID}) ->
             erlang:demonitor(MRef, [flush]),
             raise(ExitTuple)
+    end.
+
+drain_worker_and_return(MRef, PID, Value) ->
+    receive
+        ?CALL(_From,{fold_result, PID, _, _}) ->
+            drain_worker_and_throw(MRef, PID, Value);
+        {'DOWN', MRef, _, _, _} ->
+            Value;
+        ?CAST(_,{fold_limit, PID, _}) ->
+            erlang:demonitor(MRef, [flush]),
+            Value;
+        ?CAST(_,{fold_done, PID}) ->
+            erlang:demonitor(MRef, [flush]),
+            Value
     end.
 
 
