@@ -321,6 +321,9 @@ read_node(File) ->
 
 next_leaf_node(File) ->
     case file:read(File, 6) of
+        eof ->
+            %% premature end-of-file
+            eof;
         {ok, <<0:32, _:16>>} ->
             eof;
         {ok, <<Len:32, 0:16>>} ->
