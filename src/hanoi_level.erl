@@ -629,7 +629,7 @@ do_step(StepFrom, PreviousWork, State) ->
     TotalWork     = (MaxLevel-?TOP_LEVEL+1) * WorkUnit,
     WorkUnitsLeft = max(0, TotalWork-PreviousWork),
 
-    case hanoi:get_opt( merge_strategy, State#state.opts, predictable) of
+    case hanoi:get_opt( merge_strategy, State#state.opts, fast) of
         fast ->
             WorkToDoHere = min(WorkLeftHere, WorkUnitsLeft);
         predictable ->
