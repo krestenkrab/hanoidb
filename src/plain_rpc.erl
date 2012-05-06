@@ -22,7 +22,7 @@
 -module(plain_rpc).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--export([send_call/2, receive_reply/1, send_reply/2, call/2, send_cast/2]).
+-export([send_call/2, receive_reply/1, send_reply/2, call/2, call/3, cast/2]).
 
 -include("include/plain_rpc.hrl").
 
@@ -32,7 +32,7 @@ send_call(PID, Request) ->
     PID ! ?CALL({self(), Ref}, Request),
     Ref.
 
-send_cast(PID, Msg) ->
+cast(PID, Msg) ->
     PID ! ?CAST(self(), Msg).
 
 receive_reply(MRef) ->
@@ -40,8 +40,8 @@ receive_reply(MRef) ->
         ?REPLY(MRef, Reply) ->
             erlang:demonitor(MRef, [flush]),
             Reply;
-                {'DOWN', MRef, _, _, Reason} ->
-                    exit(Reason)
+        {'DOWN', MRef, _, _, Reason} ->
+            exit(Reason)
     end.
 
 send_reply({PID,Ref}, Reply) ->
@@ -49,6 +49,9 @@ send_reply({PID,Ref}, Reply) ->
     ok.
 
 call(PID,Request) ->
+    call(PID, Request, infinity).
+
+call(PID,Request,Timeout) ->
     MRef = erlang:monitor(process, PID),
     PID ! ?CALL({self(), MRef}, Request),
     receive
@@ -57,9 +60,9 @@ call(PID,Request) ->
             Reply;
         {'DOWN', MRef, _, _, Reason} ->
             exit(Reason)
-%    after 3000 ->
-%            erlang:demonitor(MRef, [flush]),
-%            exit({rpc_timeout, Request})
+    after Timeout ->
+            erlang:demonitor(MRef, [flush]),
+            exit({rpc_timeout, Request})
     end.
 
 

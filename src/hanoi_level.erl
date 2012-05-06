@@ -105,7 +105,7 @@ unmerged_count(Ref) ->
     plain_rpc:call(Ref, unmerged_count).
 
 set_max_level(Ref, LevelNo) ->
-    plain_rpc:send_cast(Ref, {set_max_level, LevelNo}).
+    plain_rpc:cast(Ref, {set_max_level, LevelNo}).
 
 close(Ref) ->
     try
