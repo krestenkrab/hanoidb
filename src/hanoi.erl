@@ -117,13 +117,14 @@ fold(Ref,Fun,Acc0) ->
 
 -spec fold_range(hanoi(),kv_fold_fun(),any(),key_range()) -> any().
 fold_range(Ref,Fun,Acc0,Range) ->
+    {ok, FoldWorkerPID} = hanoi_fold_worker:start(self()),
     if Range#btree_range.limit < 10 ->
-            {ok, PID} = gen_server:call(Ref, {blocking_range, self(), Range}, infinity);
+            ok = gen_server:call(Ref, {blocking_range, FoldWorkerPID, Range}, infinity);
        true ->
-            {ok, PID} = gen_server:call(Ref, {snapshot_range, self(), Range}, infinity)
+            ok = gen_server:call(Ref, {snapshot_range, FoldWorkerPID, Range}, infinity)
     end,
-    MRef = erlang:monitor(process, PID),
-    receive_fold_range(MRef, PID,Fun,Acc0).
+    MRef = erlang:monitor(process, FoldWorkerPID),
+    receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0).
 
 receive_fold_range(MRef, PID,Fun,Acc0) ->
     receive
@@ -308,14 +309,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 
-handle_call({snapshot_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
-    {ok, FoldWorkerPID} = hanoi_fold_worker:start(Sender),
+handle_call({snapshot_range, FoldWorkerPID, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
     hanoi_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
     Result = hanoi_level:snapshot_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
-handle_call({blocking_range, Sender, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
-    {ok, FoldWorkerPID} = hanoi_fold_worker:start(Sender),
+handle_call({blocking_range, FoldWorkerPID, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
     hanoi_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
     Result = hanoi_level:blocking_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};

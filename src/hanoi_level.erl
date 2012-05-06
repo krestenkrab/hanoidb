@@ -128,12 +128,12 @@ destroy(Ref) ->
 snapshot_range(Ref, FoldWorkerPID, Range) ->
     {ok, Folders} = plain_rpc:call(Ref, {init_snapshot_range_fold, FoldWorkerPID, Range, []}),
     FoldWorkerPID ! {initialize, Folders},
-    {ok, FoldWorkerPID}.
+    ok.
 
 blocking_range(Ref, FoldWorkerPID, Range) ->
     {ok, Folders} = plain_rpc:call(Ref, {init_blocking_range_fold, FoldWorkerPID, Range, []}),
     FoldWorkerPID ! {initialize, Folders},
-    {ok, FoldWorkerPID}.
+    ok.
 
 %%%%% INTERNAL
 

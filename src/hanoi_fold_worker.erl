@@ -75,7 +75,8 @@ start(SendTo) ->
                                   process_flag(trap_exit,true),
                                   link(SendTo),
 try
-                                  initialize(#state{sendto=SendTo}, [])
+                                  initialize(#state{sendto=SendTo}, []),
+                                  unlink(SendTo)
 catch
     Class:Ex ->
         error_logger:error_msg("Unexpected: ~p:~p ~p~n", [Class, Ex, erlang:get_stacktrace()]),
@@ -227,7 +228,6 @@ emit_next(State, [{FirstPID,FirstKV}|Rest]=Values, Queues) ->
     end.
 
 end_of_fold(State) ->
-    unlink(State#state.sendto),
     ok.
 
 data_vsn() ->
