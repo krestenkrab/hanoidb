@@ -303,10 +303,10 @@ drop(#state{ tree=Tree, partition=Partition, config=Config }=State) ->
 %% non-tombstone values; otherwise returns false.
 -spec is_empty(state()) -> boolean().
 is_empty(#state{tree=Tree}) ->
-    FoldFun = fun(_K, _V, _Acc) -> throw(ok) end,
+    FoldFun = fun(K, _V, Acc) -> [K|Acc] end,
     try
         Range = to_key_range(undefined),
-        [] =:= hanoi:fold_range(Tree, FoldFun, [], Range)
+        [] =:= hanoi:fold_range(Tree, FoldFun, [], Range#btree_range{ limit=1 })
     catch
         _:ok ->
             false
