@@ -43,6 +43,7 @@
 %%   {level_result, LevelWorker, Key2, Value}
 %%   {level_result, LevelWorker, Key3, Value}
 %%   {level_result, LevelWorker, Key4, Value}
+%%   {level_results, LevelWorker, [{Key,Value}...]} %% alternatively
 %%   ...
 %%   {level_done, LevelWorker}
 %%
@@ -67,18 +68,20 @@
 -include("hanoi.hrl").
 -include("plain_rpc.hrl").
 
--record(state, {sendto}).
+-record(state, {sendto, sendto_ref}).
 
 start(SendTo) ->
     PID = plain_fsm:spawn(?MODULE,
                           fun() ->
+                                  ?log("fold_worker started ~p~n", [self()]),
                                   process_flag(trap_exit,true),
-                                  link(SendTo),
+                                  MRef = erlang:monitor(process, SendTo),
 try
-                                  initialize(#state{sendto=SendTo}, []),
-                                  unlink(SendTo)
+                                  initialize(#state{sendto=SendTo, sendto_ref=MRef}, []),
+                                  ?log("fold_worker done ~p~n", [self()])
 catch
     Class:Ex ->
+        ?log("fold_worker exception  ~p:~p ~p~n", [Class, Ex, erlang:get_stacktrace()]),
         error_logger:error_msg("Unexpected: ~p:~p ~p~n", [Class, Ex, erlang:get_stacktrace()]),
         exit({bad, Class, Ex, erlang:get_stacktrace()})
 end
@@ -90,9 +93,6 @@ initialize(State, PrefixFolders) ->
 
     Parent = plain_fsm:info(parent),
     receive
-        shutdown ->
-            ok;
-
         {prefix, [_]=Folders} ->
             initialize(State, Folders);
 
@@ -106,6 +106,9 @@ initialize(State, PrefixFolders) ->
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
               From, Req, State, fun(S1) -> initialize(S1, PrefixFolders) end);
+
+        {'DOWN', MRef, _, _, _} when MRef =:= State#state.sendto_ref ->
+            ok;
 
         {'EXIT', Parent, Reason} ->
             plain_fsm:parent_EXIT(Reason, State)
@@ -144,11 +147,6 @@ fill_from_inbox(State, Values, Queues, [], PIDs) ->
 fill_from_inbox(State, Values, Queues, [PID|_]=PIDs, SavePIDs) ->
     ?log("waiting for ~p~n", [PIDs]),
     receive
-        shutdown ->
-            [ erlang:kill(QPID, shutdown) || {QPID,_} <- Queues,
-                                            is_pid(QPID) ],
-            ok;
-
         {level_done, PID} ->
             ?log("got {done, ~p}~n", [PID]),
             Queues2 = enter(PID, done, Queues),
@@ -174,6 +172,9 @@ fill_from_inbox(State, Values, Queues, [PID|_]=PIDs, SavePIDs) ->
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
               From, Req, State, fun(S1) -> fill_from_inbox(S1, Values, Queues, PIDs, SavePIDs) end);
+
+        {'DOWN', MRef, _, _, _} when MRef =:= State#state.sendto_ref ->
+            ok;
 
         {'EXIT', Parent, Reason}=Msg ->
             case plain_fsm:info(parent) == Parent of
@@ -201,7 +202,7 @@ emit_next(State, [], _Queues) ->
     Msg =  {fold_done, self()},
     Target = State#state.sendto,
     ?log( "~p ! ~p~n", [Target, Msg]),
-    Target ! Msg,
+    plain_rpc:cast(Target, Msg),
     end_of_fold(State);
 
 emit_next(State, [{FirstPID,FirstKV}|Rest]=Values, Queues) ->
@@ -221,15 +222,15 @@ emit_next(State, [{FirstPID,FirstKV}|Rest]=Values, Queues) ->
             fill(State, Values, Queues, FillFrom);
         {{Key, limit}, _} ->
             ?log( "~p ! ~p~n", [State#state.sendto, {fold_limit, self(), Key}]),
-            State#state.sendto ! {fold_limit, self(), Key},
+            plain_rpc:cast(State#state.sendto, {fold_limit, self(), Key}),
             end_of_fold(State);
         {{Key, Value}, FillFrom} ->
             ?log( "~p ! ~p~n", [State#state.sendto, {fold_result, self(), Key, '...'}]),
-            State#state.sendto ! {fold_result, self(), Key, Value},
+            plain_rpc:call(State#state.sendto, {fold_result, self(), Key, Value}),
             fill(State, Values, Queues, FillFrom)
     end.
 
-end_of_fold(State) ->
+end_of_fold(_State) ->
     ok.
 
 data_vsn() ->

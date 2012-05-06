@@ -39,8 +39,17 @@
 -include("hanoi.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("include/hanoi.hrl").
+-include_lib("include/plain_rpc.hrl").
 
 -record(state, { top, nursery, dir, opt, max_level }).
+
+
+-ifdef(DEBUG).
+-define(log(Fmt,Args),io:format(user,Fmt,Args)).
+-else.
+-define(log(Fmt,Args),ok).
+-endif.
+
 
 %% PUBLIC API
 
@@ -124,19 +133,24 @@ fold_range(Ref,Fun,Acc0,Range) ->
             ok = gen_server:call(Ref, {snapshot_range, FoldWorkerPID, Range}, infinity)
     end,
     MRef = erlang:monitor(process, FoldWorkerPID),
-    receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0).
+    ?log("fold_range begin: self=~p, worker=~p~n", [self(), FoldWorkerPID]),
+    Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0),
+    ?log("fold_range done: self:~p, result=~P~n", [self(), Result, 20]),
+    Result.
 
-receive_fold_range(MRef, PID,Fun,Acc0) ->
+receive_fold_range(MRef,PID,Fun,Acc0) ->
+    ?log("receive_fold_range:~p,~P~n", [PID,Acc0,10]),
     receive
 
         %% receive one K/V from fold_worker
-        {fold_result, PID, K,V} ->
+        ?CALL(From, {fold_result, PID, K,V}) ->
+            plain_rpc:send_reply(From, ok),
             case
                 try
                     {ok, Fun(K,V,Acc0)}
                 catch
                     Class:Exception ->
-                        % io:format(user, "Exception in hanoi fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
+                        % ?log("Exception in hanoi fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
                         % lager:warn("Exception in hanoi fold: ~p", [Exception]),
                         {'EXIT', Class, Exception, erlang:get_stacktrace()}
                 end
@@ -145,58 +159,47 @@ receive_fold_range(MRef, PID,Fun,Acc0) ->
                     receive_fold_range(MRef, PID, Fun, Acc1);
                 Exit ->
                     %% kill the fold worker ...
-                    PID ! shutdown,
+                    erlang:exit(PID, shutdown),
                     drain_worker_and_throw(MRef,PID,Exit)
             end;
 
-        %% receive multiple KVs from fold_worker
-        {fold_results, PID, KVs} ->
-            case
-                try
-                    {ok, kvfoldl(Fun,Acc0,KVs)}
-                catch
-                    Class:Exception ->
-                        lager:warning("Exception in hanoi fold: ~p", [Exception]),
-                        {'EXIT', Class, Exception, erlang:get_stacktrace()}
-                end
-            of
-                {ok, Acc1} ->
-                    receive_fold_range(MRef, PID, Fun, Acc1);
-                Exit ->
-                    %% kill the fold worker ...
-                    erlang:exit(PID, kill),
-                    drain_worker_and_throw(MRef,PID,Exit)
-            end;
-        {fold_limit, PID, _} ->
+        ?CAST(_,{fold_limit, PID, _}) ->
+            ?log("> fold_limit pid=~p, self=~p~n", [PID, self()]),
             erlang:demonitor(MRef, [flush]),
             Acc0;
-        {fold_done, PID} ->
+        ?CAST(_,{fold_done, PID}) ->
+            ?log("> fold_done pid=~p, self=~p~n", [PID, self()]),
             erlang:demonitor(MRef, [flush]),
             Acc0;
-        {'DOWN', MRef, _, _, Reason} ->
+        {'DOWN', MRef, _, _PID, normal} ->
+            ?log("> fold worker ~p ENDED~n", [_PID]),
+            Acc0;
+        {'DOWN', MRef, _, _PID, Reason} ->
+            ?log("> fold worker ~p DOWN reason:~p~n", [_PID, Reason]),
             error({fold_worker_died, Reason})
     end.
 
-kvfoldl(_Fun,Acc0,[]) ->
-    Acc0;
-kvfoldl(Fun,Acc0,[{K,V}|T]) ->
-    kvfoldl(Fun, Fun(K,V,Acc0), T).
-
+%%
+%% Just calls erlang:raise with appropriate arguments
+%%
 raise({'EXIT', Class, Exception, Trace}) ->
     erlang:raise(Class, Exception, Trace).
 
+%%
+%% When an exception has happened in the fold function, we use
+%% this to drain messages coming from the fold_worker before
+%% re-throwing the exception.
+%%
 drain_worker_and_throw(MRef, PID, ExitTuple) ->
     receive
-        {fold_result, PID, _, _} ->
-            drain_worker_and_throw(MRef, PID, ExitTuple);
-        {fold_results, PID, _} ->
+        ?CALL(_From,{fold_result, PID, _, _}) ->
             drain_worker_and_throw(MRef, PID, ExitTuple);
         {'DOWN', MRef, _, _, _} ->
             raise(ExitTuple);
-        {fold_limit, PID, _} ->
+        ?CAST(_,{fold_limit, PID, _}) ->
             erlang:demonitor(MRef, [flush]),
             raise(ExitTuple);
-        {fold_done, PID} ->
+        ?CAST(_,{fold_done, PID}) ->
             erlang:demonitor(MRef, [flush]),
             raise(ExitTuple)
     end.

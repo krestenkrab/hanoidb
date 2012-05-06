@@ -280,7 +280,10 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     FoldFun = fold_objects_fun(FoldObjectsFun, Bucket),
     ObjectFolder =
         fun() ->
-                hanoi:fold_range(Tree, FoldFun, Acc, to_key_range(Bucket))
+%                io:format(user, "starting fold_objects in ~p~n", [self()]),
+                Result = hanoi:fold_range(Tree, FoldFun, Acc, to_key_range(Bucket)),
+%                io:format(user, "ended fold_objects in ~p => ~P~n", [self(),Result,20]),
+                Result
         end,
     case proplists:get_bool(async_fold, Opts) of
         true ->

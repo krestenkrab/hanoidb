@@ -820,7 +820,7 @@ do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
                     SelfOrRef :: pid() | reference(),
                     Range     :: #btree_range{} ) -> ok.
 do_range_fold2(BT, WorkerPID, SelfOrRef, Range) ->
-    case hanoi_reader:range_fold(fun(Key,Value,{0,KVs}) ->
+    try hanoi_reader:range_fold(fun(Key,Value,{0,KVs}) ->
                                          send(WorkerPID, SelfOrRef, [{Key,Value}|KVs]),
                                          {?FOLD_CHUNK_SIZE-1, []};
                                     (Key,Value,{N,KVs}) ->
@@ -836,11 +836,19 @@ do_range_fold2(BT, WorkerPID, SelfOrRef, Range) ->
             %% tell fold merge worker we're done
             send(WorkerPID, SelfOrRef, KVs),
             WorkerPID ! {level_done, SelfOrRef}
-
+    catch
+        exit:worker_died -> ok
     end,
     ok.
 
 send(_,_,[]) ->
     [];
 send(WorkerPID,Ref,ReverseKVs) ->
-    plain_rpc:call(WorkerPID, {level_results, Ref, lists:reverse(ReverseKVs)}).
+    try
+        plain_rpc:call(WorkerPID, {level_results, Ref, lists:reverse(ReverseKVs)})
+    catch
+        %% the fold worker died; just ignore it
+        exit:normal   -> exit(worker_died);
+        exit:shutdown -> exit(worker_died);
+        exit:noproc   -> exit(worker_died)
+    end.
