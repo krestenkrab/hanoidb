@@ -18,6 +18,8 @@
   * dual-nursery
   * cache for read-path
     * {cache, bytes(), name} share max(bytes) cache named 'name' via etc
+  * snapshot entire database (fresh directory w/ hard links to all files)
+  * persist merge progress (to speed up re-opening a HanoiDB)
 
 * Phase 3: Wish List
   * add truncate/1 - quickly truncates a database to 0 items
