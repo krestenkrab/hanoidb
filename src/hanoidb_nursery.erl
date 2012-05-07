@@ -75,7 +75,7 @@ fill_cache(Transaction, Cache) when is_list(Transaction) ->
 
 read_nursery_from_log(Directory, MaxLevel) ->
     {ok, LogBinary} = file:read_file( ?LOGFILENAME(Directory) ),
-    KVs = hanoidb_util:decode_crc_data( LogBinary, [] ),
+    {ok, KVs} = hanoidb_util:decode_crc_data( LogBinary, [], [] ),
     Cache = fill_cache(KVs, gb_trees:empty()),
     {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel }}.
 

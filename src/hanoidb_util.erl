@@ -118,7 +118,7 @@ decode_index_node(Level, <<Tag, Data/binary>>) ->
             TermData = zlib:gunzip(Data)
     end,
 
-    KVList = decode_kv_list(TermData),
+    {ok, KVList} = decode_kv_list(TermData),
     {ok, {node, Level, KVList}}.
 
 
@@ -145,45 +145,50 @@ crc_encapsulate(Blob) ->
     [ << (Size):32/unsigned, CRC:32/unsigned >>, Blob, ?TAG_END ].
 
 decode_kv_list(<<?ERLANG_ENCODED, _/binary>>=TermData) ->
-    erlang:term_to_binary(TermData);
+    {ok, erlang:term_to_binary(TermData)};
 
 decode_kv_list(<<?CRC_ENCODED, Custom/binary>>) ->
-    decode_crc_data(Custom, []).
+    decode_crc_data(Custom, [], []).
 
 
 
-decode_crc_data(<<>>, Acc) ->
-    lists:reverse(Acc);
+decode_crc_data(<<>>, [], Acc) ->
+    {ok, lists:reverse(Acc)};
 
-decode_crc_data(<< BinSize:32/unsigned, CRC:32/unsigned, Bin:BinSize/binary, ?TAG_END, Rest/binary >>, Acc) ->
+decode_crc_data(<<>>, BrokenData, Acc) ->
+    {ok, lists:reverse(Acc)};
+%%
+%% TODO: here we *should* report data corruption rather than
+%% simply returning "the good parts".
+%%
+%%    {error, data_corruption};
+
+decode_crc_data(<< BinSize:32/unsigned, CRC:32/unsigned, Bin:BinSize/binary, ?TAG_END, Rest/binary >>, Broken, Acc) ->
     CRCTest = erlang:crc32( Bin ),
     if CRC == CRCTest ->
-            decode_crc_data(Rest, [ decode_kv_data( Bin ) | Acc ]);
+            decode_crc_data(Rest, Broken, [ decode_kv_data( Bin ) | Acc ]);
        true ->
             %% chunk is broken, ignore it. Maybe we should tell someone?
-            decode_crc_data(Rest, Acc)
+            decode_crc_data(Rest, [Bin|Broken], Acc)
     end;
 
-decode_crc_data(Bad, Acc) ->
+decode_crc_data(Bad, Broken, Acc) ->
     %% if a chunk is broken, try to find the next ?TAG_END and
     %% start decoding from there.
-    decode_crc_data(find_next_value(Bad), Acc).
+    {Skipped, MaybeGood} = find_next_value(Bad),
+    decode_crc_data(MaybeGood, [Skipped|Broken], Acc).
 
 find_next_value(<<>>) ->
-    <<>>;
+    {<<>>, <<>>};
 
 find_next_value(Bin) ->
     case binary:match (Bin, <<?TAG_END>>) of
         {Pos, _Len} ->
-            <<_SkipBin :Pos /binary, ?TAG_END, MaybeGood /binary>> = Bin,
+            <<SkipBin :Pos /binary, ?TAG_END, MaybeGood /binary>> = Bin,
 
-            %% TODO: tell someone? that we skipped _SkipBin.  If we store
-            %% the data somewhere, maybe something can be recovered
-            %% from it ...
-
-            MaybeGood;
+            {SkipBin, MaybeGood};
         nomatch ->
-            <<>>
+            {Bin, <<>>}
     end.
 
 decode_kv_data(<<?TAG_KV_DATA, KLen:32/unsigned, Key:KLen/binary, Value/binary >>) ->
@@ -196,7 +201,8 @@ decode_kv_data(<<?TAG_POSLEN32, Pos:64/unsigned, Len:32/unsigned, Key/binary>>) 
     {Key, {Pos,Len}};
 
 decode_kv_data(<<?TAG_TRANSACT, Rest/binary>>) ->
-    decode_crc_data(Rest, []).
+    {ok, TX} = decode_crc_data(Rest, [], []),
+    TX.
 
 
 

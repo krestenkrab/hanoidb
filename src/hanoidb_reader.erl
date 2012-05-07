@@ -243,9 +243,13 @@ lookup_in_node(File,#node{members=Members},Key) ->
             PID = proc_lib:spawn_link(fun() ->
                                               receive
                                                   ?CALL(From,read) ->
-                                                      {ok, Node} = read_node(File, {Pos,Size}),
-                                                      Result = lookup_in_node2(File, Node, Key),
-                                                      plain_rpc:send_reply(From, Result)
+                                                      case read_node(File, {Pos,Size}) of
+                                                          {ok, Node} ->
+                                                              Result = lookup_in_node2(File, Node, Key),
+                                                              plain_rpc:send_reply(From, Result);
+                                                          {error, _}=Error ->
+                                                              plain_rpc:send_reply(From, Error)
+                                                      end
                                               end
                                       end),
             try plain_rpc:call(PID, read)
@@ -271,8 +275,12 @@ lookup_in_node2(_File,#node{level=0,members=Members},Key) ->
 lookup_in_node2(File,#node{members=Members},Key) ->
     case find_1(Key, Members) of
         {ok, {Pos,Size}} ->
-            {ok, Node} = read_node(File, {Pos,Size}),
-            lookup_in_node2(File, Node, Key);
+            case read_node(File, {Pos,Size}) of
+                {ok, Node} ->
+                    lookup_in_node2(File, Node, Key);
+                {error, _}=Error ->
+                    Error
+            end;
         not_found ->
             not_found
     end.
