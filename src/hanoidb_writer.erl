@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,10 +22,10 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_writer).
+-module(hanoidb_writer).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--include("hanoi.hrl").
+-include("hanoidb.hrl").
 
 %%
 %% Streaming btree writer. Accepts only monotonically increasing keys for put.
@@ -87,16 +87,16 @@ init([Name,Options]) ->
     case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
             {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
-            BlockSize = hanoi:get_opt(block_size, Options, ?NODE_SIZE),
+            BlockSize = hanoidb:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,
                          index_file_pos=0, index_file=IdxFile,
                          bloom = BloomFilter,
                          block_size = BlockSize,
-                         compress = hanoi:get_opt(compress, Options, none),
+                         compress = hanoidb:get_opt(compress, Options, none),
                          opts = Options
                        }};
         {error, _}=Error ->
-            error_logger:error_msg("hanoi_writer cannot open ~p: ~p~n", [Name, Error]),
+            error_logger:error_msg("hanoidb_writer cannot open ~p: ~p~n", [Name, Error]),
             {stop, Error}
     end.
 
@@ -120,7 +120,7 @@ terminate(normal,_State) ->
 %% premature delete -> cleanup
 terminate(_Reason,State) ->
     file:close( State#state.index_file ),
-    file:delete( hanoi_util:index_file_name(State#state.name) ).
+    file:delete( hanoidb_util:index_file_name(State#state.name) ).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -149,8 +149,8 @@ deserialize(Binary) ->
 
 
 do_open(Name, Options, OpenOpts) ->
-    WriteBufferSize = hanoi:get_opt(write_buffer_size, Options, 512 * 1024),
-    file:open( hanoi_util:index_file_name(Name),
+    WriteBufferSize = hanoidb:get_opt(write_buffer_size, Options, 512 * 1024),
+    file:open( hanoidb_util:index_file_name(Name),
                [raw, append, {delayed_write, WriteBufferSize, 2000} | OpenOpts]).
 
 
@@ -196,7 +196,7 @@ add_record(Level, Key, Value,
             end
     end,
 
-    NewSize = NodeSize + hanoi_util:estimate_node_size_increment(List, Key, Value),
+    NewSize = NodeSize + hanoidb_util:estimate_node_size_increment(List, Key, Value),
 
     ok = ebloom:insert( State#state.bloom, Key ),
 
@@ -219,7 +219,7 @@ add_record(Level, Key, Value, State=#state{ nodes=[ #node{level=Level2 } |_]=Sta
 
 close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], compress=Compress} = State) ->
     OrderedMembers = lists:reverse(NodeMembers),
-    {ok, BlockData} = hanoi_util:encode_index_node(OrderedMembers, Compress),
+    {ok, BlockData} = hanoidb_util:encode_index_node(OrderedMembers, Compress),
     NodePos = State#state.index_file_pos,
 
     BlockSize = erlang:iolist_size(BlockData),

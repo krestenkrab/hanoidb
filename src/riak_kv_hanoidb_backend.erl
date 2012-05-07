@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2012 (c) Basho Technologies, Inc.  All Rights Reserved.
 %% http://basho.com/ info@basho.com
@@ -19,8 +19,8 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(riak_kv_hanoi_backend).
--behavior(hanoi_temp_riak_kv_backend).
+-module(riak_kv_hanoidb_backend).
+-behavior(hanoidb_temp_riak_kv_backend).
 -author('Steve Vinoski <steve@basho.com>').
 -author('Greg Burd <greg@basho.com>').
 
@@ -51,7 +51,7 @@
          to_key_range/1]).
 -endif.
 
--include("include/hanoi.hrl").
+-include("include/hanoidb.hrl").
 
 -define(API_VERSION, 1).
 %% TODO: for when this backend supports 2i
@@ -63,7 +63,8 @@
                 config :: config() }).
 
 -type state() :: #state{}.
--type config() :: [{atom(), term()}].
+-type config_option() :: {data_root, string()} | hanoidb:config_option().
+-type config() :: [config_option()].
 
 %% ===================================================================
 %% Public API
@@ -85,37 +86,37 @@ capabilities(_) ->
 capabilities(_, _) ->
     {ok, ?CAPABILITIES}.
 
-%% @doc Start the hanoi backend
+%% @doc Start the hanoidb backend
 -spec start(integer(), config()) -> {ok, state()} | {error, term()}.
 start(Partition, Config) ->
     %% Get the data root directory
-    case app_helper:get_prop_or_env(data_root, Config, hanoi) of
+    case app_helper:get_prop_or_env(data_root, Config, hanoidb) of
         undefined ->
-            lager:error("Failed to create hanoi dir: data_root is not set"),
+            lager:error("Failed to create hanoidb dir: data_root is not set"),
             {error, data_root_unset};
         DataRoot ->
-            AppStart = case application:start(hanoi) of
+            AppStart = case application:start(hanoidb) of
                            ok ->
                                ok;
                            {error, {already_started, _}} ->
                                ok;
                            {error, StartReason} ->
-                               lager:error("Failed to init the hanoi backend: ~p", [StartReason]),
+                               lager:error("Failed to init the hanoidb backend: ~p", [StartReason]),
                                {error, StartReason}
                        end,
             case AppStart of
                 ok ->
                     case get_data_dir(DataRoot, integer_to_list(Partition)) of
                         {ok, DataDir} ->
-                            case hanoi:open(DataDir, Config) of
+                            case hanoidb:open(DataDir, Config) of
                                 {ok, Tree} ->
                                     {ok, #state{tree=Tree, partition=Partition, config=Config }};
                                 {error, OpenReason}=OpenError ->
-                                    lager:error("Failed to open hanoi: ~p\n", [OpenReason]),
+                                    lager:error("Failed to open hanoidb: ~p\n", [OpenReason]),
                                     OpenError
                             end;
                         {error, Reason} ->
-                            lager:error("Failed to start hanoi backend: ~p\n", [Reason]),
+                            lager:error("Failed to start hanoidb backend: ~p\n", [Reason]),
                             {error, Reason}
                     end;
                 Error ->
@@ -123,19 +124,19 @@ start(Partition, Config) ->
             end
     end.
 
-%% @doc Stop the hanoi backend
+%% @doc Stop the hanoidb backend
 -spec stop(state()) -> ok.
 stop(#state{tree=Tree}) ->
-    ok = hanoi:close(Tree).
+    ok = hanoidb:close(Tree).
 
-%% @doc Retrieve an object from the hanoi backend
+%% @doc Retrieve an object from the hanoidb backend
 -spec get(riak_object:bucket(), riak_object:key(), state()) ->
                  {ok, any(), state()} |
                  {ok, not_found, state()} |
                  {error, term(), state()}.
 get(Bucket, Key, #state{tree=Tree}=State) ->
     BKey = to_object_key(Bucket, Key),
-    case hanoi:get(Tree, BKey) of
+    case hanoidb:get(Tree, BKey) of
         {ok, Value} ->
             {ok, Value, State};
         not_found  ->
@@ -144,7 +145,7 @@ get(Bucket, Key, #state{tree=Tree}=State) ->
             {error, Reason, State}
     end.
 
-%% @doc Insert an object into the hanoi backend.
+%% @doc Insert an object into the hanoidb backend.
 -type index_spec() :: {add, Index, SecondaryKey} | {remove, Index, SecondaryKey}.
 -spec put(riak_object:bucket(), riak_object:key(), [index_spec()], binary(), state()) ->
                  {ok, state()} |
@@ -162,10 +163,10 @@ put(Bucket, PrimaryKey, IndexSpecs, Val, #state{tree=Tree}=State) ->
         end,
     Updates2 = [F(X) || X <- IndexSpecs],
 
-    ok = hanoi:transact(Tree, Updates1 ++ Updates2),
+    ok = hanoidb:transact(Tree, Updates1 ++ Updates2),
     {ok, State}.
 
-%% @doc Delete an object from the hanoi backend
+%% @doc Delete an object from the hanoidb backend
 -spec delete(riak_object:bucket(), riak_object:key(), [index_spec()], state()) ->
                     {ok, state()} |
                     {error, term(), state()}.
@@ -181,7 +182,7 @@ delete(Bucket, PrimaryKey, IndexSpecs, #state{tree=Tree}=State) ->
         end,
     Updates2 = [F(X) || X <- IndexSpecs],
 
-    case hanoi:transact(Tree, Updates1 ++ Updates2) of
+    case hanoidb:transact(Tree, Updates1 ++ Updates2) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -215,12 +216,12 @@ fold_list_buckets(PrevBucket, Tree, FoldBucketsFun, Acc) ->
             RangeStart = to_object_key(<<PrevBucket/binary, 0>>, '_')
     end,
 
-    Range = #btree_range{ from_key=RangeStart, from_inclusive=true,
+    Range = #key_range{ from_key=RangeStart, from_inclusive=true,
                           to_key=undefined, to_inclusive=undefined,
                           limit=1 },
 
     %% grab next bucket, it's a limit=1 range query :-)
-    case hanoi:fold_range(Tree,
+    case hanoidb:fold_range(Tree,
                           fun(BucketKey,_Value,none) ->
                                   ?log( "IN_FOLDER ~p~n", [BucketKey]),
                                   case from_object_key(BucketKey) of
@@ -265,9 +266,9 @@ fold_keys(FoldKeysFun, Acc, Opts, #state{tree=Tree}) ->
     Range   = to_key_range(Limiter),
     case proplists:get_bool(async_fold, Opts) of
         true ->
-            {async, fun() -> hanoi:fold_range(Tree, FoldFun, Acc, Range) end};
+            {async, fun() -> hanoidb:fold_range(Tree, FoldFun, Acc, Range) end};
         false ->
-            {ok, hanoi:fold_range(Tree, FoldFun, Acc, Range)}
+            {ok, hanoidb:fold_range(Tree, FoldFun, Acc, Range)}
     end.
 
 %% @doc Fold over all the objects for one or all buckets.
@@ -281,7 +282,7 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
     ObjectFolder =
         fun() ->
 %                io:format(user, "starting fold_objects in ~p~n", [self()]),
-                Result = hanoi:fold_range(Tree, FoldFun, Acc, to_key_range(Bucket)),
+                Result = hanoidb:fold_range(Tree, FoldFun, Acc, to_key_range(Bucket)),
 %                io:format(user, "ended fold_objects in ~p => ~P~n", [self(),Result,20]),
                 Result
         end,
@@ -292,30 +293,30 @@ fold_objects(FoldObjectsFun, Acc, Opts, #state{tree=Tree}) ->
             {ok, ObjectFolder()}
     end.
 
-%% @doc Delete all objects from this hanoi backend
+%% @doc Delete all objects from this hanoidb backend
 -spec drop(state()) -> {ok, state()} | {error, term(), state()}.
 drop(#state{ tree=Tree, partition=Partition, config=Config }=State) ->
-    case hanoi:destroy(Tree) of
+    case hanoidb:destroy(Tree) of
         ok ->
             start(Partition, Config);
         {error, Term} ->
             {error, Term, State}
     end.
 
-%% @doc Returns true if this hanoi backend contains any
+%% @doc Returns true if this hanoidb backend contains any
 %% non-tombstone values; otherwise returns false.
 -spec is_empty(state()) -> boolean().
 is_empty(#state{tree=Tree}) ->
     FoldFun = fun(K, _V, Acc) -> [K|Acc] end,
     try
         Range = to_key_range(undefined),
-        [] =:= hanoi:fold_range(Tree, FoldFun, [], Range#btree_range{ limit=1 })
+        [] =:= hanoidb:fold_range(Tree, FoldFun, [], Range#key_range{ limit=1 })
     catch
         _:ok ->
             false
     end.
 
-%% @doc Get the status information for this hanoi backend
+%% @doc Get the status information for this hanoidb backend
 -spec status(state()) -> [{atom(), term()}].
 status(#state{}) ->
     %% TODO: not yet implemented
@@ -339,7 +340,7 @@ get_data_dir(DataRoot, Partition) ->
         ok ->
             {ok, PartitionDir};
         {error, Reason} ->
-            lager:error("Failed to create hanoi dir ~s: ~p", [PartitionDir, Reason]),
+            lager:error("Failed to create hanoidb dir ~s: ~p", [PartitionDir, Reason]),
             {error, Reason}
     end.
 
@@ -412,13 +413,13 @@ fold_objects_fun(FoldObjectsFun, FilterBucket) ->
 -define(MAX_INDEX_KEY, <<16,0,0,0,6>>).
 
 to_key_range(undefined) ->
-    #btree_range{ from_key       = to_object_key(<<>>, <<>>),
+    #key_range{ from_key       = to_object_key(<<>>, <<>>),
                   from_inclusive = true,
                   to_key         = ?MAX_OBJECT_KEY,
                   to_inclusive   = false
                 };
 to_key_range({bucket, Bucket}) ->
-    #btree_range{ from_key       = to_object_key(Bucket, <<>>),
+    #key_range{ from_key       = to_object_key(Bucket, <<>>),
                   from_inclusive = true,
                   to_key         = to_object_key(<<Bucket/binary, 0>>, <<>>),
                   to_inclusive   = false };
@@ -427,12 +428,12 @@ to_key_range({index, Bucket, {eq, <<"$bucket">>, _Term}}) ->
 to_key_range({index, Bucket, {eq, Field, Term}}) ->
     to_key_range({index, Bucket, {range, Field, Term, Term}});
 to_key_range({index, Bucket, {range, <<"$key">>, StartTerm, EndTerm}}) ->
-    #btree_range{ from_key       = to_object_key(Bucket, StartTerm),
+    #key_range{ from_key       = to_object_key(Bucket, StartTerm),
                   from_inclusive = true,
                   to_key         = to_object_key(Bucket, EndTerm),
                   to_inclusive   = true };
 to_key_range({index, Bucket, {range, Field, StartTerm, EndTerm}}) ->
-    #btree_range{ from_key       = to_index_key(Bucket, <<>>, Field, StartTerm),
+    #key_range{ from_key       = to_index_key(Bucket, <<>>, Field, StartTerm),
                   from_inclusive = true,
                   to_key         = to_index_key(Bucket, <<16#ff,16#ff,16#ff,16#ff,
                                                           16#ff,16#ff,16#ff,16#ff,
@@ -476,7 +477,7 @@ from_index_key(LKey) ->
 %% ===================================================================
 -ifdef(TEST).
 
--include("src/hanoi.hrl").
+-include("src/hanoidb.hrl").
 
 key_range_test() ->
     Range = to_key_range({bucket, <<"a">>}),
@@ -497,14 +498,14 @@ index_range_test() ->
 
 
 simple_test_() ->
-    ?assertCmd("rm -rf test/hanoi-backend"),
-    application:set_env(hanoi, data_root, "test/hanoid-backend"),
-    hanoi_temp_riak_kv_backend:standard_test(?MODULE, []).
+    ?assertCmd("rm -rf test/hanoidb-backend"),
+    application:set_env(hanoidb, data_root, "test/hanoidbd-backend"),
+    hanoidb_temp_riak_kv_backend:standard_test(?MODULE, []).
 
 custom_config_test_() ->
-    ?assertCmd("rm -rf test/hanoi-backend"),
-    application:set_env(hanoi, data_root, ""),
-    hanoi_temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/hanoi-backend"}]).
+    ?assertCmd("rm -rf test/hanoidb-backend"),
+    application:set_env(hanoidb, data_root, ""),
+    hanoidb_temp_riak_kv_backend:standard_test(?MODULE, [{data_root, "test/hanoidb-backend"}]).
 
 -ifdef(PROPER).
 
@@ -519,25 +520,25 @@ eqc_test_() ->
            [?_assertEqual(true,
                           backend_eqc:test(?MODULE, false,
                                            [{data_root,
-                                             "test/hanoidb-backend"},
+                                             "test/hanoidbdb-backend"},
                                          {async_fold, false}]))]},
           {timeout, 60,
             [?_assertEqual(true,
                           backend_eqc:test(?MODULE, false,
                                            [{data_root,
-                                             "test/hanoidb-backend"}]))]}
+                                             "test/hanoidbdb-backend"}]))]}
          ]}]}]}.
 
 setup() ->
     application:load(sasl),
-    application:set_env(sasl, sasl_error_logger, {file, "riak_kv_hanoidb_backend_eqc_sasl.log"}),
+    application:set_env(sasl, sasl_error_logger, {file, "riak_kv_hanoidbdb_backend_eqc_sasl.log"}),
     error_logger:tty(false),
-    error_logger:logfile({open, "riak_kv_hanoidb_backend_eqc.log"}),
+    error_logger:logfile({open, "riak_kv_hanoidbdb_backend_eqc.log"}),
 
     ok.
 
 cleanup(_) ->
-    ?_assertCmd("rm -rf test/hanoidb-backend").
+    ?_assertCmd("rm -rf test/hanoidbdb-backend").
 
 -endif. % EQC
 

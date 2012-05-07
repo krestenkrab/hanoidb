@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_fold_worker).
+-module(hanoidb_fold_worker).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -ifdef(DEBUG).
@@ -65,7 +65,7 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--include("hanoi.hrl").
+-include("hanoidb.hrl").
 -include("plain_rpc.hrl").
 
 -record(state, {sendto, sendto_ref}).

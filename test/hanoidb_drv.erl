@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -23,7 +23,7 @@
 %% ----------------------------------------------------------------------------
 
 %% @Doc Drive a set of LSM BTrees
--module(hanoi_drv).
+-module(hanoidb_drv).
 
 -behaviour(gen_server).
 
@@ -86,7 +86,7 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call({open, N}, _, #state { btrees = D} = State) ->
-    case hanoi:open(N) of
+    case hanoidb:open(N) of
         {ok, Tree} ->
             {reply, ok, State#state { btrees = dict:store(N, Tree, D)}};
         Otherwise ->
@@ -94,7 +94,7 @@ handle_call({open, N}, _, #state { btrees = D} = State) ->
     end;
 handle_call({close, N}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    case hanoi:close(Tree) of
+    case hanoidb:close(Tree) of
         ok ->
             {reply, ok, State#state { btrees = dict:erase(N, D)}};
         Otherwise ->
@@ -104,11 +104,11 @@ handle_call({fold_range, Name, Fun, Acc0, Range},
             _From,
             #state { btrees = D } = State) ->
     Tree = dict:fetch(Name, D),
-    Result = hanoi:fold_range(Tree, Fun, Acc0, Range),
+    Result = hanoidb:fold_range(Tree, Fun, Acc0, Range),
     {reply, Result, State};
 handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    case hanoi:put(Tree, K, V) of
+    case hanoidb:put(Tree, K, V) of
         ok ->
             {reply, ok, State};
         Other ->
@@ -116,14 +116,14 @@ handle_call({put, N, K, V}, _, #state { btrees = D} = State) ->
     end;
 handle_call({delete_exist, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    Reply = hanoi:delete(Tree, K),
+    Reply = hanoidb:delete(Tree, K),
     {reply, Reply, State};
 handle_call({get, N, K}, _, #state { btrees = D} = State) ->
     Tree = dict:fetch(N, D),
-    Reply = hanoi:get(Tree, K),
+    Reply = hanoidb:get(Tree, K),
     {reply, Reply, State};
 handle_call(stop, _, #state{ btrees = D } = State ) ->
-    [ hanoi:close(Tree) || {_,Tree} <- dict:to_list(D) ],
+    [ hanoidb:close(Tree) || {_,Tree} <- dict:to_list(D) ],
     {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,

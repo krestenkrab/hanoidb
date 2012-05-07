@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -30,18 +30,18 @@
 -define(TOMBSTONE, 'deleted').
 
 -define(KEY_IN_FROM_RANGE(Key,Range),
-        ((Range#btree_range.from_inclusive andalso
-          (Range#btree_range.from_key =< Key))
+        ((Range#key_range.from_inclusive andalso
+          (Range#key_range.from_key =< Key))
          orelse
-           (Range#btree_range.from_key < Key))).
+           (Range#key_range.from_key < Key))).
 
 -define(KEY_IN_TO_RANGE(Key,Range),
-        ((Range#btree_range.to_key == undefined)
+        ((Range#key_range.to_key == undefined)
          orelse
-         ((Range#btree_range.to_inclusive andalso
-             (Key =< Range#btree_range.to_key))
+         ((Range#key_range.to_inclusive andalso
+             (Key =< Range#key_range.to_key))
           orelse
-             (Key <  Range#btree_range.to_key)))).
+             (Key <  Range#key_range.to_key)))).
 
 -define(KEY_IN_RANGE(Key,Range),
         (?KEY_IN_FROM_RANGE(Key,Range) andalso ?KEY_IN_TO_RANGE(Key,Range))).

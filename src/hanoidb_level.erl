@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,16 +22,16 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_level).
+-module(hanoidb_level).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -include("include/plain_rpc.hrl").
 
--include("include/hanoi.hrl").
--include("src/hanoi.hrl").
+-include("include/hanoidb.hrl").
+-include("src/hanoidb.hrl").
 
 %%
-%% Manages 0..2 of hanoi index file, and governs all aspects of
+%% Manages 0..2 of hanoidb index file, and governs all aspects of
 %% merging, lookup, folding, etc. for these files
 %%
 
@@ -182,12 +182,12 @@ initialize2(State) ->
             file:delete(BFileName),
             ok = file:rename(MFileName, AFileName),
 
-            {ok, BTA} = hanoi_reader:open(AFileName, [random|State#state.opts]),
+            {ok, BTA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
 
             case file:read_file_info(CFileName) of
                 {ok, _} ->
                     file:rename(CFileName, BFileName),
-                    {ok, BTB} = hanoi_reader:open(BFileName, [random|State#state.opts]),
+                    {ok, BTB} = hanoidb_reader:open(BFileName, [random|State#state.opts]),
                     check_begin_merge_then_loop0(init_state(State#state{ a= BTA, b=BTB }));
 
                 {error, enoent} ->
@@ -197,12 +197,12 @@ initialize2(State) ->
         {error, enoent} ->
             case file:read_file_info(BFileName) of
                 {ok, _} ->
-                    {ok, BTA} = hanoi_reader:open(AFileName, [random|State#state.opts]),
-                    {ok, BTB} = hanoi_reader:open(BFileName, [random|State#state.opts]),
+                    {ok, BTA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
+                    {ok, BTB} = hanoidb_reader:open(BFileName, [random|State#state.opts]),
 
                     case file:read_file_info(CFileName) of
                         {ok, _} ->
-                            {ok, BTC} = hanoi_reader:open(CFileName, [random|State#state.opts]);
+                            {ok, BTC} = hanoidb_reader:open(CFileName, [random|State#state.opts]);
                         {error, enoent} ->
                             BTC = undefined
                     end,
@@ -216,7 +216,7 @@ initialize2(State) ->
 
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
-                            {ok, BTA} = hanoi_reader:open(AFileName, [random|State#state.opts]),
+                            {ok, BTA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
                             main_loop(init_state(State#state{ a=BTA }));
 
                         {error, enoent} ->
@@ -292,7 +292,7 @@ main_loop(State = #state{ next=Next }) ->
 
             plain_rpc:send_reply(From, ok),
 
-            case hanoi_reader:open(ToFileName, [random|State#state.opts]) of
+            case hanoidb_reader:open(ToFileName, [random|State#state.opts]) of
                 {ok, BT} ->
                     if SetPos == #state.b ->
                             check_begin_merge_then_loop(setelement(SetPos, State, BT));
@@ -396,7 +396,7 @@ main_loop(State = #state{ next=Next }) ->
             %% rpc would fail when we fall off the cliff
             if Next == undefined -> ok;
                true ->
-                    hanoi_level:close(Next)
+                    hanoidb_level:close(Next)
             end,
             plain_rpc:send_reply(From, ok),
             {ok, closing};
@@ -412,7 +412,7 @@ main_loop(State = #state{ next=Next }) ->
             %% rpc would fail when we fall off the cliff
             if Next == undefined -> ok;
                true ->
-                    hanoi_level:destroy(Next)
+                    hanoidb_level:destroy(Next)
             end,
             plain_rpc:send_reply(From, ok),
             {ok, destroying};
@@ -531,7 +531,7 @@ main_loop(State = #state{ next=Next }) ->
             % then, rename M to A, and open it
             AFileName = filename("A",State2),
             ok = file:rename(MFileName, AFileName),
-            {ok, BT} = hanoi_reader:open(AFileName, [random|State#state.opts]),
+            {ok, BT} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
 
             % iff there is a C file, then move it to B position
             % TODO: consider recovery for this
@@ -629,7 +629,7 @@ do_step(StepFrom, PreviousWork, State) ->
     TotalWork     = (MaxLevel-?TOP_LEVEL+1) * WorkUnit,
     WorkUnitsLeft = max(0, TotalWork-PreviousWork),
 
-    case hanoi:get_opt( merge_strategy, State#state.opts, fast) of
+    case hanoidb:get_opt( merge_strategy, State#state.opts, fast) of
         fast ->
             WorkToDoHere = min(WorkLeftHere, WorkUnitsLeft);
         predictable ->
@@ -696,7 +696,7 @@ do_lookup(_Key, [Pid]) when is_pid(Pid) ->
 do_lookup(Key, [undefined|Rest]) ->
     do_lookup(Key, Rest);
 do_lookup(Key, [BT|Rest]) ->
-    case hanoi_reader:lookup(BT, Key) of
+    case hanoidb_reader:lookup(BT, Key) of
         {ok, ?TOMBSTONE} ->
             not_found;
         {ok, Result} ->
@@ -706,10 +706,10 @@ do_lookup(Key, [BT|Rest]) ->
     end.
 
 close_if_defined(undefined) -> ok;
-close_if_defined(BT)        -> hanoi_reader:close(BT).
+close_if_defined(BT)        -> hanoidb_reader:close(BT).
 
 destroy_if_defined(undefined) -> ok;
-destroy_if_defined(BT)        -> hanoi_reader:destroy(BT).
+destroy_if_defined(BT)        -> hanoidb_reader:destroy(BT).
 
 stop_if_defined(undefined) -> ok;
 stop_if_defined(MergePid) when is_pid(MergePid) ->
@@ -736,7 +736,7 @@ begin_merge(State) ->
          try
                        ?log("merge begun~n", []),
 
-                       {ok, OutCount} = hanoi_merger:merge(AFileName, BFileName, XFileName,
+                       {ok, OutCount} = hanoidb_merger:merge(AFileName, BFileName, XFileName,
                                                            ?BTREE_SIZE(State#state.level + 1),
                                                            State#state.next =:= undefined,
                                                            State#state.opts ),
@@ -757,8 +757,8 @@ close_and_delete_a_and_b(State) ->
     AFileName = filename("A",State),
     BFileName = filename("B",State),
 
-    ok = hanoi_reader:close(State#state.a),
-    ok = hanoi_reader:close(State#state.b),
+    ok = hanoidb_reader:close(State#state.a),
+    ok = hanoidb_reader:close(State#state.b),
 
     ok = file:delete(AFileName),
     ok = file:delete(BFileName),
@@ -777,10 +777,10 @@ start_range_fold(FileName, WorkerPID, Range, State) ->
 try
                                 ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
                                 erlang:link(WorkerPID),
-                                {ok, File} = hanoi_reader:open(FileName, [folding|State#state.opts]),
+                                {ok, File} = hanoidb_reader:open(FileName, [folding|State#state.opts]),
                                 do_range_fold2(File, WorkerPID, self(), Range),
                                 erlang:unlink(WorkerPID),
-                                hanoi_reader:close(File),
+                                hanoidb_reader:close(File),
 
                                 %% this will release the pinning of the fold file
                                 Owner  ! {range_fold_done, self(), FileName},
@@ -792,12 +792,12 @@ end
                         end ),
     {ok, PID}.
 
--spec do_range_fold(BT        :: hanoi_reader:read_file(),
+-spec do_range_fold(BT        :: hanoidb_reader:read_file(),
                     WorkerPID :: pid(),
                     SelfOrRef :: pid() | reference(),
-                    Range     :: #btree_range{} ) -> ok.
+                    Range     :: #key_range{} ) -> ok.
 do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
-    case hanoi_reader:range_fold(fun(Key,Value,_) ->
+    case hanoidb_reader:range_fold(fun(Key,Value,_) ->
                                              WorkerPID ! {level_result, SelfOrRef, Key, Value},
                                              ok
                                      end,
@@ -815,12 +815,12 @@ do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
 
 -define(FOLD_CHUNK_SIZE, 100).
 
--spec do_range_fold2(BT        :: hanoi_reader:read_file(),
+-spec do_range_fold2(BT        :: hanoidb_reader:read_file(),
                     WorkerPID :: pid(),
                     SelfOrRef :: pid() | reference(),
-                    Range     :: #btree_range{} ) -> ok.
+                    Range     :: #key_range{} ) -> ok.
 do_range_fold2(BT, WorkerPID, SelfOrRef, Range) ->
-    try hanoi_reader:range_fold(fun(Key,Value,{0,KVs}) ->
+    try hanoidb_reader:range_fold(fun(Key,Value,{0,KVs}) ->
                                          send(WorkerPID, SelfOrRef, [{Key,Value}|KVs]),
                                          {?FOLD_CHUNK_SIZE-1, []};
                                     (Key,Value,{N,KVs}) ->

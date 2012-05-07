@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,10 +22,10 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_tests).
+-module(hanoidb_tests).
 
--include("include/hanoi.hrl").
--include("src/hanoi.hrl").
+-include("include/hanoidb.hrl").
+-include("src/hanoidb.hrl").
 
 -ifdef(TEST).
 -ifdef(TRIQ).
@@ -50,7 +50,7 @@
 -record(tree, { elements = dict:new() }).
 -record(state, { open = dict:new(),
                  closed = dict:new() }).
--define(SERVER, hanoi_drv).
+-define(SERVER, hanoidb_drv).
 
 full_test_() ->
     {setup,
@@ -182,7 +182,7 @@ precondition(#state { open = Open, closed = Closed },
              {call, ?SERVER, close, [Name]}) ->
     (dict:is_key(Name, Open)) and (not dict:is_key(Name, Closed)).
 
-is_valid_range(#btree_range{ from_key=FromKey, from_inclusive=FromIncl,
+is_valid_range(#key_range{ from_key=FromKey, from_inclusive=FromIncl,
                           to_key=ToKey, to_inclusive=ToIncl,
                           limit=Limit })
   when
@@ -268,9 +268,9 @@ prop_dict_agree() ->
     ?FORALL(Cmds, commands(?MODULE),
             ?TRAPEXIT(
                begin
-                   hanoi_drv:start_link(),
+                   hanoidb_drv:start_link(),
                     {History,State,Result} = run_commands(?MODULE, Cmds),
-                   hanoi_drv:stop(),
+                   hanoidb_drv:stop(),
                    cleanup_test_trees(State),
                     ?WHENFAIL(io:format("History: ~w\nState: ~w\nResult: ~w\n",
                                         [History,State,Result]),
@@ -280,31 +280,31 @@ prop_dict_agree() ->
 %% UNIT TESTS
 %% ----------------------------------------------------------------------
 test_tree_simple_1() ->
-    {ok, Tree} = hanoi:open("simple"),
-    ok = hanoi:put(Tree, <<>>, <<"data", 77:128>>),
-    {ok, <<"data", 77:128>>} = hanoi:get(Tree, <<>>),
-    ok = hanoi:close(Tree).
+    {ok, Tree} = hanoidb:open("simple"),
+    ok = hanoidb:put(Tree, <<>>, <<"data", 77:128>>),
+    {ok, <<"data", 77:128>>} = hanoidb:get(Tree, <<>>),
+    ok = hanoidb:close(Tree).
 
 test_tree_simple_2() ->
-    {ok, Tree} = hanoi:open("simple"),
-    ok = hanoi:put(Tree, <<"ã">>, <<"µ">>),
-    ok = hanoi:delete(Tree, <<"ã">>),
-    ok = hanoi:close(Tree).
+    {ok, Tree} = hanoidb:open("simple"),
+    ok = hanoidb:put(Tree, <<"ã">>, <<"µ">>),
+    ok = hanoidb:delete(Tree, <<"ã">>),
+    ok = hanoidb:close(Tree).
 
 test_tree_simple_4() ->
     Key = <<56,11,62,42,35,163,16,100,9,224,8,228,130,94,198,2,126,117,243,
             1,122,175,79,159,212,177,30,153,71,91,85,233,41,199,190,58,3,
             173,220,9>>,
     Value = <<212,167,12,6,105,152,17,80,243>>,
-    {ok, Tree} = hanoi:open("simple"),
-    ok = hanoi:put(Tree, Key, Value),
-    ?assertEqual({ok, Value}, hanoi:get(Tree, Key)),
-    ok = hanoi:close(Tree).
+    {ok, Tree} = hanoidb:open("simple"),
+    ok = hanoidb:put(Tree, Key, Value),
+    ?assertEqual({ok, Value}, hanoidb:get(Tree, Key)),
+    ok = hanoidb:close(Tree).
 
 test_tree() ->
-    {ok, Tree} = hanoi:open("simple2"),
+    {ok, Tree} = hanoidb:open("simple2"),
     lists:foldl(fun(N,_) ->
-                        ok = hanoi:put(Tree,
+                        ok = hanoidb:put(Tree,
                                                <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
@@ -312,7 +312,7 @@ test_tree() ->
     io:format(user, "INSERT DONE 1~n", []),
 
     lists:foldl(fun(N,_) ->
-                        ok = hanoi:put(Tree,
+                        ok = hanoidb:put(Tree,
                                                <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
@@ -321,7 +321,7 @@ test_tree() ->
     io:format(user, "INSERT DONE 2~n", []),
 
 
-    hanoi:delete(Tree, <<1500:128>>),
+    hanoidb:delete(Tree, <<1500:128>>),
 
     io:format(user, "INSERT DONE 3~n", []),
 
@@ -330,17 +330,17 @@ test_tree() ->
     error_logger:info_msg("time to fold: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 
 
-    ok = hanoi:close(Tree).
+    ok = hanoidb:close(Tree).
 
 run_fold(Tree,From,To) ->
-    {_, Count} = hanoi:fold_range(Tree,
+    {_, Count} = hanoidb:fold_range(Tree,
                              fun(<<N:128>>,_Value, {N, C}) ->
                                      {N + 1, C + 1};
                                 (<<1501:128>>,_Value, {1500, C}) ->
                                      {1502, C + 1}
                              end,
                              {From, 0},
-                             #btree_range{from_key= <<From:128>>, to_key= <<(To+1):128>>}),
+                             #key_range{from_key= <<From:128>>, to_key= <<(To+1):128>>}),
     {ok, Count}.
 
 
@@ -376,7 +376,7 @@ cmd_sync_range_args(#state { open = Open }) ->
     ?LET(Tree, g_non_empty_btree(Open),
          ?LET({K1, K2}, {g_existing_key(Tree, Open),
                          g_existing_key(Tree, Open)},
-              [Tree, #btree_range{from_key=K1, to_key=K2}])).
+              [Tree, #key_range{from_key=K1, to_key=K2}])).
 
 cmd_sync_fold_range_args(State) ->
     ?LET([Tree, Range], cmd_sync_range_args(State),

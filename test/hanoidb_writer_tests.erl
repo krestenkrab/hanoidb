@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,28 +22,28 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_writer_tests).
+-module(hanoidb_writer_tests).
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--include("include/hanoi.hrl").
+-include("include/hanoidb.hrl").
 
 -compile(export_all).
 
 simple_test() ->
 
     file:delete("testdata"),
-    {ok, BT} = hanoi_writer:open("testdata"),
-    ok = hanoi_writer:add(BT, <<"A">>, <<"Avalue">>),
-    ok = hanoi_writer:add(BT, <<"B">>, <<"Bvalue">>),
-    ok = hanoi_writer:close(BT),
+    {ok, BT} = hanoidb_writer:open("testdata"),
+    ok = hanoidb_writer:add(BT, <<"A">>, <<"Avalue">>),
+    ok = hanoidb_writer:add(BT, <<"B">>, <<"Bvalue">>),
+    ok = hanoidb_writer:close(BT),
 
-    {ok, IN} = hanoi_reader:open("testdata"),
-    {ok, <<"Avalue">>} = hanoi_reader:lookup(IN, <<"A">>),
-    ok = hanoi_reader:close(IN),
+    {ok, IN} = hanoidb_reader:open("testdata"),
+    {ok, <<"Avalue">>} = hanoidb_reader:lookup(IN, <<"A">>),
+    ok = hanoidb_reader:close(IN),
 
     ok = file:delete("testdata").
 
@@ -51,7 +51,7 @@ simple_test() ->
 simple1_test() ->
 
     file:delete("testdata"),
-    {ok, BT} = hanoi_writer:open("testdata", [{block_size, 1024}]),
+    {ok, BT} = hanoidb_writer:open("testdata", [{block_size, 1024}]),
 
     Max = 1024,
     Seq = lists:seq(0, Max),
@@ -60,22 +60,22 @@ simple1_test() ->
                   fun() ->
                           lists:foreach(
                             fun(Int) ->
-                                    ok = hanoi_writer:add(BT, <<Int:128>>, <<"valuevalue/", Int:128>>)
+                                    ok = hanoidb_writer:add(BT, <<Int:128>>, <<"valuevalue/", Int:128>>)
                             end,
                             Seq),
-                          ok = hanoi_writer:close(BT)
+                          ok = hanoidb_writer:close(BT)
                   end,
                   []),
 
     error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
 
-    {ok, IN} = hanoi_reader:open("testdata"),
+    {ok, IN} = hanoidb_reader:open("testdata"),
     Middle = Max div 2,
-    {ok, <<"valuevalue/", Middle:128>>} = hanoi_reader:lookup(IN, <<Middle:128>>),
+    {ok, <<"valuevalue/", Middle:128>>} = hanoidb_reader:lookup(IN, <<Middle:128>>),
 
 
     {Time2,Count} = timer:tc(
-                      fun() -> hanoi_reader:fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
+                      fun() -> hanoidb_reader:fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
                                                          N+1
                                                  end,
                                                  0,
@@ -88,12 +88,12 @@ simple1_test() ->
     Max = Count-1,
 
     {Time3,{done,Count2}} = timer:tc(
-                      fun() -> hanoi_reader:range_fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
+                      fun() -> hanoidb_reader:range_fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
                                                                N+1
                                                        end,
                                                        0,
                                                        IN,
-                                                      #btree_range{ from_key= <<>>, to_key=undefined })
+                                                      #key_range{ from_key= <<>>, to_key=undefined })
                       end,
                       []),
 
@@ -103,5 +103,5 @@ simple1_test() ->
 
     Max = Count2-1,
 
-    ok = hanoi_reader:close(IN).
+    ok = hanoidb_reader:close(IN).
 

@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_merger).
+-module(hanoidb_merger).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 %%
@@ -31,7 +31,7 @@
 
 -export([merge/6]).
 
--include("hanoi.hrl").
+-include("hanoidb.hrl").
 
 %% A merger which is inactive for this long will sleep
 %% which means that it will close open files, and compress
@@ -48,17 +48,17 @@
 -define(LOCAL_WRITER, true).
 
 merge(A,B,C, Size, IsLastLevel, Options) ->
-    {ok, BT1} = hanoi_reader:open(A, [sequential|Options]),
-    {ok, BT2} = hanoi_reader:open(B, [sequential|Options]),
+    {ok, BT1} = hanoidb_reader:open(A, [sequential|Options]),
+    {ok, BT2} = hanoidb_reader:open(B, [sequential|Options]),
     case ?LOCAL_WRITER of
         true ->
-            {ok, Out} = hanoi_writer:init([C, [{size,Size} | Options]]);
+            {ok, Out} = hanoidb_writer:init([C, [{size,Size} | Options]]);
         false ->
-            {ok, Out} = hanoi_writer:open(C, [{size,Size} | Options])
+            {ok, Out} = hanoidb_writer:open(C, [{size,Size} | Options])
     end,
 
-    {node, AKVs} = hanoi_reader:first_node(BT1),
-    {node, BKVs} = hanoi_reader:first_node(BT2),
+    {node, AKVs} = hanoidb_reader:first_node(BT1),
+    {node, BKVs} = hanoidb_reader:first_node(BT2),
 
     scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, 0, {0, none}).
 
@@ -66,9 +66,9 @@ terminate(Count, Out) ->
 
     case ?LOCAL_WRITER of
         true ->
-            {stop, normal, ok, _} = hanoi_writer:handle_call(close, self(), Out);
+            {stop, normal, ok, _} = hanoidb_writer:handle_call(close, self(), Out);
         false ->
-            ok = hanoi_writer:close(Out)
+            ok = hanoidb_writer:close(Out)
     end,
 
     {ok, Count}.
@@ -84,9 +84,9 @@ hibernate_scan(Keep) ->
     receive
         {step, From, HowMany} ->
             {BT1, BT2, OutBin, IsLastLevel, AKVs, BKVs, Count, N} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
-            scan(hanoi_reader:deserialize(BT1),
-                 hanoi_reader:deserialize(BT2),
-                 hanoi_writer:deserialize(OutBin),
+            scan(hanoidb_reader:deserialize(BT1),
+                 hanoidb_reader:deserialize(BT2),
+                 hanoidb_writer:deserialize(OutBin),
                  IsLastLevel, AKVs, BKVs, Count, {N+HowMany, From})
     end.
 
@@ -104,9 +104,9 @@ scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {N, FromPID}) when N < 1, AK
     after ?HIBERNATE_TIMEOUT ->
             case ?LOCAL_WRITER of
                 true ->
-                    Args = {hanoi_reader:serialize(BT1),
-                            hanoi_reader:serialize(BT2),
-                            hanoi_writer:serialize(Out), IsLastLevel, AKVs, BKVs, Count, N},
+                    Args = {hanoidb_reader:serialize(BT1),
+                            hanoidb_reader:serialize(BT2),
+                            hanoidb_writer:serialize(Out), IsLastLevel, AKVs, BKVs, Count, N},
                     Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
                     hibernate_scan(Keep);
                 false ->
@@ -115,20 +115,20 @@ scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {N, FromPID}) when N < 1, AK
     end;
 
 scan(BT1, BT2, Out, IsLastLevel, [], BKVs, Count, Step) ->
-    case hanoi_reader:next_node(BT1) of
+    case hanoidb_reader:next_node(BT1) of
         {node, AKVs} ->
             scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, Step);
         end_of_data ->
-            hanoi_reader:close(BT1),
+            hanoidb_reader:close(BT1),
             scan_only(BT2, Out, IsLastLevel, BKVs, Count, Step)
     end;
 
 scan(BT1, BT2, Out, IsLastLevel, AKVs, [], Count, Step) ->
-    case hanoi_reader:next_node(BT2) of
+    case hanoidb_reader:next_node(BT2) of
         {node, BKVs} ->
             scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, Step);
         end_of_data ->
-            hanoi_reader:close(BT2),
+            hanoidb_reader:close(BT2),
             scan_only(BT1, Out, IsLastLevel, AKVs, Count, Step)
     end;
 
@@ -136,9 +136,9 @@ scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKV
     if Key1 < Key2 ->
             case ?LOCAL_WRITER of
                 true ->
-                    {noreply, Out2} = hanoi_writer:handle_cast({add, Key1, Value1}, Out);
+                    {noreply, Out2} = hanoidb_writer:handle_cast({add, Key1, Value1}, Out);
                 false ->
-                    ok = hanoi_writer:add(Out2=Out, Key1, Value1)
+                    ok = hanoidb_writer:add(Out2=Out, Key1, Value1)
             end,
 
             scan(BT1, BT2, Out2, IsLastLevel, AT, BKVs, Count+1, step(Step));
@@ -146,9 +146,9 @@ scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKV
        Key2 < Key1 ->
             case ?LOCAL_WRITER of
                 true ->
-                    {noreply, Out2} = hanoi_writer:handle_cast({add, Key2, Value2}, Out);
+                    {noreply, Out2} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out);
                 false ->
-                    ok = hanoi_writer:add(Out2=Out, Key2, Value2)
+                    ok = hanoidb_writer:add(Out2=Out, Key2, Value2)
             end,
             scan(BT1, BT2, Out2, IsLastLevel, AKVs, BT, Count+1, step(Step));
 
@@ -160,9 +160,9 @@ scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKV
        true ->
             case ?LOCAL_WRITER of
                 true ->
-                    {noreply, Out2} = hanoi_writer:handle_cast({add, Key2, Value2}, Out);
+                    {noreply, Out2} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out);
                 false ->
-                    ok = hanoi_writer:add(Out2=Out, Key2, Value2)
+                    ok = hanoidb_writer:add(Out2=Out, Key2, Value2)
             end,
             scan(BT1, BT2, Out2, IsLastLevel, AT, BT, Count+1, step(Step, 2))
     end.
@@ -173,8 +173,8 @@ hibernate_scan_only(Keep) ->
     receive
         {step, From, HowMany} ->
             {BT, OutBin, IsLastLevel, KVs, Count, N} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
-            scan_only(hanoi_reader:deserialize(BT),
-                      hanoi_writer:deserialize(OutBin),
+            scan_only(hanoidb_reader:deserialize(BT),
+                      hanoidb_writer:deserialize(OutBin),
                       IsLastLevel, KVs, Count, {N+HowMany, From})
     end.
 
@@ -191,14 +191,14 @@ scan_only(BT, Out, IsLastLevel, KVs, Count, {N, FromPID}) when N < 1, KVs =/= []
         {step, From, HowMany} ->
             scan_only(BT, Out, IsLastLevel, KVs, Count, {N+HowMany, From})
     after ?HIBERNATE_TIMEOUT ->
-            Args = {hanoi_reader:serialize(BT),
-                    hanoi_writer:serialize(Out), IsLastLevel, KVs, Count, N},
+            Args = {hanoidb_reader:serialize(BT),
+                    hanoidb_writer:serialize(Out), IsLastLevel, KVs, Count, N},
             Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
             hibernate_scan_only(Keep)
     end;
 
 scan_only(BT, Out, IsLastLevel, [], Count, {_, FromPID}=Step) ->
-    case hanoi_reader:next_node(BT) of
+    case hanoidb_reader:next_node(BT) of
         {node, KVs} ->
             scan_only(BT, Out, IsLastLevel, KVs, Count, Step);
         end_of_data ->
@@ -208,7 +208,7 @@ scan_only(BT, Out, IsLastLevel, [], Count, {_, FromPID}=Step) ->
                 {PID, Ref} ->
                     PID ! {Ref, step_done}
             end,
-            hanoi_reader:close(BT),
+            hanoidb_reader:close(BT),
             terminate(Count, Out)
     end;
 
@@ -218,8 +218,8 @@ scan_only(BT, Out, true, [{_,?TOMBSTONE}|Rest], Count, Step) ->
 scan_only(BT, Out, IsLastLevel, [{Key,Value}|Rest], Count, Step) ->
     case ?LOCAL_WRITER of
         true ->
-            {noreply, Out2} = hanoi_writer:handle_cast({add, Key, Value}, Out);
+            {noreply, Out2} = hanoidb_writer:handle_cast({add, Key, Value}, Out);
         false ->
-            ok = hanoi_writer:add(Out2=Out, Key, Value)
+            ok = hanoidb_writer:add(Out2=Out, Key, Value)
     end,
     scan_only(BT, Out2, IsLastLevel, Rest, Count+1, step(Step)).

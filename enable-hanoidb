@@ -1,12 +1,12 @@
 #!/bin/sh
 
-# This script adds hanoi to a riak github repo. Run it in the riak repo
+# This script adds hanoidb to a riak github repo. Run it in the riak repo
 # directory.
 #
-# First it adds hanoi, then runs "make all devrel" and then enables the
-# hanoi storage backend in the resulting dev nodes.
+# First it adds hanoidb, then runs "make all devrel" and then enables the
+# hanoidb storage backend in the resulting dev nodes.
 #
-# This script is intended to be temporary. Once hanoi is made into a proper
+# This script is intended to be temporary. Once hanoidb is made into a proper
 # riak citizen, this script will no longer be needed.
 
 set -e
@@ -35,17 +35,17 @@ fi
 ./rebar get-deps
 
 file=./deps/riak_kv/src/riak_kv.app.src
-if ! grep -q hanoi $file ; then
+if ! grep -q hanoidb $file ; then
     echo
     echo "Modifying $file, saving the original as ${file}.orig ..."
-    perl -i.orig -pe '/\bos_mon,/ && print qq(                  hanoi,\n)' $file
+    perl -i.orig -pe '/\bos_mon,/ && print qq(                  hanoidb,\n)' $file
 fi
 
 file=./deps/riak_kv/rebar.config
-if ! grep -q hanoi $file ; then
+if ! grep -q hanoidb $file ; then
     echo
     echo "Modifying $file, saving the original as ${file}.orig ..."
-    perl -i.orig -pe '/\bsext\b/ && print qq(        {hanoi, ".*", {git, "git\@github.com:basho/hanoi.git", "master"}},\n)' $file
+    perl -i.orig -pe '/\bsext\b/ && print qq(        {hanoidb, ".*", {git, "git\@github.com:basho/hanoidb.git", "master"}},\n)' $file
 fi
 
 ./rebar get-deps
@@ -55,6 +55,6 @@ make all devrel
 
 echo
 echo 'Modifying all dev/dev*/etc/app.config files, saving originals with .orig suffix...'
-perl -i.orig -ne 'if (/\bstorage_backend,/) { s/(storage_backend, )[^\}]+/\1riak_kv_hanoi_backend/; print } elsif (/\{eleveldb,/) { $eleveldb++; print } elsif ($eleveldb && /^\s+\]\},/) { $eleveldb = 0; print; print qq(\n {hanoi, [\n          {data_root, "./data/hanoi"}\n         ]},\n\n) } else { print }' dev/dev*/etc/app.config
+perl -i.orig -ne 'if (/\bstorage_backend,/) { s/(storage_backend, )[^\}]+/\1riak_kv_hanoidb_backend/; print } elsif (/\{eleveldb,/) { $eleveldb++; print } elsif ($eleveldb && /^\s+\]\},/) { $eleveldb = 0; print; print qq(\n {hanoidb, [\n          {data_root, "./data/hanoidb"}\n         ]},\n\n) } else { print }' dev/dev*/etc/app.config
 
 exit 0

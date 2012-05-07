@@ -20,14 +20,14 @@
 
 %%% NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE
 %%%
-%%% This is a temporary copy of riak_kv_backend, just here to keep hanoi
-%%% development private for now. When riak_kv_hanoi_backend is moved to
+%%% This is a temporary copy of riak_kv_backend, just here to keep hanoidb
+%%% development private for now. When riak_kv_hanoidb_backend is moved to
 %%% riak_kv, delete this file.
 %%%
 %%% NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE NOTE
 
 
--module(hanoi_temp_riak_kv_backend).
+-module(hanoidb_temp_riak_kv_backend).
 
 -export([behaviour_info/1]).
 -export([callback_after/3]).

@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,12 +22,12 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_reader).
+-module(hanoidb_reader).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -include_lib("kernel/include/file.hrl").
--include("include/hanoi.hrl").
--include("hanoi.hrl").
+-include("include/hanoidb.hrl").
+-include("hanoidb.hrl").
 -include("include/plain_rpc.hrl").
 
 -export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4, destroy/1]).
@@ -50,14 +50,14 @@ open(Name) ->
 open(Name, Config) ->
     case proplists:get_bool(sequential, Config) of
         true ->
-            ReadBufferSize = hanoi:get_opt(read_buffer_size, Config, 512 * 1024),
+            ReadBufferSize = hanoidb:get_opt(read_buffer_size, Config, 512 * 1024),
             {ok, File} = file:open(Name, [raw,read,{read_ahead, ReadBufferSize},binary]),
             {ok, #index{file=File, name=Name, config=Config}};
 
         false ->
             case proplists:get_bool(folding, Config) of
                 true ->
-                    ReadBufferSize = hanoi:get_opt(read_buffer_size, Config, 512 * 1024),
+                    ReadBufferSize = hanoidb:get_opt(read_buffer_size, Config, 512 * 1024),
                     {ok, File} = file:open(Name, [read,{read_ahead, ReadBufferSize},binary]);
                 false ->
                     {ok, File} = file:open(Name, [read,binary])
@@ -113,13 +113,13 @@ fold1(File,Fun,Acc0) ->
     end.
 
 range_fold(Fun, Acc0, #index{file=File,root=Root}, Range) ->
-    case lookup_node(File,Range#btree_range.from_key,Root,0) of
+    case lookup_node(File,Range#key_range.from_key,Root,0) of
         {ok, {Pos,_}} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range, Range#btree_range.limit);
+            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
         {ok, Pos} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range, Range#btree_range.limit);
+            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
         none ->
             {done, Acc0}
     end.
@@ -301,7 +301,7 @@ find_start(K, KVs) ->
 read_node(File,{Pos,Size}) ->
 %   error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),
     {ok, <<_:32, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
-    hanoi_util:decode_index_node(Level, Data);
+    hanoidb_util:decode_index_node(Level, Data);
 
 read_node(File,Pos) ->
     {ok, Pos} = file:position(File, Pos),
@@ -315,7 +315,7 @@ read_node(File) ->
         0 -> eof;
         _ ->
             {ok, Data} = file:read(File, Len-2),
-            hanoi_util:decode_index_node(Level, Data)
+            hanoidb_util:decode_index_node(Level, Data)
     end.
 
 
@@ -328,7 +328,7 @@ next_leaf_node(File) ->
             eof;
         {ok, <<Len:32, 0:16>>} ->
             {ok, Data} = file:read(File, Len-2),
-            hanoi_util:decode_index_node(0, Data);
+            hanoidb_util:decode_index_node(0, Data);
         {ok, <<Len:32, _:16>>} ->
             {ok, _} = file:position(File, {cur,Len-2}),
             next_leaf_node(File)

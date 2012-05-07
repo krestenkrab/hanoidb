@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,14 +22,14 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_nursery).
+-module(hanoidb_nursery).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -export([new/2, recover/3, add/3, finish/2, lookup/2, add_maybe_flush/4]).
 -export([do_level_fold/3, set_max_level/2, transact/3, destroy/1]).
 
--include("include/hanoi.hrl").
--include("hanoi.hrl").
+-include("include/hanoidb.hrl").
+-include("hanoidb.hrl").
 -include_lib("kernel/include/file.hrl").
 
 -record(nursery, { log_file, dir, cache, total_size=0, count=0,
@@ -75,7 +75,7 @@ fill_cache(Transaction, Cache) when is_list(Transaction) ->
 
 read_nursery_from_log(Directory, MaxLevel) ->
     {ok, LogBinary} = file:read_file( ?LOGFILENAME(Directory) ),
-    KVs = hanoi_util:decode_crc_data( LogBinary, [] ),
+    KVs = hanoidb_util:decode_crc_data( LogBinary, [] ),
     Cache = fill_cache(KVs, gb_trees:empty()),
     {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel }}.
 
@@ -86,7 +86,7 @@ read_nursery_from_log(Directory, MaxLevel) ->
 -spec add(#nursery{}, binary(), binary()|?TOMBSTONE) -> {ok, #nursery{}}.
 add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Count }, Key, Value) ->
 
-    Data = hanoi_util:crc_encapsulate_kv_entry( Key, Value ),
+    Data = hanoidb_util:crc_encapsulate_kv_entry( Key, Value ),
     ok = file:write(File, Data),
 
     Nursery1 = do_sync(File, Nursery),
@@ -101,7 +101,7 @@ add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Co
     end.
 
 do_sync(File, Nursery) ->
-    case application:get_env(hanoi, sync_strategy) of
+    case application:get_env(hanoidb, sync_strategy) of
         {ok, sync} ->
             file:datasync(File),
             LastSync = now();
@@ -143,15 +143,15 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
         N when N>0 ->
             %% next, flush cache to a new BTree
             BTreeFileName = filename:join(Dir, "nursery.data"),
-            {ok, BT} = hanoi_writer:open(BTreeFileName, [{size,?BTREE_SIZE(?TOP_LEVEL)},
+            {ok, BT} = hanoidb_writer:open(BTreeFileName, [{size,?BTREE_SIZE(?TOP_LEVEL)},
                                                          {compress, none}]),
             try
                 lists:foreach( fun({Key,Value}) ->
-                                       ok = hanoi_writer:add(BT, Key, Value)
+                                       ok = hanoidb_writer:add(BT, Key, Value)
                                end,
                                gb_trees:to_list(Cache))
             after
-                ok = hanoi_writer:close(BT)
+                ok = hanoidb_writer:close(BT)
             end,
 
 %            {ok, FileInfo} = file:read_file_info(BTreeFileName),
@@ -160,11 +160,11 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
 
 
             %% inject the B-Tree (blocking RPC)
-            ok = hanoi_level:inject(TopLevel, BTreeFileName),
+            ok = hanoidb_level:inject(TopLevel, BTreeFileName),
 
             %% issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
-            hanoi_level:begin_incremental_merge(TopLevel),
+            hanoidb_level:begin_incremental_merge(TopLevel),
 
             ok;
 
@@ -201,7 +201,7 @@ add_maybe_flush(Key, Value, Nursery, Top) ->
 flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel }, Top) ->
     ok = finish(Nursery, Top),
     {error, enoent} = file:read_file_info( filename:join(Dir, "nursery.log")),
-    hanoi_nursery:new(Dir, MaxLevel).
+    hanoidb_nursery:new(Dir, MaxLevel).
 
 has_room(#nursery{ count=Count }, N) ->
     (Count+N) < ?BTREE_SIZE(?TOP_LEVEL).
@@ -217,7 +217,7 @@ ensure_space(Nursery, NeededRoom, Top) ->
 transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSize }, Top) ->
     Nursery1 = ensure_space(Nursery, length(Spec), Top),
 
-    Data = hanoi_util:crc_encapsulate_transaction( Spec ),
+    Data = hanoidb_util:crc_encapsulate_transaction( Spec ),
     ok = file:write(File, Data),
 
     Nursery2 = do_sync(File, Nursery1),
@@ -254,7 +254,7 @@ do_level_fold(#nursery{ cache=Cache }, FoldWorkerPID, KeyRange) ->
                                {LastKey, Count}
                        end
                end,
-               {undefined, KeyRange#btree_range.limit},
+               {undefined, KeyRange#key_range.limit},
                gb_trees:to_list(Cache))
     of
         {LastKey, limit} when LastKey =/= undefined ->

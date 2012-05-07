@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(basho_bench_driver_hanoi).
+-module(basho_bench_driver_hanoidb).
 
 -record(state, { tree,
                  filename,
@@ -33,10 +33,10 @@
 -export([new/1,
          run/4]).
 
--include("hanoi.hrl").
+-include("hanoidb.hrl").
 -include_lib("basho_bench/include/basho_bench.hrl").
 
--record(btree_range, { from_key = <<>>       :: binary(),
+-record(key_range, { from_key = <<>>       :: binary(),
                        from_inclusive = true :: boolean(),
                        to_key                :: binary() | undefined,
                        to_inclusive = false  :: boolean(),
@@ -48,20 +48,20 @@
 
 new(_Id) ->
     %% Make sure bitcask is available
-    case code:which(hanoi) of
+    case code:which(hanoidb) of
         non_existing ->
-            ?FAIL_MSG("~s requires hanoi to be available on code path.\n",
+            ?FAIL_MSG("~s requires hanoidb to be available on code path.\n",
                       [?MODULE]);
         _ ->
             ok
     end,
 
     %% Get the target directory
-    Dir = basho_bench_config:get(hanoi_dir, "."),
-    Filename = filename:join(Dir, "test.hanoi"),
+    Dir = basho_bench_config:get(hanoidb_dir, "."),
+    Filename = filename:join(Dir, "test.hanoidb"),
 
     %% Look for sync interval config
-    case basho_bench_config:get(hanoi_sync_interval, infinity) of
+    case basho_bench_config:get(hanoidb_sync_interval, infinity) of
         Value when is_integer(Value) ->
             SyncInterval = Value;
         infinity ->
@@ -69,9 +69,9 @@ new(_Id) ->
     end,
 
     %% Get any bitcask flags
-    case hanoi:open(Filename) of
+    case hanoidb:open(Filename) of
         {error, Reason} ->
-            ?FAIL_MSG("Failed to open hanoi in ~s: ~p\n", [Filename, Reason]);
+            ?FAIL_MSG("Failed to open hanoidb in ~s: ~p\n", [Filename, Reason]);
         {ok, FBTree} ->
             {ok, #state { tree = FBTree,
                           filename = Filename,
@@ -80,7 +80,7 @@ new(_Id) ->
     end.
 
 run(get, KeyGen, _ValueGen, State) ->
-    case hanoi:lookup(State#state.tree, KeyGen()) of
+    case hanoidb:lookup(State#state.tree, KeyGen()) of
         {ok, _Value} ->
             {ok, State};
         not_found ->
@@ -89,14 +89,14 @@ run(get, KeyGen, _ValueGen, State) ->
             {error, Reason}
     end;
 run(put, KeyGen, ValueGen, State) ->
-    case hanoi:put(State#state.tree, KeyGen(), ValueGen()) of
+    case hanoidb:put(State#state.tree, KeyGen(), ValueGen()) of
         ok ->
             {ok, State};
         {error, Reason} ->
             {error, Reason}
     end;
 run(delete, KeyGen, _ValueGen, State) ->
-    case hanoi:delete(State#state.tree, KeyGen()) of
+    case hanoidb:delete(State#state.tree, KeyGen()) of
         ok ->
             {ok, State};
         {error, Reason} ->
@@ -105,12 +105,12 @@ run(delete, KeyGen, _ValueGen, State) ->
 
 run(fold_100, KeyGen, _ValueGen, State) ->
     [From,To] = lists:usort([KeyGen(), KeyGen()]),
-    case hanoi:sync_fold_range(State#state.tree,
+    case hanoidb:sync_fold_range(State#state.tree,
                                    fun(_Key,_Value,Count) ->
                                            Count+1
                                    end,
                                    0,
-                                   #btree_range{ from_key=From,
+                                   #key_range{ from_key=From,
                                                  to_key=To,
                                                  limit=100 }) of
         Count when Count >= 0; Count =< 100 ->

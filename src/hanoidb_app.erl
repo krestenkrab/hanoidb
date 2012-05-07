@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi_app).
+-module(hanoidb_app).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 -behaviour(application).
@@ -35,7 +35,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    hanoi_sup:start_link().
+    hanoidb_sup:start_link().
 
 stop(_State) ->
     ok.

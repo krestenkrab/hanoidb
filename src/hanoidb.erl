@@ -1,6 +1,6 @@
 %% ----------------------------------------------------------------------------
 %%
-%% hanoi: LSM-trees (Log-Structured Merge Trees) Indexed Storage
+%% hanoidb: LSM-trees (Log-Structured Merge Trees) Indexed Storage
 %%
 %% Copyright 2011-2012 (c) Trifork A/S.  All Rights Reserved.
 %% http://trifork.com/ info@trifork.com
@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
--module(hanoi).
+-module(hanoidb).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
 
@@ -36,9 +36,9 @@
 
 -export([get_opt/2, get_opt/3]).
 
--include("hanoi.hrl").
+-include("hanoidb.hrl").
 -include_lib("kernel/include/file.hrl").
--include_lib("include/hanoi.hrl").
+-include_lib("include/hanoidb.hrl").
 -include_lib("include/plain_rpc.hrl").
 
 -record(state, { top, nursery, dir, opt, max_level }).
@@ -53,19 +53,25 @@
 
 %% PUBLIC API
 
--type hanoi() :: pid().
--type key_range() :: #btree_range{}.
+-type hanoidb() :: pid().
+-type key_range() :: #key_range{}.
+-type config_option() :: {compress, none | gzip | snappy}
+                       | {page_size, pos_integer()}
+                       | {read_buffer_size, pos_integer()}
+                       | {write_buffer_size, pos_integer()}
+                       | {merge_strategy, fast | predictable }
+                       .
 
 % @doc
-% Create or open existing hanoi store.  Argument `Dir' names a
+% Create or open existing hanoidb store.  Argument `Dir' names a
 % directory in which to keep the data files.  By convention, we
-% name hanoi data directories with extension ".hanoi".
+% name hanoidb data directories with extension ".hanoidb".
 % @spec open(Dir::string()) -> pid().
 - spec open(Dir::string()) -> pid().
 open(Dir) ->
     open(Dir, []).
 
-- spec open(Dir::string(), Opts::[_]) -> pid().
+- spec open(Dir::string(), Opts::[config_option()]) -> pid().
 open(Dir, Opts) ->
     ok = start_app(),
     gen_server:start(?MODULE, [Dir, Opts], []).
@@ -102,39 +108,39 @@ get(Ref,Key) when is_binary(Key) ->
 lookup(Ref,Key) when is_binary(Key) ->
     gen_server:call(Ref, {get, Key}, infinity).
 
--spec delete(hanoi(), binary()) ->
+-spec delete(hanoidb(), binary()) ->
                     ok | {error, term()}.
 delete(Ref,Key) when is_binary(Key) ->
     gen_server:call(Ref, {delete, Key}, infinity).
 
--spec put(hanoi(), binary(), binary()) ->
+-spec put(hanoidb(), binary(), binary()) ->
                  ok | {error, term()}.
 put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
     gen_server:call(Ref, {put, Key, Value}, infinity).
 
 -type transact_spec() :: {put, binary(), binary()} | {delete, binary()}.
--spec transact(hanoi(), [transact_spec()]) ->
+-spec transact(hanoidb(), [transact_spec()]) ->
                  ok | {error, term()}.
 transact(Ref, TransactionSpec) ->
     gen_server:call(Ref, {transact, TransactionSpec}, infinity).
 
 -type kv_fold_fun() ::  fun((binary(),binary(),any())->any()).
 
--spec fold(hanoi(),kv_fold_fun(),any()) -> any().
+-spec fold(hanoidb(),kv_fold_fun(),any()) -> any().
 fold(Ref,Fun,Acc0) ->
-    fold_range(Ref,Fun,Acc0,#btree_range{from_key= <<>>, to_key=undefined}).
+    fold_range(Ref,Fun,Acc0,#key_range{from_key= <<>>, to_key=undefined}).
 
--spec fold_range(hanoi(),kv_fold_fun(),any(),key_range()) -> any().
+-spec fold_range(hanoidb(),kv_fold_fun(),any(),key_range()) -> any().
 fold_range(Ref,Fun,Acc0,Range) ->
-    {ok, FoldWorkerPID} = hanoi_fold_worker:start(self()),
-    if Range#btree_range.limit < 10 ->
+    {ok, FoldWorkerPID} = hanoidb_fold_worker:start(self()),
+    if Range#key_range.limit < 10 ->
             ok = gen_server:call(Ref, {blocking_range, FoldWorkerPID, Range}, infinity);
        true ->
             ok = gen_server:call(Ref, {snapshot_range, FoldWorkerPID, Range}, infinity)
     end,
     MRef = erlang:monitor(process, FoldWorkerPID),
     ?log("fold_range begin: self=~p, worker=~p~n", [self(), FoldWorkerPID]),
-    Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0, Range#btree_range.limit),
+    Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0, Range#key_range.limit),
     ?log("fold_range done: self:~p, result=~P~n", [self(), Result, 20]),
     Result.
 
@@ -154,8 +160,8 @@ receive_fold_range(MRef,PID,Fun,Acc0, Limit) ->
                     {ok, Fun(K,V,Acc0)}
                 catch
                     Class:Exception ->
-                        % ?log("Exception in hanoi fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
-                        % lager:warn("Exception in hanoi fold: ~p", [Exception]),
+                        % ?log("Exception in hanoidb fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
+                        % lager:warn("Exception in hanoidb fold: ~p", [Exception]),
                         {'EXIT', Class, Exception, erlang:get_stacktrace()}
                 end
             of
@@ -236,13 +242,13 @@ init([Dir, Opts]) ->
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
             {ok, TopLevel, MaxLevel} = open_levels(Dir,Opts),
-            {ok, Nursery} = hanoi_nursery:recover(Dir, TopLevel, MaxLevel);
+            {ok, Nursery} = hanoidb_nursery:recover(Dir, TopLevel, MaxLevel);
 
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
-            {ok, TopLevel} = hanoi_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
+            {ok, TopLevel} = hanoidb_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
             MaxLevel = ?TOP_LEVEL,
-            {ok, Nursery} = hanoi_nursery:new(Dir, MaxLevel)
+            {ok, Nursery} = hanoidb_nursery:new(Dir, MaxLevel)
     end,
 
     {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts, max_level=MaxLevel }}.
@@ -276,9 +282,9 @@ open_levels(Dir,Options) ->
     %%
     {TopLevel, MaxMerge} =
         lists:foldl( fun(LevelNo, {NextLevel, MergeWork0}) ->
-                             {ok, Level} = hanoi_level:open(Dir,LevelNo,NextLevel,Options,self()),
+                             {ok, Level} = hanoidb_level:open(Dir,LevelNo,NextLevel,Options,self()),
 
-                             MergeWork = MergeWork0 + hanoi_level:unmerged_count(Level),
+                             MergeWork = MergeWork0 + hanoidb_level:unmerged_count(Level),
 
                              {Level, MergeWork}
                      end,
@@ -291,10 +297,10 @@ open_levels(Dir,Options) ->
     {ok, TopLevel, MaxLevel}.
 
 do_merge(TopLevel, _Inc, N) when N =< 0 ->
-    ok = hanoi_level:await_incremental_merge(TopLevel);
+    ok = hanoidb_level:await_incremental_merge(TopLevel);
 
 do_merge(TopLevel, Inc, N) ->
-    ok = hanoi_level:begin_incremental_merge(TopLevel),
+    ok = hanoidb_level:begin_incremental_merge(TopLevel),
     do_merge(TopLevel, Inc, N-Inc).
 
 
@@ -311,9 +317,9 @@ parse_level(FileName) ->
 handle_info({bottom_level, N}, #state{ nursery=Nursery, top=TopLevel }=State)
   when N > State#state.max_level ->
     State2 = State#state{ max_level = N,
-                          nursery= hanoi_nursery:set_max_level(Nursery, N) },
+                          nursery= hanoidb_nursery:set_max_level(Nursery, N) },
 
-    hanoi_level:set_max_level(TopLevel, N),
+    hanoidb_level:set_max_level(TopLevel, N),
 
     {noreply, State2};
 
@@ -340,13 +346,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 handle_call({snapshot_range, FoldWorkerPID, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
-    hanoi_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
-    Result = hanoi_level:snapshot_range(TopLevel, FoldWorkerPID, Range),
+    hanoidb_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
+    Result = hanoidb_level:snapshot_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
 handle_call({blocking_range, FoldWorkerPID, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
-    hanoi_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
-    Result = hanoi_level:blocking_range(TopLevel, FoldWorkerPID, Range),
+    hanoidb_nursery:do_level_fold(Nursery, FoldWorkerPID, Range),
+    Result = hanoidb_level:blocking_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
 handle_call({put, Key, Value}, _From, State) when is_binary(Key), is_binary(Value) ->
@@ -362,20 +368,20 @@ handle_call({delete, Key}, _From, State) when is_binary(Key) ->
     {reply, ok, State2};
 
 handle_call({get, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) when is_binary(Key) ->
-    case hanoi_nursery:lookup(Key, Nursery) of
+    case hanoidb_nursery:lookup(Key, Nursery) of
         {value, ?TOMBSTONE} ->
             {reply, not_found, State};
         {value, Value} when is_binary(Value) ->
             {reply, {ok, Value}, State};
         none ->
-            Reply = hanoi_level:lookup(Top, Key),
+            Reply = hanoidb_level:lookup(Top, Key),
             {reply, Reply, State}
     end;
 
 handle_call(close, _From, State=#state{top=Top}) ->
     try
         {ok, State2} = flush_nursery(State),
-        ok = hanoi_level:close(Top),
+        ok = hanoidb_level:close(Top),
         {stop, normal, ok, State2}
     catch
         E:R ->
@@ -384,13 +390,13 @@ handle_call(close, _From, State=#state{top=Top}) ->
     end;
 
 handle_call(destroy, _From, State=#state{top=Top, nursery=Nursery }) ->
-    ok = hanoi_nursery:destroy(Nursery),
-    ok = hanoi_level:destroy(Top),
+    ok = hanoidb_nursery:destroy(Nursery),
+    ok = hanoidb_level:destroy(Top),
     {stop, normal, ok, State#state{ top=undefined, nursery=undefined, max_level=?TOP_LEVEL }}.
 
 
 do_put(Key, Value, State=#state{ nursery=Nursery, top=Top }) ->
-    {ok, Nursery2} = hanoi_nursery:add_maybe_flush(Key, Value, Nursery, Top),
+    {ok, Nursery2} = hanoidb_nursery:add_maybe_flush(Key, Value, Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
 
 do_transact([{put, Key, Value}], State) ->
@@ -400,12 +406,12 @@ do_transact([{delete, Key}], State) ->
 do_transact([], _State) ->
     ok;
 do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->
-    {ok, Nursery2} = hanoi_nursery:transact(TransactionSpec, Nursery, Top),
+    {ok, Nursery2} = hanoidb_nursery:transact(TransactionSpec, Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
 
 flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel}) ->
-    ok = hanoi_nursery:finish(Nursery, Top),
-    {ok, Nursery2} = hanoi_nursery:new(Dir, MaxLevel),
+    ok = hanoidb_nursery:finish(Nursery, Top),
+    {ok, Nursery2} = hanoidb_nursery:new(Dir, MaxLevel),
     {ok, State#state{ nursery=Nursery2 }}.
 
 start_app() ->

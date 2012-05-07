@@ -1,12 +1,12 @@
-# Hanoi Ordered Key/Value Storage
+# HanoiDB Ordered Key/Value Storage
 
-Hanoi implements an ordered key/value storage engine, implemented
+HanoiDB implements an ordered key/value storage engine, implemented
 using "doubling sizes" persistent ordered sets of key/value pairs,
 much like LevelDB.
 
 Here's the bullet list:
 
-- Insert, Delete and Read all have worst case log<sub>2</sub>(N) latency.
+- Insert, Delete and Read all have worst case *O*(log<sub>2</sub>(*N*)) latency.
 - Incremental space reclaimation: The cost of evicting stale key/values
   is amortized into insertion
   - you don't need a separate eviction thread to keep memory use low
@@ -26,23 +26,44 @@ Here's the bullet list:
   - Low CPU overhead
 - ~2000 lines of pure Erlang code in src/*.erl
 
-Hanoi is developed by Trifork, a Riak expert solutions provider.  You're most
+HanoiDB is developed by Trifork, a Riak expert solutions provider.  You're most
 welcome to contact us if you want help optimizing your Riak setup.
 
 ### Configuration options
 
-Put these values in your `app.config` in the `hanoi` section
+Put these values in your `app.config` in the `hanoidb` section
 
 ```erlang
- {hanoi, [
-          {data_root, "./data/hanoi"},
-          {compress, none | snappy | gzip},
+ {hanoidb, [
+          {data_root, "./data/hanoidb"},
+
+          %% Enable/disable on-disk compression.
+          %%
+          {compress, none | gzip},
+
+          %% Sync strategy `none' only syncs every time the
+          %% nursery runs full, which is currently hard coded
+          %% to be evert 256 inserts or deletes.
+          %%
+          %% Sync strategy `sync' will sync the nursery log
+          %% for every insert or delete operation.
+          %%
           {sync_strategy, none | sync | {seconds, N}},
+
+          %% The page size is a minimum page size, when a page fills
+          %% up to beyond this size, it is written to disk.
+          %% Compression applies to such units of page size.
+          %%
           {page_size, 8192},
+
+          %% Read/write buffer sizes apply to merge processes.
+          %% A merge process has two read buffers and a write
+          %% buffer, and there is a merge process *per level* in
+          %% the database.
+          %%
           {write_buffer_size, 524288},  % 512kB
           {read_buffer_size, 524288},  % 512kB
 
-          %%
           %% The merge strategy is one of `fast' or `predictable'.
           %% Both have same log2(N) worst case, but `fast' is
           %% sometimes faster; yielding latency fluctuations.
@@ -51,18 +72,19 @@ Put these values in your `app.config` in the `hanoi` section
          ]},
 ```
 
-### How to deploy Hanoi as a Riak/KV backend
+### How to deploy HanoiDB as a Riak/KV backend
 
 This storage engine can function as an alternative backend for Basho's Riak/KV.
 
-You can deploy `hanoi` into a Riak devrel cluster using the `enable-hanoi`
+You can deploy `hanoidb` into a Riak devrel cluster using the `enable-hanoidb`
 script. Clone the `riak` repo, change your working directory to it, and then
-execute the `enable-hanoi` script. It adds `hanoi` as a dependency, runs `make
+execute the `enable-hanoidb` script. It adds `hanoidb` as a dependency, runs `make
 all devrel`, and then modifies the configuration settings of the resulting dev
-nodes to use the hanoi storage backend.
+nodes to use the hanoidb storage backend.
 
 1. `git clone git://github.com/basho/riak.git`
+1. `mkdir riak/deps`
 1. `cd riak/deps`
-1. `git clone git://github.com/basho/hanoi.git`
+1. `git clone git://github.com/basho/hanoidb.git`
 1. `cd ..`
-1. `./deps/hanoi/enable-hanoi`
+1. `./deps/hanoidb/enable-hanoidb`
