@@ -44,7 +44,7 @@
 -behavior(plain_fsm).
 -export([data_vsn/0, code_change/3]).
 
--export([open/5, lookup/2, inject/2, close/1, snapshot_range/3, blocking_range/3,
+-export([open/5, lookup/2, lookup/3, inject/2, close/1, snapshot_range/3, blocking_range/3,
          begin_incremental_merge/1, await_incremental_merge/1, set_max_level/2,
          unmerged_count/1, destroy/1]).
 
@@ -90,6 +90,9 @@ open(Dir,Level,Next,Opts,Owner) when Level>0 ->
 
 lookup(Ref, Key) ->
     plain_rpc:call(Ref, {lookup, Key}).
+
+lookup(Ref, Key, ReplyFun) ->
+    plain_rpc:cast(Ref, {lookup, Key, ReplyFun}).
 
 inject(Ref, FileName) ->
     Result = plain_rpc:call(Ref, {inject, FileName}),
@@ -263,6 +266,17 @@ main_loop(State = #state{ next=Next }) ->
                     plain_rpc:send_reply(From, not_found);
                 {found, Result} ->
                     plain_rpc:send_reply(From, {ok, Result});
+                {delegate, DelegatePid} ->
+                    DelegatePid ! Req
+            end,
+            main_loop(State);
+
+        ?CAST(_From, {lookup, Key, ReplyFun})=Req ->
+            case do_lookup(Key, [State#state.c, State#state.b, State#state.a, Next]) of
+                not_found ->
+                    ReplyFun(not_found);
+                {found, Result} ->
+                    ReplyFun({ok, Result});
                 {delegate, DelegatePid} ->
                     DelegatePid ! Req
             end,

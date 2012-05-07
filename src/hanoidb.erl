@@ -370,15 +370,15 @@ handle_call({delete, Key}, _From, State) when is_binary(Key) ->
     {ok, State2} = do_put(Key, ?TOMBSTONE, State),
     {reply, ok, State2};
 
-handle_call({get, Key}, _From, State=#state{ top=Top, nursery=Nursery } ) when is_binary(Key) ->
+handle_call({get, Key}, From, State=#state{ top=Top, nursery=Nursery } ) when is_binary(Key) ->
     case hanoidb_nursery:lookup(Key, Nursery) of
         {value, ?TOMBSTONE} ->
             {reply, not_found, State};
         {value, Value} when is_binary(Value) ->
             {reply, {ok, Value}, State};
         none ->
-            Reply = hanoidb_level:lookup(Top, Key),
-            {reply, Reply, State}
+            hanoidb_level:lookup(Top, Key, fun(Reply) -> gen_server:reply(From, Reply) end),
+            {noreply, State}
     end;
 
 handle_call(close, _From, State=#state{top=Top}) ->
