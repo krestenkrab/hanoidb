@@ -22,7 +22,7 @@
 %%
 %% ----------------------------------------------------------------------------
 
-%% @Doc Drive a set of LSM BTrees
+%% @doc Drive a set of LSM BTrees
 -module(hanoidb_drv).
 
 -behaviour(gen_server).

@@ -60,18 +60,21 @@
                        | {read_buffer_size, pos_integer()}
                        | {write_buffer_size, pos_integer()}
                        | {merge_strategy, fast | predictable }
+                       | {sync_strategy, none | sync | {seconds, pos_integer()}}
                        .
 
 % @doc
-% Create or open existing hanoidb store.  Argument `Dir' names a
+% Create or open a hanoidb store.  Argument `Dir' names a
 % directory in which to keep the data files.  By convention, we
 % name hanoidb data directories with extension ".hanoidb".
-% @spec open(Dir::string()) -> pid().
-- spec open(Dir::string()) -> pid().
+% @spec open(Dir::string()) -> hanoidb()
+- spec open(Dir::string()) -> hanoidb().
 open(Dir) ->
     open(Dir, []).
 
-- spec open(Dir::string(), Opts::[config_option()]) -> pid().
+% @doc Create or open a hanoidb store.
+% @spec open(Dir::string(), Options::[config_option()]) -> hanoidb()
+- spec open(Dir::string(), Opts::[config_option()]) -> hanoidb().
 open(Dir, Opts) ->
     ok = start_app(),
     gen_server:start(?MODULE, [Dir, Opts], []).
