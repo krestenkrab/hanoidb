@@ -65,6 +65,9 @@ open(Name, Config) ->
 
             {ok, FileInfo} = file:read_file_info(Name),
 
+            %% read and validate magic tag
+            {ok, <<"HAN1">>} = file:pread(File, 0, 4),
+
             %% read root position
             {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size-8, 8),
             {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size-12, 4),
@@ -95,7 +98,7 @@ deserialize({seq_read_file, Index, Position}) ->
 
 
 fold(Fun, Acc0, #index{file=File}) ->
-    {ok, Node} = read_node(File,0),
+    {ok, Node} = read_node(File,?FIRST_BLOCK_POS),
     fold0(File,fun({K,V},Acc) -> Fun(K,V,Acc) end,Node,Acc0).
 
 fold0(File,Fun,#node{level=0,members=List},Acc0) ->
@@ -113,7 +116,7 @@ fold1(File,Fun,Acc0) ->
     end.
 
 range_fold(Fun, Acc0, #index{file=File,root=Root}, Range) ->
-    case lookup_node(File,Range#key_range.from_key,Root,0) of
+    case lookup_node(File,Range#key_range.from_key,Root,?FIRST_BLOCK_POS) of
         {ok, {Pos,_}} ->
             file:position(File, Pos),
             do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
@@ -200,7 +203,7 @@ lookup_node(File,FromKey,#node{members=Members,level=N},_) ->
 
 
 first_node(#index{file=File}) ->
-    case read_node(File, 0) of
+    case read_node(File, ?FIRST_BLOCK_POS) of
         {ok, #node{level=0, members=Members}} ->
             {node, Members}
     end.

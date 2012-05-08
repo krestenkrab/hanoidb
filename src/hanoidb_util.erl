@@ -77,7 +77,7 @@ estimate_node_size_increment(_KVList,Key,Value) ->
 
 encode_index_node(KVList, Compress) ->
 
-    TermData = [ ?CRC_ENCODED |
+    TermData = [ ?TAG_END |
                  lists:map(fun ({Key,Value}) ->
                                    crc_encapsulate_kv_entry(Key, Value)
                            end,
@@ -143,6 +143,9 @@ crc_encapsulate(Blob) ->
     CRC = erlang:crc32(Blob),
     Size = erlang:iolist_size(Blob),
     [ << (Size):32/unsigned, CRC:32/unsigned >>, Blob, ?TAG_END ].
+
+decode_kv_list(<<?TAG_END, Custom/binary>>) ->
+    decode_crc_data(Custom, [], []);
 
 decode_kv_list(<<?ERLANG_ENCODED, _/binary>>=TermData) ->
     {ok, erlang:term_to_binary(TermData)};
