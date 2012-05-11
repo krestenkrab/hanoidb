@@ -93,14 +93,25 @@ read_nursery_from_log(Directory, MaxLevel, Config) ->
 % Add a Key/Value to the nursery
 % @end
 -spec add(#nursery{}, binary(), binary()|?TOMBSTONE) -> {ok, #nursery{}}.
-add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Count }, Key, Value) ->
+add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config }, Key, Value) ->
+    ExpiryTime = hanoidb_util:expiry_time(Config),
     TStamp = hanoidb_util:tstamp(),
-    Data = hanoidb_util:crc_encapsulate_kv_entry( Key, {Value, TStamp} ),
+
+    if ExpiryTime == 0 ->
+            Data = hanoidb_util:crc_encapsulate_kv_entry( Key, Value );
+       true ->
+            Data = hanoidb_util:crc_encapsulate_kv_entry( Key, {Value, TStamp} )
+    end,
     ok = file:write(File, Data),
 
     Nursery1 = do_sync(File, Nursery),
 
-    Cache2 = gb_trees:enter(Key, {Value, TStamp}, Cache),
+    if ExpiryTime == 0 ->
+            Cache2 = gb_trees:enter(Key, Value, Cache);
+       true ->
+            Cache2 = gb_trees:enter(Key, {Value, TStamp}, Cache)
+    end,
+
     Nursery2 = Nursery1#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data), count=Count+1 },
     if
        Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
