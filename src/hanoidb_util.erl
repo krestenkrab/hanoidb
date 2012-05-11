@@ -36,6 +36,8 @@
 -define(TAG_DELETED,  16#81).
 -define(TAG_POSLEN32, 16#82).
 -define(TAG_TRANSACT, 16#83).
+-define(TAG_KV_DATA2, 16#84).
+-define(TAG_DELETED2, 16#85).
 -define(TAG_END,      16#FF).
 
 -compile({inline, [
@@ -122,20 +124,24 @@ decode_index_node(Level, <<Tag, Data/binary>>) ->
     {ok, {node, Level, KVList}}.
 
 
+crc_encapsulate_kv_entry(Key, {?TOMBSTONE, TStamp}) -> %
+    crc_encapsulate( [?TAG_DELETED2, <<TStamp:32>> | Key] );
 crc_encapsulate_kv_entry(Key, ?TOMBSTONE) ->
     crc_encapsulate( [?TAG_DELETED | Key] );
+crc_encapsulate_kv_entry(Key, {Value, TStamp}) when is_binary(Value) ->
+    crc_encapsulate( [?TAG_KV_DATA2, <<TStamp:32, (byte_size(Key)):32/unsigned>>, Key | Value] );
 crc_encapsulate_kv_entry(Key, Value) when is_binary(Value) ->
     crc_encapsulate( [?TAG_KV_DATA, <<(byte_size(Key)):32/unsigned>>, Key | Value] );
 crc_encapsulate_kv_entry(Key, {Pos,Len}) when Len < 16#ffffffff ->
     crc_encapsulate( [?TAG_POSLEN32, <<Pos:64/unsigned, Len:32/unsigned>>, Key ] ).
 
 
-crc_encapsulate_transaction(TransactionSpec) ->
+crc_encapsulate_transaction(TransactionSpec, TStamp) ->
     crc_encapsulate( [?TAG_TRANSACT |
              lists:map( fun({delete, Key}) ->
-                                crc_encapsulate_kv_entry(Key, ?TOMBSTONE);
+                                crc_encapsulate_kv_entry(Key, {?TOMBSTONE, TStamp});
                            ({put, Key, Value}) ->
-                                crc_encapsulate_kv_entry(Key, Value)
+                                crc_encapsulate_kv_entry(Key, {Value, TStamp})
                         end,
                         TransactionSpec)] ).
 
@@ -200,6 +206,12 @@ decode_kv_data(<<?TAG_KV_DATA, KLen:32/unsigned, Key:KLen/binary, Value/binary >
 decode_kv_data(<<?TAG_DELETED, Key/binary>>) ->
     {Key, ?TOMBSTONE};
 
+decode_kv_data(<<?TAG_KV_DATA2, TStamp:32/unsigned, KLen:32/unsigned, Key:KLen/binary, Value/binary >>) ->
+    {Key, {Value, TStamp}};
+
+decode_kv_data(<<?TAG_DELETED2, TStamp:32/unsigned, Key/binary>>) ->
+    {Key, {?TOMBSTONE, TStamp}};
+
 decode_kv_data(<<?TAG_POSLEN32, Pos:64/unsigned, Len:32/unsigned, Key/binary>>) ->
     {Key, {Pos,Len}};
 
@@ -207,5 +219,31 @@ decode_kv_data(<<?TAG_TRANSACT, Rest/binary>>) ->
     {ok, TX} = decode_crc_data(Rest, [], []),
     TX.
 
+%%%%%%%
+
+%% Return number of seconds since 1970
+tstamp() ->
+    {Mega, Sec, _Micro} = os:timestamp(),
+    (Mega * 1000000) + Sec.
+
+expiry_time(Opts) ->
+    ExpirySecs = hanoidb:get_opt(expiry_secs, Opts),
+    case ExpirySecs > 0 of
+        true -> tstamp() - ExpirySecs;
+        false -> 0
+    end.
+
+ensure_expiry(Opts) ->
+    case hanoidb:get_opt(expiry_secs, Opts) of
+        undefined ->
+            try exit(err)
+            catch
+                exit:err ->
+                    io:format(user, "~p~n", [erlang:get_stacktrace()])
+            end,
+            exit(expiry_secs_not_set);
+        N when N >= 0 ->
+            ok
+    end.
 
 

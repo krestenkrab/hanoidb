@@ -60,14 +60,16 @@ merge(A,B,C, Size, IsLastLevel, Options) ->
     {node, AKVs} = hanoidb_reader:first_node(BT1),
     {node, BKVs} = hanoidb_reader:first_node(BT2),
 
-    scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, 0, {0, none}).
+    scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, {0, none}).
 
-terminate(Count, Out) ->
+terminate(Out) ->
 
     case ?LOCAL_WRITER of
         true ->
+            {ok, Count, _} = hanoidb_writer:handle_call(count, self(), Out),
             {stop, normal, ok, _} = hanoidb_writer:handle_call(close, self(), Out);
         false ->
+            Count = hanoidb_writer:count(Out),
             ok = hanoidb_writer:close(Out)
     end,
 
@@ -83,14 +85,14 @@ hibernate_scan(Keep) ->
     erlang:garbage_collect(),
     receive
         {step, From, HowMany} ->
-            {BT1, BT2, OutBin, IsLastLevel, AKVs, BKVs, Count, N} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
+            {BT1, BT2, OutBin, IsLastLevel, AKVs, BKVs, N} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
             scan(hanoidb_reader:deserialize(BT1),
                  hanoidb_reader:deserialize(BT2),
                  hanoidb_writer:deserialize(OutBin),
-                 IsLastLevel, AKVs, BKVs, Count, {N+HowMany, From})
+                 IsLastLevel, AKVs, BKVs, {N+HowMany, From})
     end.
 
-scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {N, FromPID}) when N < 1, AKVs =/= [], BKVs =/= [] ->
+scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, {N, FromPID}) when N < 1, AKVs =/= [], BKVs =/= [] ->
     case FromPID of
         none ->
             ok;
@@ -100,39 +102,39 @@ scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {N, FromPID}) when N < 1, AK
 
     receive
         {step, From, HowMany} ->
-            scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {N+HowMany, From})
+            scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, {N+HowMany, From})
     after ?HIBERNATE_TIMEOUT ->
             case ?LOCAL_WRITER of
                 true ->
                     Args = {hanoidb_reader:serialize(BT1),
                             hanoidb_reader:serialize(BT2),
-                            hanoidb_writer:serialize(Out), IsLastLevel, AKVs, BKVs, Count, N},
+                            hanoidb_writer:serialize(Out), IsLastLevel, AKVs, BKVs, N},
                     Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
                     hibernate_scan(Keep);
                 false ->
-                    scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, {0, none})
+                    scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, {0, none})
             end
     end;
 
-scan(BT1, BT2, Out, IsLastLevel, [], BKVs, Count, Step) ->
+scan(BT1, BT2, Out, IsLastLevel, [], BKVs, Step) ->
     case hanoidb_reader:next_node(BT1) of
         {node, AKVs} ->
-            scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, Step);
+            scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Step);
         end_of_data ->
             hanoidb_reader:close(BT1),
-            scan_only(BT2, Out, IsLastLevel, BKVs, Count, Step)
+            scan_only(BT2, Out, IsLastLevel, BKVs, Step)
     end;
 
-scan(BT1, BT2, Out, IsLastLevel, AKVs, [], Count, Step) ->
+scan(BT1, BT2, Out, IsLastLevel, AKVs, [], Step) ->
     case hanoidb_reader:next_node(BT2) of
         {node, BKVs} ->
-            scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Count, Step);
+            scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, Step);
         end_of_data ->
             hanoidb_reader:close(BT2),
-            scan_only(BT1, Out, IsLastLevel, AKVs, Count, Step)
+            scan_only(BT1, Out, IsLastLevel, AKVs, Step)
     end;
 
-scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKVs, Count, Step) ->
+scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKVs, Step) ->
     if Key1 < Key2 ->
             case ?LOCAL_WRITER of
                 true ->
@@ -140,8 +142,7 @@ scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKV
                 false ->
                     ok = hanoidb_writer:add(Out2=Out, Key1, Value1)
             end,
-
-            scan(BT1, BT2, Out2, IsLastLevel, AT, BKVs, Count+1, step(Step));
+            scan(BT1, BT2, Out2, IsLastLevel, AT, BKVs, step(Step));
 
        Key2 < Key1 ->
             case ?LOCAL_WRITER of
@@ -150,12 +151,7 @@ scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKV
                 false ->
                     ok = hanoidb_writer:add(Out2=Out, Key2, Value2)
             end,
-            scan(BT1, BT2, Out2, IsLastLevel, AKVs, BT, Count+1, step(Step));
-
-       %% cases below have Key1 == Key2, hence it consumes 2 elements
-
-       (?TOMBSTONE =:= Value2) and (true =:= IsLastLevel) ->
-            scan(BT1, BT2, Out, IsLastLevel, AT, BT, Count, step(Step, 2));
+            scan(BT1, BT2, Out2, IsLastLevel, AKVs, BT, step(Step));
 
        true ->
             case ?LOCAL_WRITER of
@@ -164,7 +160,7 @@ scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKV
                 false ->
                     ok = hanoidb_writer:add(Out2=Out, Key2, Value2)
             end,
-            scan(BT1, BT2, Out2, IsLastLevel, AT, BT, Count+1, step(Step, 2))
+            scan(BT1, BT2, Out2, IsLastLevel, AT, BT, step(Step, 2))
     end.
 
 
@@ -172,14 +168,14 @@ hibernate_scan_only(Keep) ->
     erlang:garbage_collect(),
     receive
         {step, From, HowMany} ->
-            {BT, OutBin, IsLastLevel, KVs, Count, N} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
+            {BT, OutBin, IsLastLevel, KVs, N} = erlang:binary_to_term( zlib:gunzip( Keep ) ),
             scan_only(hanoidb_reader:deserialize(BT),
                       hanoidb_writer:deserialize(OutBin),
-                      IsLastLevel, KVs, Count, {N+HowMany, From})
+                      IsLastLevel, KVs, {N+HowMany, From})
     end.
 
 
-scan_only(BT, Out, IsLastLevel, KVs, Count, {N, FromPID}) when N < 1, KVs =/= [] ->
+scan_only(BT, Out, IsLastLevel, KVs, {N, FromPID}) when N < 1, KVs =/= [] ->
     case FromPID of
         none ->
             ok;
@@ -189,18 +185,18 @@ scan_only(BT, Out, IsLastLevel, KVs, Count, {N, FromPID}) when N < 1, KVs =/= []
 
     receive
         {step, From, HowMany} ->
-            scan_only(BT, Out, IsLastLevel, KVs, Count, {N+HowMany, From})
+            scan_only(BT, Out, IsLastLevel, KVs, {N+HowMany, From})
     after ?HIBERNATE_TIMEOUT ->
             Args = {hanoidb_reader:serialize(BT),
-                    hanoidb_writer:serialize(Out), IsLastLevel, KVs, Count, N},
+                    hanoidb_writer:serialize(Out), IsLastLevel, KVs, N},
             Keep = zlib:gzip ( erlang:term_to_binary( Args ) ),
             hibernate_scan_only(Keep)
     end;
 
-scan_only(BT, Out, IsLastLevel, [], Count, {_, FromPID}=Step) ->
+scan_only(BT, Out, IsLastLevel, [], {_, FromPID}=Step) ->
     case hanoidb_reader:next_node(BT) of
         {node, KVs} ->
-            scan_only(BT, Out, IsLastLevel, KVs, Count, Step);
+            scan_only(BT, Out, IsLastLevel, KVs, Step);
         end_of_data ->
             case FromPID of
                 none ->
@@ -209,17 +205,17 @@ scan_only(BT, Out, IsLastLevel, [], Count, {_, FromPID}=Step) ->
                     PID ! {Ref, step_done}
             end,
             hanoidb_reader:close(BT),
-            terminate(Count, Out)
+            terminate(Out)
     end;
 
-scan_only(BT, Out, true, [{_,?TOMBSTONE}|Rest], Count, Step) ->
-    scan_only(BT, Out, true, Rest, Count, step(Step));
+scan_only(BT, Out, true, [{_,?TOMBSTONE}|Rest], Step) ->
+    scan_only(BT, Out, true, Rest, step(Step));
 
-scan_only(BT, Out, IsLastLevel, [{Key,Value}|Rest], Count, Step) ->
+scan_only(BT, Out, IsLastLevel, [{Key,Value}|Rest], Step) ->
     case ?LOCAL_WRITER of
         true ->
             {noreply, Out2} = hanoidb_writer:handle_cast({add, Key, Value}, Out);
         false ->
             ok = hanoidb_writer:add(Out2=Out, Key, Value)
     end,
-    scan_only(BT, Out2, IsLastLevel, Rest, Count+1, step(Step)).
+    scan_only(BT, Out2, IsLastLevel, Rest, step(Step)).

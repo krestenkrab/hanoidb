@@ -30,6 +30,8 @@
 -include("hanoidb.hrl").
 -include("include/plain_rpc.hrl").
 
+-define(ASSERT_WHEN(X), when X).
+
 -export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4, destroy/1]).
 -export([first_node/1,next_node/1]).
 -export([serialize/1, deserialize/1]).
@@ -115,14 +117,15 @@ fold1(File,Fun,Acc0) ->
             fold0(File,Fun,Node,Acc0)
     end.
 
-range_fold(Fun, Acc0, #index{file=File,root=Root}, Range) ->
+range_fold(Fun, Acc0, #index{file=File,root=Root,config=Options}, Range) ->
+    ExpiryTime = hanoidb_util:expiry_time(Options),
     case lookup_node(File,Range#key_range.from_key,Root,?FIRST_BLOCK_POS) of
         {ok, {Pos,_}} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
+            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit, ExpiryTime);
         {ok, Pos} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
+            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit, ExpiryTime);
         none ->
             {done, Acc0}
     end.
@@ -137,7 +140,26 @@ fold_until_stop2(_Fun,{continue, Acc},[]) ->
 fold_until_stop2(Fun,{continue, Acc},[H|T]) ->
     fold_until_stop2(Fun,Fun(H,Acc),T).
 
-do_range_fold(Fun, Acc0, File, Range, undefined) ->
+is_expired({_Value, TStamp}, ExpiryTime) ->
+    TStamp < ExpiryTime ;
+is_expired(?TOMBSTONE,_) ->
+    false;
+is_expired(Bin,_) when is_binary(Bin) ->
+    false.
+
+get_value({Value, _TStamp}) ->
+    Value;
+get_value(Value) ->
+    Value.
+
+get_tstamp({_Value, TStamp}) ->
+    TStamp;
+get_tstamp(_) ->
+    hanoidb_util:tstamp().
+
+
+
+do_range_fold(Fun, Acc0, File, Range, undefined, ExpiryTime) ->
     case next_leaf_node(File) of
         eof ->
             {done, Acc0};
@@ -146,7 +168,12 @@ do_range_fold(Fun, Acc0, File, Range, undefined) ->
             case fold_until_stop(fun({Key,_}, Acc) when not ?KEY_IN_TO_RANGE(Key,Range) ->
                                          {stop, {done, Acc}};
                                     ({Key,Value}, Acc) when ?KEY_IN_FROM_RANGE(Key, Range) ->
-                                         {continue, Fun(Key, Value, Acc)};
+                                         case is_expired(Value, ExpiryTime) of
+                                             true ->
+                                                 {continue, Acc};
+                                             false ->
+                                                 {continue, Fun(Key, get_value(Value), Acc)}
+                                         end;
                                     (_, Acc) ->
                                          {continue, Acc}
                                  end,
@@ -154,11 +181,11 @@ do_range_fold(Fun, Acc0, File, Range, undefined) ->
                                  Members) of
                 {stopped, Result} -> Result;
                 {ok, Acc1} ->
-                    do_range_fold(Fun, Acc1, File, Range, undefined)
+                    do_range_fold(Fun, Acc1, File, Range, undefined, ExpiryTime)
             end
     end;
 
-do_range_fold(Fun, Acc0, File, Range, N0) ->
+do_range_fold(Fun, Acc0, File, Range, N0, ExpiryTime) ->
     case next_leaf_node(File) of
         eof ->
             {done, Acc0};
@@ -170,8 +197,20 @@ do_range_fold(Fun, Acc0, File, Range, N0) ->
                                          {stop, {done, Acc}};
                                     ({Key,?TOMBSTONE}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
                                          {continue, {N1, Fun(Key, ?TOMBSTONE, Acc)}};
+                                    ({Key,{?TOMBSTONE,TStamp}}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
+                                         case TStamp < ExpiryTime of
+                                             true ->
+                                                 {continue, {N1,Acc}};
+                                             false ->
+                                                 {continue, {N1, Fun(Key, ?TOMBSTONE, Acc)}}
+                                         end;
                                     ({Key,Value}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
-                                         {continue, {N1-1, Fun(Key, Value, Acc)}};
+                                         case is_expired(Value, ExpiryTime) of
+                                             true ->
+                                                 {continue, {N1,Acc}};
+                                             false ->
+                                                 {continue, {N1-1, Fun(Key, get_value(Value), Acc)}}
+                                         end;
                                     (_, Acc) ->
                                          {continue, Acc}
                                  end,
@@ -179,7 +218,7 @@ do_range_fold(Fun, Acc0, File, Range, N0) ->
                                  Members) of
                 {stopped, Result} -> Result;
                 {ok, {N2, Acc1}} ->
-                    do_range_fold(Fun, Acc1, File, Range, N2)
+                    do_range_fold(Fun, Acc1, File, Range, N2, ExpiryTime)
             end
     end.
 
@@ -222,10 +261,20 @@ close(#index{file=File}) ->
     file:close(File).
 
 
-lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
+lookup(#index{file=File, root=Node, bloom=Bloom, config=Config }, Key) ->
     case ebloom:contains(Bloom, Key) of
         true ->
-            lookup_in_node(File,Node,Key);
+            case lookup_in_node(File,Node,Key) of
+                not_found ->
+                    not_found;
+                {ok, {Value, TStamp}} ?ASSERT_WHEN(Value =:= ?TOMBSTONE; is_binary(Value))  ->
+                    case TStamp < hanoidb_util:expiry_time(Config) of
+                        true -> not_found;
+                        false -> {ok, Value}
+                    end;
+                {ok, Value}=Reply ?ASSERT_WHEN(Value =:= ?TOMBSTONE; is_binary(Value)) ->
+                    Reply
+            end;
         false ->
             not_found
     end.

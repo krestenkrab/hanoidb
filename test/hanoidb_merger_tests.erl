@@ -37,7 +37,7 @@ merge_test() ->
     file:delete("test2"),
     file:delete("test3"),
 
-    {ok, BT1} = hanoidb_writer:open("test1"),
+    {ok, BT1} = hanoidb_writer:open("test1", [{expiry_secs, 0}]),
     lists:foldl(fun(N,_) ->
                         ok = hanoidb_writer:add(BT1, <<N:128>>, <<"data",N:128>>)
                 end,
@@ -46,7 +46,7 @@ merge_test() ->
     ok = hanoidb_writer:close(BT1),
 
 
-    {ok, BT2} = hanoidb_writer:open("test2"),
+    {ok, BT2} = hanoidb_writer:open("test2", [{expiry_secs, 0}]),
     lists:foldl(fun(N,_) ->
                         ok = hanoidb_writer:add(BT2, <<N:128>>, <<"data",N:128>>)
                 end,
@@ -56,7 +56,7 @@ merge_test() ->
 
 
     self() ! {step, {self(), none}, 2000000000},
-    {Time,{ok,Count}} = timer:tc(hanoidb_merger, merge, ["test1", "test2", "test3", 10000, true, []]),
+    {Time,{ok,Count}} = timer:tc(hanoidb_merger, merge, ["test1", "test2", "test3", 10000, true, [{expiry_secs, 0}]]),
 
     error_logger:info_msg("time to merge: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 

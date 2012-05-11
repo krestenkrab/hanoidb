@@ -80,6 +80,7 @@ debug_log(State,Fmt,Args) ->
 %%%%% PUBLIC OPERATIONS
 
 open(Dir,Level,Next,Opts,Owner) when Level>0 ->
+    hanoidb_util:ensure_expiry(Opts),
     PID = plain_fsm:spawn(?MODULE,
                               fun() ->
                                       process_flag(trap_exit,true),
@@ -148,6 +149,7 @@ code_change(_OldVsn, _State, _Extra) ->
 
 
 initialize(State) ->
+    hanoidb_util:ensure_expiry(State#state.opts),
 
     try
         _Result = initialize2(State),

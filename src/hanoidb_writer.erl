@@ -39,7 +39,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3, serialize/1, deserialize/1]).
 
--export([open/1, open/2, add/3,close/1]).
+-export([open/1, open/2, add/3, count/1, close/1]).
 
 -record(node, { level, members=[], size=0 }).
 
@@ -56,22 +56,30 @@
                  bloom,
                  block_size = ?NODE_SIZE,
                  compress   = none :: none | snappy | gzip,
+                 opts  = [],
+                 expiry_time,
 
-                 opts  = []
+                 value_count = 0,
+                 tombstone_count = 0
                }).
 
 
 %%% PUBLIC API
 
 open(Name,Options) ->
+    hanoidb_util:ensure_expiry(Options),
     gen_server:start_link(?MODULE, [Name,Options], []).
 
 open(Name) ->
-    gen_server:start_link(?MODULE, [Name,[]], []).
+    gen_server:start_link(?MODULE, [Name,[{expiry_secs,0}]], []).
 
 
 add(Ref,Key,Data) ->
     gen_server:cast(Ref, {add, Key, Data}).
+
+%% @doc Return number of KVs added to this writer so far
+count(Ref) ->
+    gen_server:call(Ref, count, infinity).
 
 close(Ref) ->
     gen_server:call(Ref, close, infinity).
@@ -81,6 +89,7 @@ close(Ref) ->
 
 init([Name,Options]) ->
 
+    hanoidb_util:ensure_expiry(Options),
     Size = proplists:get_value(size, Options, 2048),
 
 %    io:format("got name: ~p~n", [Name]),
@@ -94,7 +103,8 @@ init([Name,Options]) ->
                          bloom = BloomFilter,
                          block_size = BlockSize,
                          compress = hanoidb:get_opt(compress, Options, none),
-                         opts = Options
+                         opts = Options,
+                         expiry_time = hanoidb_util:expiry_time(Options)
                        }};
         {error, _}=Error ->
             error_logger:error_msg("hanoidb_writer cannot open ~p: ~p~n", [Name, Error]),
@@ -102,9 +112,20 @@ init([Name,Options]) ->
     end.
 
 
+handle_cast({add, Key, {Data, TStamp}=Record}, State) when is_binary(Key), (is_binary(Data) orelse Data == ?TOMBSTONE)->
+    if TStamp < State#state.expiry_time ->
+            State2 = State;
+       true ->
+            {ok, State2} = add_record(0, Key, Record, State)
+    end,
+    {noreply, State2};
+
 handle_cast({add, Key, Data}, State) when is_binary(Key), (is_binary(Data) orelse Data == ?TOMBSTONE)->
     {ok, State2} = add_record(0, Key, Data, State),
     {noreply, State2}.
+
+handle_call(count, _From, State = #state{ value_count=VC, tombstone_count=TC }) ->
+    {ok, VC+TC, State};
 
 handle_call(close, _From, State) ->
     {ok, State2} = flush_nodes(State),
@@ -182,7 +203,8 @@ flush_nodes(State) ->
     flush_nodes(State2).
 
 add_record(Level, Key, Value,
-           #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode |RestNodes] }=State) ->
+           #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode |RestNodes],
+                   value_count=VC, tombstone_count=TC  }=State) ->
     %% The top-of-stack node is at the level we wish to insert at.
 
     %% Assert that keys are increasing:
@@ -201,8 +223,26 @@ add_record(Level, Key, Value,
 
     ok = ebloom:insert( State#state.bloom, Key ),
 
+    if Level == 0 ->
+            case Value of
+                ?TOMBSTONE ->
+                    TC1 = TC+1,
+                    VC1 = VC;
+                {?TOMBSTONE, _} ->
+                    TC1 = TC+1,
+                    VC1 = VC;
+                _ ->
+                    TC1 = TC,
+                    VC1 = VC+1
+            end;
+       true ->
+            TC1 = TC,
+            VC1 = VC
+    end,
+
     NodeMembers = [{Key,Value} | List],
-    State2 = State#state{ nodes=[CurrNode#node{ members=NodeMembers, size=NewSize} | RestNodes] },
+    State2 = State#state{ nodes=[CurrNode#node{ members=NodeMembers, size=NewSize} | RestNodes],
+                          value_count=VC1, tombstone_count=TC1 },
     if
        NewSize >= State#state.block_size ->
             close_node(State2);

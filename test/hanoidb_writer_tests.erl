@@ -51,7 +51,7 @@ simple_test() ->
 simple1_test() ->
 
     file:delete("testdata"),
-    {ok, BT} = hanoidb_writer:open("testdata", [{block_size, 1024}]),
+    {ok, BT} = hanoidb_writer:open("testdata", [{block_size, 1024},{expiry_secs, 0}]),
 
     Max = 1024,
     Seq = lists:seq(0, Max),
@@ -69,7 +69,7 @@ simple1_test() ->
 
     error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
 
-    {ok, IN} = hanoidb_reader:open("testdata"),
+    {ok, IN} = hanoidb_reader:open("testdata", [{expiry_secs,0}]),
     Middle = Max div 2,
     {ok, <<"valuevalue/", Middle:128>>} = hanoidb_reader:lookup(IN, <<Middle:128>>),
 

@@ -43,6 +43,8 @@
 
 -record(state, { top, nursery, dir, opt, max_level }).
 
+%% 0 means never expire
+-define(DEFAULT_EXPIRY_SECS, 0).
 
 -ifdef(DEBUG).
 -define(log(Fmt,Args),io:format(user,Fmt,Args)).
@@ -61,6 +63,7 @@
                        | {write_buffer_size, pos_integer()}
                        | {merge_strategy, fast | predictable }
                        | {sync_strategy, none | sync | {seconds, pos_integer()}}
+                       | {expiry_secs, non_neg_integer()}
                        .
 
 % @doc
@@ -241,17 +244,27 @@ drain_worker_and_return(MRef, PID, Value) ->
     end.
 
 
-init([Dir, Opts]) ->
+init([Dir, Opts0]) ->
+    %% ensure expory_secs option is set in config
+    case get_opt(expiry_secs, Opts0) of
+        undefined ->
+            Opts = [{expiry_secs, ?DEFAULT_EXPIRY_SECS}|Opts0];
+        N when is_integer(N), N >= 0 ->
+            Opts = [{expiry_secs, N}|Opts0]
+    end,
+
+    hanoidb_util:ensure_expiry(Opts),
+
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
             {ok, TopLevel, MaxLevel} = open_levels(Dir,Opts),
-            {ok, Nursery} = hanoidb_nursery:recover(Dir, TopLevel, MaxLevel);
+            {ok, Nursery} = hanoidb_nursery:recover(Dir, TopLevel, MaxLevel, Opts);
 
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
             {ok, TopLevel} = hanoidb_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
             MaxLevel = ?TOP_LEVEL,
-            {ok, Nursery} = hanoidb_nursery:new(Dir, MaxLevel)
+            {ok, Nursery} = hanoidb_nursery:new(Dir, MaxLevel, Opts)
     end,
 
     {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts, max_level=MaxLevel }}.
@@ -412,9 +425,9 @@ do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = hanoidb_nursery:transact(TransactionSpec, Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
 
-flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel}) ->
+flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel, opt=Config }) ->
     ok = hanoidb_nursery:finish(Nursery, Top),
-    {ok, Nursery2} = hanoidb_nursery:new(Dir, MaxLevel),
+    {ok, Nursery2} = hanoidb_nursery:new(Dir, MaxLevel, Config),
     {ok, State#state{ nursery=Nursery2 }}.
 
 start_app() ->
