@@ -40,6 +40,11 @@ Put these values in your `app.config` in the `hanoidb` section
           %% Enable/disable on-disk compression.
           %%
           {compress, none | gzip},
+          
+          %% Expire (automatically delete) entries after N seconds.
+          %% When this value is 0 (zero), entries never expire.
+          %%
+          {expiry_secs, 0},
 
           %% Sync strategy `none' only syncs every time the
           %% nursery runs full, which is currently hard coded

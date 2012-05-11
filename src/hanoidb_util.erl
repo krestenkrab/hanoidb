@@ -221,11 +221,14 @@ decode_kv_data(<<?TAG_TRANSACT, Rest/binary>>) ->
 
 %%%%%%%
 
-%% Return number of seconds since 1970
+%% @doc Return number of seconds since 1970
+-spec tstamp() -> pos_integer().
 tstamp() ->
     {Mega, Sec, _Micro} = os:timestamp(),
     (Mega * 1000000) + Sec.
 
+%% @doc Return time when values expire (i.e. Now - ExpirySecs), or 0.
+-spec expiry_time([_]) -> pos_integer().
 expiry_time(Opts) ->
     ExpirySecs = hanoidb:get_opt(expiry_secs, Opts),
     case ExpirySecs > 0 of

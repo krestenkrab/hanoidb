@@ -1,18 +1,12 @@
 * Phase 1: Minimum viable product (in order of priority)
   * lager; check for uses of lager:error/2
   * configurable TOP_LEVEL size
-  * support for future file format changes
-    * Define a standard struct which is the metadata added at the end of the
-      file, e.g. [btree-nodes] [meta-data] [offset of meta-data]. This is written
-      in hanoi_writer:flush_nodes, and read in hanoi_reader:open2.
   * test new snappy compression support
-  * support for time based expiry, merge should eliminate expired data
   * status and statistics
     * for each level {#merges, {merge-time-min, max, average}}
   * add @doc strings and and -spec's
   * check to make sure every error returns with a reason {error, Reason}
 
-  * clean up names, btree_range -> key_range, etc.
 
 * Phase 2: Production Ready
   * dual-nursery
@@ -20,6 +14,10 @@
     * {cache, bytes(), name} share max(bytes) cache named 'name' via etc
   * snapshot entire database (fresh directory w/ hard links to all files)
   * persist merge progress (to speed up re-opening a HanoiDB)
+  * support for future file format changes
+    * Define a standard struct which is the metadata added at the end of the
+      file, e.g. [btree-nodes] [meta-data] [offset of meta-data]. This is written
+      in hanoi_writer:flush_nodes, and read in hanoi_reader:open2.
 
 * Phase 3: Wish List
   * add truncate/1 - quickly truncates a database to 0 items
