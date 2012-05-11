@@ -150,13 +150,17 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%%%% INTERNAL FUNCTIONS
 
-serialize(#state{ bloom=Bloom, index_file=File }=State) ->
 %    io:format("serializing ~p @ ~p~n", [State#state.name,
 %                                        State#state.index_file_pos]),
+serialize(#state{ bloom=Bloom, index_file=File, index_file_pos=Position }=State) ->
 
     %% assert that we're on track
-    Position = State#state.index_file_pos,
-    {ok, Position} = file:position(File, cur),
+    case file:position(File, {eof, 0}) of
+        {ok, Position} ->
+            ok;
+        {ok, WrongPosition} ->
+            exit({bad_position, Position, WrongPosition})
+    end,
 
     ok = file:close(File),
     erlang:term_to_binary( { State#state{ index_file=closed }, ebloom:serialize(Bloom) } ).
@@ -183,8 +187,17 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
     Bloom = zlib:zip(ebloom:serialize(Ref)),
     BloomSize = byte_size(Bloom),
 
-    Trailer = << 0:32, Bloom/binary, BloomSize:32/unsigned,  LastNodePos:64/unsigned >>,
     IdxFile = State#state.index_file,
+
+    if LastNodePos =:= undefined ->
+            %% store contains no entries!
+            ok = file:write(IdxFile, <<0:32,0:16>>),
+            RootPos = ?FIRST_BLOCK_POS;
+       true ->
+            RootPos = LastNodePos
+    end,
+
+    Trailer = << 0:32, Bloom/binary, BloomSize:32/unsigned,  RootPos:64/unsigned >>,
 
     ok = file:write(IdxFile, Trailer),
 
@@ -192,7 +205,7 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
 
     ok = file:close(IdxFile),
 
-    {ok, State#state{ index_file=undefined }};
+    {ok, State#state{ index_file=undefined, index_file_pos=undefined }};
 
 %% stack consists of one node with one {pos,len} member.  Just ignore this node.
 flush_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos }) when N>0 ->

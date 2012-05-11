@@ -533,6 +533,19 @@ main_loop(State = #state{ next=Next }) ->
         %% The outcome of merging resulted in a file with less than
         %% level #entries, so we keep it at this level
         %%
+        ?CAST(_From,{merge_done, 0, OutFileName}) ->
+            ok = file:delete(OutFileName),
+            {ok, State2} = close_and_delete_a_and_b(State),
+            case State#state.c of
+                undefined ->
+                    main_loop(State2#state{ merge_pid=undefined });
+                CFile ->
+                    ok = hanoidb_reader:close(CFile),
+                    ok = file:rename(filename("C", State2), filename("A", State2)),
+                    {ok, AFile} = hanoidb_reader:open(filename("A", State2), [random|State#state.opts]),
+                    main_loop(State2#state{ a = AFile, c = undefined, merge_pid=undefined })
+            end;
+
         ?CAST(_From,{merge_done, Count, OutFileName}) when Count =< ?BTREE_SIZE(State#state.level) ->
 
             ?log("merge_done, out:~w~n -> self", [Count]),
@@ -547,16 +560,18 @@ main_loop(State = #state{ next=Next }) ->
             % then, rename M to A, and open it
             AFileName = filename("A",State2),
             ok = file:rename(MFileName, AFileName),
-            {ok, BT} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
+            {ok, AFile} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
 
             % iff there is a C file, then move it to B position
             % TODO: consider recovery for this
             case State#state.c of
                 undefined ->
-                    main_loop(State2#state{ a=BT, b=undefined, merge_pid=undefined });
-                TreeFile ->
-                    file:rename(filename("C",State2), filename("B", State2)),
-                    check_begin_merge_then_loop(State2#state{ a=BT, b=TreeFile, c=undefined,
+                    main_loop(State2#state{ a=AFile, b=undefined, merge_pid=undefined });
+                CFile ->
+                    ok = hanoidb_reader:close(CFile),
+                    ok = file:rename(filename("C", State2), filename("B", State2)),
+                    {ok, BFile} = hanoidb_reader:open(filename("B", State2), [random|State#state.opts]),
+                    check_begin_merge_then_loop(State2#state{ a=AFile, b=BFile, c=undefined,
                                                               merge_pid=undefined })
             end;
 
