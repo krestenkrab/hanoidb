@@ -59,6 +59,7 @@ new(_Id) ->
     %% Get the target directory
     Dir = basho_bench_config:get(hanoidb_dir, "."),
     Filename = filename:join(Dir, "test.hanoidb"),
+    Config = basho_bench_config:get(hanoidb_flags, []),
 
     %% Look for sync interval config
     case basho_bench_config:get(hanoidb_sync_interval, infinity) of
@@ -69,7 +70,7 @@ new(_Id) ->
     end,
 
     %% Get any bitcask flags
-    case hanoidb:open(Filename) of
+    case hanoidb:open(Filename, Config) of
         {error, Reason} ->
             ?FAIL_MSG("Failed to open hanoidb in ~s: ~p\n", [Filename, Reason]);
         {ok, FBTree} ->
