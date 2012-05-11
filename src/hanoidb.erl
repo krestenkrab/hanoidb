@@ -316,7 +316,7 @@ do_merge(TopLevel, _Inc, N) when N =< 0 ->
     ok = hanoidb_level:await_incremental_merge(TopLevel);
 
 do_merge(TopLevel, Inc, N) ->
-    ok = hanoidb_level:begin_incremental_merge(TopLevel),
+    ok = hanoidb_level:begin_incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL)),
     do_merge(TopLevel, Inc, N-Inc).
 
 

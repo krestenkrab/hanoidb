@@ -25,7 +25,7 @@
 -module(hanoidb_nursery).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--export([new/3, recover/4, add/3, finish/2, lookup/2, add_maybe_flush/4]).
+-export([new/3, recover/4, finish/2, lookup/2, add_maybe_flush/4]).
 -export([do_level_fold/3, set_max_level/2, transact/3, destroy/1]).
 
 -include("include/hanoidb.hrl").
@@ -33,11 +33,16 @@
 -include_lib("kernel/include/file.hrl").
 
 -record(nursery, { log_file, dir, cache, total_size=0, count=0,
-                   last_sync=now(), max_level, config=[] }).
+                   last_sync=now(), max_level, config=[], step=0, merge_done=0 }).
 
 -spec new(string(), integer(), [_]) -> {ok, #nursery{}} | {error, term()}.
 
 -define(LOGFILENAME(Dir), filename:join(Dir, "nursery.log")).
+
+%% do incremental merge every this many inserts
+%% this value *must* be less than or equal to
+%% 2^TOP_LEVEL == ?BTREE_SIZE(?TOP_LEVEL)
+-define(INC_MERGE_STEP, ?BTREE_SIZE(?TOP_LEVEL)/2).
 
 new(Directory, MaxLevel, Config) ->
     hanoidb_util:ensure_expiry(Config),
@@ -92,8 +97,8 @@ read_nursery_from_log(Directory, MaxLevel, Config) ->
 % @doc
 % Add a Key/Value to the nursery
 % @end
--spec add(#nursery{}, binary(), binary()|?TOMBSTONE) -> {ok, #nursery{}}.
-add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config }, Key, Value) ->
+-spec add(#nursery{}, binary(), binary()|?TOMBSTONE, pid()) -> {ok, #nursery{}}.
+add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config }, Key, Value, Top) ->
     ExpiryTime = hanoidb_util:expiry_time(Config),
     TStamp = hanoidb_util:tstamp(),
 
@@ -112,7 +117,9 @@ add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Co
             Cache2 = gb_trees:enter(Key, {Value, TStamp}, Cache)
     end,
 
-    Nursery2 = Nursery1#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data), count=Count+1 },
+    {ok, Nursery2} =
+        do_inc_merge(Nursery1#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data),
+                                       count=Count+1 }, 1, Top),
     if
        Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
             {full, Nursery2};
@@ -159,7 +166,7 @@ lookup(Key, #nursery{ cache=Cache, config=Config }) ->
 -spec finish(Nursery::#nursery{}, TopLevel::pid()) -> ok.
 finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
                  total_size=_TotalSize, count=Count,
-                 config=Config
+                 config=Config, merge_done=DoneMerge
                }, TopLevel) ->
 
     hanoidb_util:ensure_expiry(Config),
@@ -196,7 +203,11 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
 
             %% issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
-            hanoidb_level:begin_incremental_merge(TopLevel);
+            if DoneMerge >= ?BTREE_SIZE(?TOP_LEVEL) ->
+                    ok;
+               true ->
+                    hanoidb_level:begin_incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL) - DoneMerge)
+            end;
 
         _ ->
             ok
@@ -221,8 +232,8 @@ destroy(#nursery{ dir=Dir, log_file=LogFile }) ->
 
 
 add_maybe_flush(Key, Value, Nursery, Top) ->
-    case add(Nursery, Key, Value) of
-        {ok, _} = OK ->
+    case add(Nursery, Key, Value, Top) of
+        {ok, _Nursery} = OK ->
             OK;
         {full, Nursery2} ->
             flush(Nursery2, Top)
@@ -263,8 +274,16 @@ transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSi
 
     Count = gb_trees:size(Cache2),
 
-    {ok, Nursery2#nursery{ cache=Cache2, total_size=TotalSize+byte_size(Data), count=Count }}.
+    do_inc_merge(Nursery2#nursery{ cache=Cache2, total_size=TotalSize+byte_size(Data), count=Count },
+                 length(Spec), Top).
 
+do_inc_merge(Nursery=#nursery{ step=Step, merge_done=Done }, N, TopLevel) ->
+    if Step+N >= ?INC_MERGE_STEP ->
+            hanoidb_level:begin_incremental_merge(TopLevel, Step+N),
+            {ok, Nursery#nursery{ step=0, merge_done=Done+Step+N }};
+       true ->
+            {ok, Nursery#nursery{ step=Step+N }}
+    end.
 
 do_level_fold(#nursery{ cache=Cache, config=Config }, FoldWorkerPID, KeyRange) ->
     Ref = erlang:make_ref(),
