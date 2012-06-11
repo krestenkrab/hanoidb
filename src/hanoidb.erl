@@ -419,8 +419,8 @@ do_transact([{put, Key, Value}], State) ->
     do_put(Key, Value, State);
 do_transact([{delete, Key}], State) ->
     do_put(Key, ?TOMBSTONE, State);
-do_transact([], _State) ->
-    ok;
+do_transact([], State) ->
+    {ok, State};
 do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = hanoidb_nursery:transact(TransactionSpec, Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
