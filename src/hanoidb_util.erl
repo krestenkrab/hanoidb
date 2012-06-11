@@ -133,22 +133,22 @@ crc_encapsulate_kv_entry(Key, {Value, TStamp}) when is_binary(Value) ->
 crc_encapsulate_kv_entry(Key, Value) when is_binary(Value) ->
     crc_encapsulate( [?TAG_KV_DATA, <<(byte_size(Key)):32/unsigned>>, Key | Value] );
 crc_encapsulate_kv_entry(Key, {Pos,Len}) when Len < 16#ffffffff ->
-    crc_encapsulate( [?TAG_POSLEN32, <<Pos:64/unsigned, Len:32/unsigned>>, Key ] ).
+    crc_encapsulate( [?TAG_POSLEN32, <<Pos:64/unsigned, Len:32/unsigned>>, Key] ).
 
 
 crc_encapsulate_transaction(TransactionSpec, TStamp) ->
-    crc_encapsulate( [?TAG_TRANSACT |
-             lists:map( fun({delete, Key}) ->
+    crc_encapsulate([?TAG_TRANSACT |
+             lists:map(fun({delete, Key}) ->
                                 crc_encapsulate_kv_entry(Key, {?TOMBSTONE, TStamp});
                            ({put, Key, Value}) ->
                                 crc_encapsulate_kv_entry(Key, {Value, TStamp})
                         end,
-                        TransactionSpec)] ).
+                        TransactionSpec)]).
 
 crc_encapsulate(Blob) ->
     CRC = erlang:crc32(Blob),
     Size = erlang:iolist_size(Blob),
-    [ << (Size):32/unsigned, CRC:32/unsigned >>, Blob, ?TAG_END ].
+    [<< (Size):32/unsigned, CRC:32/unsigned >>, Blob, ?TAG_END].
 
 decode_kv_list(<<?TAG_END, Custom/binary>>) ->
     decode_crc_data(Custom, [], []);
@@ -171,13 +171,12 @@ decode_crc_data(<<>>, BrokenData, Acc) ->
 %% simply returning "the good parts".
 %%
 %%    {error, data_corruption};
-
 decode_crc_data(<< BinSize:32/unsigned, CRC:32/unsigned, Bin:BinSize/binary, ?TAG_END, Rest/binary >>, Broken, Acc) ->
     CRCTest = erlang:crc32( Bin ),
     if CRC == CRCTest ->
             decode_crc_data(Rest, Broken, [ decode_kv_data( Bin ) | Acc ]);
        true ->
-            %% chunk is broken, ignore it. Maybe we should tell someone?
+            %% TODO: chunk is broken, ignore it. Maybe we should tell someone?
             decode_crc_data(Rest, [Bin|Broken], Acc)
     end;
 

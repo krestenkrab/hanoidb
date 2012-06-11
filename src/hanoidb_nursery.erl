@@ -259,7 +259,7 @@ transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSi
     Nursery1 = ensure_space(Nursery, length(Spec), Top),
 
     TStamp = hanoidb_util:tstamp(),
-    Data = hanoidb_util:crc_encapsulate_transaction( Spec, TStamp ),
+    Data = hanoidb_util:crc_encapsulate_transaction(Spec, TStamp),
     ok = file:write(File, Data),
 
     Nursery2 = do_sync(File, Nursery1),
