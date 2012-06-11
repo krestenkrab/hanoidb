@@ -274,7 +274,7 @@ transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSi
 
     Count = gb_trees:size(Cache2),
 
-    do_inc_merge(Nursery2#nursery{ cache=Cache2, total_size=TotalSize+byte_size(Data), count=Count },
+    do_inc_merge(Nursery2#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data), count=Count },
                  length(Spec), Top).
 
 do_inc_merge(Nursery=#nursery{ step=Step, merge_done=Done }, N, TopLevel) ->
