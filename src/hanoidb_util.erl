@@ -167,13 +167,12 @@ decode_kv_list(<<?CRC_ENCODED, Custom/binary>>) ->
 decode_crc_data(<<>>, [], Acc) ->
     {ok, lists:reverse(Acc)};
 
-decode_crc_data(<<>>, BrokenData, Acc) ->
+decode_crc_data(<<>>, _BrokenData, Acc) ->
     {ok, lists:reverse(Acc)};
-%%
-%% TODO: here we *should* report data corruption rather than
-%% simply returning "the good parts".
-%%
-%%    {error, data_corruption};
+    % TODO: here we *should* report data corruption rather than
+    % simply returning "the good parts".
+    %    {error, data_corruption};
+
 decode_crc_data(<< BinSize:32/unsigned, CRC:32/unsigned, Bin:BinSize/binary, ?TAG_END, Rest/binary >>, Broken, Acc) ->
     CRCTest = erlang:crc32( Bin ),
     if CRC == CRCTest ->

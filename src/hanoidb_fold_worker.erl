@@ -109,17 +109,13 @@ initialize(State, PrefixFolders) ->
 
         {'EXIT', Parent, Reason} ->
             plain_fsm:parent_EXIT(Reason, State)
-
     end.
-
 
 fill(State, Values, Queues, []) ->
     emit_next(State, Values, Queues);
 
 fill(State, Values, Queues, [PID|Rest]=PIDs) ->
-
 %    io:format(user, "v=~P, q=~P, pids=~p~n", [Values, 10, Queues, 10, PIDs]),
-
     case lists:keyfind(PID, 1, Queues) of
         {PID, Q} ->
             case queue:out(Q) of
@@ -236,4 +232,4 @@ data_vsn() ->
 code_change(_OldVsn, _State, _Extra) ->
     {ok, {#state{}, data_vsn()}}.
 
- 
+

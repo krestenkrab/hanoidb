@@ -24,6 +24,7 @@
 
 -module(hanoidb_merger).
 -author('Kresten Krab Thorup <krab@trifork.com>').
+-author('Gregory Burd <greg@burd.me>').
 
 %%
 %% Merging two BTrees

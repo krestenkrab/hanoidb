@@ -173,8 +173,7 @@ receive_fold_range(MRef,PID,Fun,Acc0, Limit) ->
                     {ok, Fun(K,V,Acc0)}
                 catch
                     Class:Exception ->
-                        % ?log("Exception in hanoidb fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
-                        % lager:warn("Exception in hanoidb fold: ~p", [Exception]),
+                        % TODO ?log("Exception in hanoidb fold: ~p ~p", [Exception, erlang:get_stacktrace()]),
                         {'EXIT', Class, Exception, erlang:get_stacktrace()}
                 end
             of
@@ -461,4 +460,3 @@ get_opt(Key, Opts, Default) ->
         Value ->
             Value
     end.
-

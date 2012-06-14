@@ -370,4 +370,3 @@ postcondition(_From, _To, _S, _C, _R) ->
     true.
 
 -endif.
-

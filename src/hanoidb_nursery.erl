@@ -47,7 +47,7 @@
 new(Directory, MaxLevel, Config) ->
     hanoidb_util:ensure_expiry(Config),
 
-    {ok, File} = file:open( ?LOGFILENAME(Directory),
+    {ok, File} = file:open(?LOGFILENAME(Directory),
                             [raw, exclusive, write, delayed_write, append]),
     {ok, #nursery{ log_file=File, dir=Directory, cache= gb_trees:empty(),
                    max_level=MaxLevel, config=Config }}.
@@ -56,7 +56,7 @@ new(Directory, MaxLevel, Config) ->
 recover(Directory, TopLevel, MaxLevel, Config) ->
     hanoidb_util:ensure_expiry(Config),
 
-    case file:read_file_info( ?LOGFILENAME(Directory) ) of
+    case file:read_file_info(?LOGFILENAME(Directory)) of
         {ok, _} ->
             ok = do_recover(Directory, TopLevel, MaxLevel, Config),
             new(Directory, MaxLevel, Config);
@@ -253,7 +253,7 @@ add(Key, Value, Expiry, Nursery, Top) ->
 
 flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel, config=Config }, Top) ->
     ok = finish(Nursery, Top),
-    {error, enoent} = file:read_file_info( filename:join(Dir, "nursery.log")),
+    {error, enoent} = file:read_file_info(filename:join(Dir, "nursery.log")),
     hanoidb_nursery:new(Dir, MaxLevel, Config).
 
 has_room(#nursery{ count=Count }, N) ->

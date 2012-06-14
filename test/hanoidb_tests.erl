@@ -425,5 +425,3 @@ dict_range_query(Dict, Fun, Acc0, Range) ->
 dict_range_query(Dict, Range) ->
     [{K, V} || {K, V} <- dict:to_list(Dict),
                ?KEY_IN_RANGE(K, Range)].
-
-
