@@ -57,7 +57,7 @@
 
 -type hanoidb() :: pid().
 -type key_range() :: #key_range{}.
--type config_option() :: {compress, none | gzip | snappy}
+-type config_option() :: {compress, none | gzip | snappy} %lz4
                        | {page_size, pos_integer()}
                        | {read_buffer_size, pos_integer()}
                        | {write_buffer_size, pos_integer()}

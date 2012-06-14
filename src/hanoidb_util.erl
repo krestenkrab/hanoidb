@@ -76,50 +76,53 @@ estimate_node_size_increment(_KVList,Key,Value) ->
 -define(NO_COMPRESSION, 0).
 -define(SNAPPY_COMPRESSION, 1).
 -define(GZIP_COMPRESSION, 2).
+%-define(LZ4_COMPRESSION, 3).
 
-encode_index_node(KVList, Compress) ->
+compress(Method, Bin) ->
+    {MethodName, Compressed} = do_compression(Method, Bin),
+    case MethodName of
+        ?NO_COMPRESSION ->
+            {?NO_COMPRESSION, Bin};
+        _ ->
+            case byte_size(Compressed) < erlang:iolist_size(Bin) of
+                true ->
+                    {MethodName, Compressed};
+                false ->
+                    {?NO_COMPRESSION, Bin}
+            end
+    end.
 
+do_compression(snappy, Bin) ->
+    {ok, SnappyCompressed} = snappy:compress(Bin),
+    {?SNAPPY_COMPRESSION, SnappyCompressed};
+%do_compression(lz4, Bin) ->
+%    {?LZ4_COMPRESSION, lz4:compress(Bin)};
+do_compression(gzip, Bin) ->
+    {?GZIP_COMPRESSION, zlib:gzip(Bin)};
+do_compression(_, Bin) ->
+    {?NO_COMPRESSION, Bin}.
+
+decompress(<<?NO_COMPRESSION, Data/binary>>) ->
+    Data;
+decompress(<<?SNAPPY_COMPRESSION, Data/binary>>) ->
+    {ok, UncompressedData} = snappy:decompress(Data),
+    UncompressedData;
+%decompress(<<?LZ4_COMPRESSION, Data/binary>>) ->
+%    lz4:uncompress(Data);
+decompress(<<?GZIP_COMPRESSION, Data/binary>>) ->
+    zlib:gunzip(Data).
+
+encode_index_node(KVList, Method) ->
     TermData = [ ?TAG_END |
                  lists:map(fun ({Key,Value}) ->
                                    crc_encapsulate_kv_entry(Key, Value)
                            end,
                            KVList) ],
+    {MethodName, OutData} = compress(Method, TermData),
+    {ok, [MethodName | OutData]}.
 
-    case Compress of
-        snappy ->
-            DataSize = erlang:iolist_size(TermData),
-            {ok, Snappied} = snappy:compress(TermData),
-            if byte_size(Snappied) > DataSize ->
-                    OutData = [?NO_COMPRESSION|TermData];
-               true ->
-                    OutData = [?SNAPPY_COMPRESSION|Snappied]
-            end;
-        gzip ->
-            DataSize = erlang:iolist_size(TermData),
-            GZipData = zlib:gzip(TermData),
-            if byte_size(GZipData) > DataSize ->
-                    OutData = [?NO_COMPRESSION|TermData];
-               true ->
-                    OutData = [?GZIP_COMPRESSION|GZipData]
-            end;
-        _ ->
-            OutData = [?NO_COMPRESSION|TermData]
-    end,
-
-    {ok, OutData}.
-
-
-decode_index_node(Level, <<Tag, Data/binary>>) ->
-
-    case Tag of
-        ?NO_COMPRESSION ->
-            TermData = Data;
-        ?SNAPPY_COMPRESSION ->
-            {ok, TermData} = snappy:decompress(Data);
-        ?GZIP_COMPRESSION ->
-            TermData = zlib:gunzip(Data)
-    end,
-
+decode_index_node(Level, Data) ->
+    TermData = decompress(Data),
     {ok, KVList} = decode_kv_list(TermData),
     {ok, {node, Level, KVList}}.
 

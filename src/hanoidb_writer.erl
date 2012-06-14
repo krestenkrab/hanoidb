@@ -55,7 +55,7 @@
 
                  bloom,
                  block_size = ?NODE_SIZE,
-                 compress   = none :: none | snappy | gzip,
+                 compress   = none :: none | snappy | gzip, % | lz4,
                  opts  = [],
 
                  value_count = 0,
