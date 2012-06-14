@@ -1,4 +1,4 @@
-REBAR = ./rebar
+REBAR = rebar
 DIALYZER = dialyzer
 
 .PHONY: plt analyze all deps compile get-deps clean
@@ -42,4 +42,4 @@ analyze: compile
 	ebin
 
 repl:
-	elr -pz deps/*/ebin -pa ebin
+	erl -pz deps/*/ebin -pa ebin
