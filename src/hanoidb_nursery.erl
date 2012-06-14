@@ -25,7 +25,7 @@
 -module(hanoidb_nursery).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--export([new/3, recover/4, finish/2, lookup/2, add_maybe_flush/4]).
+-export([new/3, recover/4, finish/2, lookup/2, add/4, add/5]).
 -export([do_level_fold/3, set_max_level/2, transact/3, destroy/1]).
 
 -include("include/hanoidb.hrl").
@@ -93,39 +93,48 @@ read_nursery_from_log(Directory, MaxLevel, Config) ->
     Cache = fill_cache(KVs, gb_trees:empty()),
     {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel, config=Config }}.
 
+nursery_full(#nursery{count=Count}=Nursery) when Count + 1 > ?BTREE_SIZE(?TOP_LEVEL) ->
+    {full, Nursery};
+nursery_full(Nursery) ->
+    {ok, Nursery}.
 
 % @doc
 % Add a Key/Value to the nursery
 % @end
--spec add(#nursery{}, binary(), binary()|?TOMBSTONE, pid()) -> {ok, #nursery{}}.
-add(Nursery=#nursery{ log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config }, Key, Value, Top) ->
-    ExpiryTime = hanoidb_util:expiry_time(Config),
-    TStamp = hanoidb_util:tstamp(),
+-spec do_add(#nursery{}, binary(), binary()|?TOMBSTONE, pos_integer() | infinity, pid()) -> {ok, #nursery{}}.
+do_add(Nursery, Key, Value, infinity, Top) ->
+    do_add(Nursery, Key, Value, 0, Top);
+do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config}, Key, Value, KeyExpiryTime, Top) ->
+    DatabaseExpiryTime = hanoidb:get_opt(expiry_secs, Config),
 
-    if ExpiryTime == 0 ->
-            Data = hanoidb_util:crc_encapsulate_kv_entry( Key, Value );
-       true ->
-            Data = hanoidb_util:crc_encapsulate_kv_entry( Key, {Value, TStamp} )
-    end,
+    {Data, NewValue} = case KeyExpiryTime + DatabaseExpiryTime of
+                         0 ->
+                               % Both the database expiry and this key's expiry are unset or set to 0
+                               % (aka infinity) so never automatically expire the value.
+                               { hanoidb_util:crc_encapsulate_kv_entry(Key, Value), Value };
+                         _ ->
+                               Expiry = case DatabaseExpiryTime == 0 of
+                                            true ->
+                                                % It was the database's setting that was 0 so expire this
+                                                % value after KeyExpiryTime seconds elapse.
+                                                hanoidb_util:expiry_time(KeyExpiryTime);
+                                            false ->
+                                                case KeyExpiryTime == 0 of
+                                                    true -> hanoidb_util:expiry_time(DatabaseExpiryTime);
+                                                    false -> hanoidb_util:expiry_time(min(KeyExpiryTime, DatabaseExpiryTime))
+                                                end
+                                        end,
+                               { hanoidb_util:crc_encapsulate_kv_entry(Key, {Value, Expiry}), {Value, Expiry} }
+                       end,
+
     ok = file:write(File, Data),
-
     Nursery1 = do_sync(File, Nursery),
-
-    if ExpiryTime == 0 ->
-            Cache2 = gb_trees:enter(Key, Value, Cache);
-       true ->
-            Cache2 = gb_trees:enter(Key, {Value, TStamp}, Cache)
-    end,
+    Cache2 = gb_trees:enter(Key, NewValue, Cache),
 
     {ok, Nursery2} =
         do_inc_merge(Nursery1#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data),
                                        count=Count+1 }, 1, Top),
-    if
-       Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
-            {full, Nursery2};
-       true ->
-            {ok, Nursery2}
-    end.
+    nursery_full(Nursery2).
 
 do_sync(File, Nursery) ->
     case application:get_env(hanoidb, sync_strategy) of
@@ -147,13 +156,13 @@ do_sync(File, Nursery) ->
     Nursery#nursery{ last_sync = LastSync }.
 
 
-lookup(Key, #nursery{ cache=Cache, config=Config }) ->
+lookup(Key, #nursery{cache=Cache}) ->
     case gb_trees:lookup(Key, Cache) of
         {value, {Value, TStamp}} ->
-            ExpiryTime = hanoidb_util:expiry_time(Config),
-            if TStamp < ExpiryTime ->
+            case hanoidb_util:has_expired(TStamp) of
+                true ->
                     none;
-               true ->
+                false ->
                     {value, Value}
             end;
         Reply ->
@@ -231,8 +240,11 @@ destroy(#nursery{ dir=Dir, log_file=LogFile }) ->
     ok.
 
 
-add_maybe_flush(Key, Value, Nursery, Top) ->
-    case add(Nursery, Key, Value, Top) of
+add(Key, Value, Nursery, Top) ->
+    add(Key, Value, infinity, Nursery, Top).
+
+add(Key, Value, Expiry, Nursery, Top) ->
+    case do_add(Nursery, Key, Value, Expiry, Top) of
         {ok, _Nursery} = OK ->
             OK;
         {full, Nursery2} ->
@@ -285,14 +297,13 @@ do_inc_merge(Nursery=#nursery{ step=Step, merge_done=Done }, N, TopLevel) ->
             {ok, Nursery#nursery{ step=Step+N }}
     end.
 
-do_level_fold(#nursery{ cache=Cache, config=Config }, FoldWorkerPID, KeyRange) ->
+do_level_fold(#nursery{cache=Cache}, FoldWorkerPID, KeyRange) ->
     Ref = erlang:make_ref(),
     FoldWorkerPID ! {prefix, [Ref]},
-    ExpiryTime = hanoidb_util:expiry_time(Config),
     case lists:foldl(fun(_,{LastKey,limit}) ->
                         {LastKey,limit};
                   ({Key,Value}, {LastKey,Count}) ->
-                             IsExpired = is_expired(Value, ExpiryTime),
+                             IsExpired = is_expired(Value),
 
                        case ?KEY_IN_RANGE(Key,KeyRange) andalso (not IsExpired) of
                            true ->
@@ -330,11 +341,12 @@ decrement(Number) ->
 
 %%%
 
-is_expired({_Value, TStamp}, ExpiryTime) ->
-    TStamp < ExpiryTime ;
-is_expired(?TOMBSTONE,_) ->
+% TODO this is duplicate code also found in hanoidb_reader
+is_expired(?TOMBSTONE) ->
     false;
-is_expired(Bin,_) when is_binary(Bin) ->
+is_expired({_Value, TStamp}) ->
+    hanoidb_util:has_expired(TStamp);
+is_expired(Bin) when is_binary(Bin) ->
     false.
 
 get_value({Value, TStamp}) when is_integer(TStamp) ->

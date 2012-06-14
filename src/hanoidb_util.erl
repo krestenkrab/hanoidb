@@ -226,14 +226,14 @@ tstamp() ->
     {Mega, Sec, _Micro} = os:timestamp(),
     (Mega * 1000000) + Sec.
 
-%% @doc Return time when values expire (i.e. Now - ExpirySecs), or 0.
--spec expiry_time([_]) -> pos_integer().
-expiry_time(Opts) ->
-    ExpirySecs = hanoidb:get_opt(expiry_secs, Opts),
-    case ExpirySecs > 0 of
-        true -> tstamp() - ExpirySecs;
-        false -> 0
-    end.
+%% @doc Return time when values expire (i.e. Now + ExpirySecs), or 0.
+-spec expiry_time(pos_integer()) -> pos_integer().
+expiry_time(ExpirySecs) when ExpirySecs > 0 ->
+    tstamp() + ExpirySecs.
+
+-spec has_expired(pos_integer()) -> true|false.
+has_expired(Expiration) when Expiration > 0 ->
+    Expiration < tstamp().
 
 ensure_expiry(Opts) ->
     case hanoidb:get_opt(expiry_secs, Opts) of

@@ -71,33 +71,30 @@
 -record(state, {sendto, sendto_ref}).
 
 start(SendTo) ->
-    PID = plain_fsm:spawn(?MODULE,
-                          fun() ->
-                                  ?log("fold_worker started ~p~n", [self()]),
-                                  process_flag(trap_exit,true),
-                                  MRef = erlang:monitor(process, SendTo),
-try
-                                  initialize(#state{sendto=SendTo, sendto_ref=MRef}, []),
-                                  ?log("fold_worker done ~p~n", [self()])
-catch
-    Class:Ex ->
-        ?log("fold_worker exception  ~p:~p ~p~n", [Class, Ex, erlang:get_stacktrace()]),
-        error_logger:error_msg("Unexpected: ~p:~p ~p~n", [Class, Ex, erlang:get_stacktrace()]),
-        exit({bad, Class, Ex, erlang:get_stacktrace()})
-end
-                          end),
+    F = fun() ->
+                ?log("fold_worker started ~p~n", [self()]),
+                process_flag(trap_exit, true),
+                MRef = erlang:monitor(process, SendTo),
+                try
+                    initialize(#state{sendto=SendTo, sendto_ref=MRef}, []),
+                    ?log("fold_worker done ~p~n", [self()])
+                catch
+                    Class:Ex ->
+                        ?log("fold_worker exception  ~p:~p ~p~n", [Class, Ex, erlang:get_stacktrace()]),
+                        error_logger:error_msg("Unexpected: ~p:~p ~p~n", [Class, Ex, erlang:get_stacktrace()]),
+                        exit({bad, Class, Ex, erlang:get_stacktrace()})
+                end
+        end,
+    PID = plain_fsm:spawn(?MODULE, F),
     {ok, PID}.
 
-
 initialize(State, PrefixFolders) ->
-
     Parent = plain_fsm:info(parent),
     receive
         {prefix, [_]=Folders} ->
             initialize(State, Folders);
 
         {initialize, Folders} ->
-
             Queues  = [ {PID,queue:new()} || PID <- (PrefixFolders ++ Folders) ],
             Initial = [ {PID,undefined} || PID <- (PrefixFolders ++ Folders) ],
             fill(State, Initial, Queues, PrefixFolders ++ Folders);

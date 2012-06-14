@@ -83,7 +83,7 @@ test(Backend, Volatile, Config, Cleanup) ->
 test(Backend, Volatile, Config, Cleanup, NumTests) ->
     triq:check(%triq:numtests(NumTests,
                              prop_backend(Backend, Volatile, Config, Cleanup)
-      %% )
+%      )
 ).
 
 %% ====================================================================

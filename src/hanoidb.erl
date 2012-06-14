@@ -31,7 +31,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([open/1, open/2, transact/2, close/1, get/2, lookup/2, delete/2, put/3,
+-export([open/1, open/2, transact/2, close/1, get/2, lookup/2, delete/2, put/3, put/4,
          fold/3, fold_range/4, destroy/1]).
 
 -export([get_opt/2, get_opt/3]).
@@ -122,7 +122,14 @@ delete(Ref,Key) when is_binary(Key) ->
 -spec put(hanoidb(), binary(), binary()) ->
                  ok | {error, term()}.
 put(Ref,Key,Value) when is_binary(Key), is_binary(Value) ->
-    gen_server:call(Ref, {put, Key, Value}, infinity).
+    gen_server:call(Ref, {put, Key, Value, infinity}, infinity).
+
+-spec put(hanoidb(), binary(), binary(), integer()) ->
+                 ok | {error, term()}.
+put(Ref,Key,Value,infinity) when is_binary(Key), is_binary(Value) ->
+    gen_server:call(Ref, {put, Key, Value, infinity}, infinity);
+put(Ref,Key,Value,Expiry) when is_binary(Key), is_binary(Value) ->
+    gen_server:call(Ref, {put, Key, Value, Expiry}, infinity).
 
 -type transact_spec() :: {put, binary(), binary()} | {delete, binary()}.
 -spec transact(hanoidb(), [transact_spec()]) ->
@@ -371,8 +378,8 @@ handle_call({blocking_range, FoldWorkerPID, Range}, _From, State=#state{ top=Top
     Result = hanoidb_level:blocking_range(TopLevel, FoldWorkerPID, Range),
     {reply, Result, State};
 
-handle_call({put, Key, Value}, _From, State) when is_binary(Key), is_binary(Value) ->
-    {ok, State2} = do_put(Key, Value, State),
+handle_call({put, Key, Value, Expiry}, _From, State) when is_binary(Key), is_binary(Value) ->
+    {ok, State2} = do_put(Key, Value, Expiry, State),
     {reply, ok, State2};
 
 handle_call({transact, TransactionSpec}, _From, State) ->
@@ -380,7 +387,7 @@ handle_call({transact, TransactionSpec}, _From, State) ->
     {reply, ok, State2};
 
 handle_call({delete, Key}, _From, State) when is_binary(Key) ->
-    {ok, State2} = do_put(Key, ?TOMBSTONE, State),
+    {ok, State2} = do_put(Key, ?TOMBSTONE, infinity, State),
     {reply, ok, State2};
 
 handle_call({get, Key}, From, State=#state{ top=Top, nursery=Nursery } ) when is_binary(Key) ->
@@ -411,14 +418,14 @@ handle_call(destroy, _From, State=#state{top=Top, nursery=Nursery }) ->
     {stop, normal, ok, State#state{ top=undefined, nursery=undefined, max_level=?TOP_LEVEL }}.
 
 
-do_put(Key, Value, State=#state{ nursery=Nursery, top=Top }) ->
-    {ok, Nursery2} = hanoidb_nursery:add_maybe_flush(Key, Value, Nursery, Top),
-    {ok, State#state{ nursery=Nursery2 }}.
+do_put(Key, Value, Expiry, State=#state{ nursery=Nursery, top=Top }) ->
+    {ok, Nursery2} = hanoidb_nursery:add(Key, Value, Expiry, Nursery, Top),
+    {ok, State#state{nursery=Nursery2}}.
 
 do_transact([{put, Key, Value}], State) ->
-    do_put(Key, Value, State);
+    do_put(Key, Value, infinity, State);
 do_transact([{delete, Key}], State) ->
-    do_put(Key, ?TOMBSTONE, State);
+    do_put(Key, ?TOMBSTONE, infinity, State);
 do_transact([], State) ->
     {ok, State};
 do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->

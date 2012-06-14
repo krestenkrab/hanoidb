@@ -117,15 +117,14 @@ fold1(File,Fun,Acc0) ->
             fold0(File,Fun,Node,Acc0)
     end.
 
-range_fold(Fun, Acc0, #index{file=File,root=Root,config=Options}, Range) ->
-    ExpiryTime = hanoidb_util:expiry_time(Options),
+range_fold(Fun, Acc0, #index{file=File,root=Root}, Range) ->
     case lookup_node(File,Range#key_range.from_key,Root,?FIRST_BLOCK_POS) of
         {ok, {Pos,_}} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit, ExpiryTime);
+            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
         {ok, Pos} ->
             file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit, ExpiryTime);
+            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
         none ->
             {done, Acc0}
     end.
@@ -140,11 +139,12 @@ fold_until_stop2(_Fun,{continue, Acc},[]) ->
 fold_until_stop2(Fun,{continue, Acc},[H|T]) ->
     fold_until_stop2(Fun,Fun(H,Acc),T).
 
-is_expired({_Value, TStamp}, ExpiryTime) ->
-    TStamp < ExpiryTime ;
-is_expired(?TOMBSTONE,_) ->
+% TODO this is duplicate code also found in hanoidb_nursery
+is_expired(?TOMBSTONE) ->
     false;
-is_expired(Bin,_) when is_binary(Bin) ->
+is_expired({_Value, TStamp}) ->
+    hanoidb_util:has_expired(TStamp);
+is_expired(Bin) when is_binary(Bin) ->
     false.
 
 get_value({Value, _TStamp}) ->
@@ -152,14 +152,7 @@ get_value({Value, _TStamp}) ->
 get_value(Value) ->
     Value.
 
-get_tstamp({_Value, TStamp}) ->
-    TStamp;
-get_tstamp(_) ->
-    hanoidb_util:tstamp().
-
-
-
-do_range_fold(Fun, Acc0, File, Range, undefined, ExpiryTime) ->
+do_range_fold(Fun, Acc0, File, Range, undefined) ->
     case next_leaf_node(File) of
         eof ->
             {done, Acc0};
@@ -168,7 +161,7 @@ do_range_fold(Fun, Acc0, File, Range, undefined, ExpiryTime) ->
             case fold_until_stop(fun({Key,_}, Acc) when not ?KEY_IN_TO_RANGE(Key,Range) ->
                                          {stop, {done, Acc}};
                                     ({Key,Value}, Acc) when ?KEY_IN_FROM_RANGE(Key, Range) ->
-                                         case is_expired(Value, ExpiryTime) of
+                                         case is_expired(Value) of
                                              true ->
                                                  {continue, Acc};
                                              false ->
@@ -181,11 +174,11 @@ do_range_fold(Fun, Acc0, File, Range, undefined, ExpiryTime) ->
                                  Members) of
                 {stopped, Result} -> Result;
                 {ok, Acc1} ->
-                    do_range_fold(Fun, Acc1, File, Range, undefined, ExpiryTime)
+                    do_range_fold(Fun, Acc1, File, Range, undefined)
             end
     end;
 
-do_range_fold(Fun, Acc0, File, Range, N0, ExpiryTime) ->
+do_range_fold(Fun, Acc0, File, Range, N0) ->
     case next_leaf_node(File) of
         eof ->
             {done, Acc0};
@@ -198,14 +191,14 @@ do_range_fold(Fun, Acc0, File, Range, N0, ExpiryTime) ->
                                     ({Key,?TOMBSTONE}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
                                          {continue, {N1, Fun(Key, ?TOMBSTONE, Acc)}};
                                     ({Key,{?TOMBSTONE,TStamp}}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
-                                         case TStamp < ExpiryTime of
+                                         case hanoidb_utils:has_expired(TStamp) of
                                              true ->
                                                  {continue, {N1,Acc}};
                                              false ->
                                                  {continue, {N1, Fun(Key, ?TOMBSTONE, Acc)}}
                                          end;
                                     ({Key,Value}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
-                                         case is_expired(Value, ExpiryTime) of
+                                         case is_expired(Value) of
                                              true ->
                                                  {continue, {N1,Acc}};
                                              false ->
@@ -218,7 +211,7 @@ do_range_fold(Fun, Acc0, File, Range, N0, ExpiryTime) ->
                                  Members) of
                 {stopped, Result} -> Result;
                 {ok, {N2, Acc1}} ->
-                    do_range_fold(Fun, Acc1, File, Range, N2, ExpiryTime)
+                    do_range_fold(Fun, Acc1, File, Range, N2)
             end
     end.
 
@@ -261,14 +254,14 @@ close(#index{file=File}) ->
     file:close(File).
 
 
-lookup(#index{file=File, root=Node, bloom=Bloom, config=Config }, Key) ->
+lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
     case ebloom:contains(Bloom, Key) of
         true ->
             case lookup_in_node(File,Node,Key) of
                 not_found ->
                     not_found;
                 {ok, {Value, TStamp}} ?ASSERT_WHEN(Value =:= ?TOMBSTONE; is_binary(Value))  ->
-                    case TStamp < hanoidb_util:expiry_time(Config) of
+                    case hanoidb_utils:has_expired(TStamp) of
                         true -> not_found;
                         false -> {ok, Value}
                     end;
