@@ -94,7 +94,7 @@ init([Name,Options]) ->
 %    io:format("got name: ~p~n", [Name]),
     case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
-            file:write(IdxFile, <<"HAN1">>),
+            file:write(IdxFile, ?FILE_FORMAT),
             {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
             BlockSize = hanoidb:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,

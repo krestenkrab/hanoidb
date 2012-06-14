@@ -68,7 +68,7 @@ open(Name, Config) ->
             {ok, FileInfo} = file:read_file_info(Name),
 
             %% read and validate magic tag
-            {ok, <<"HAN1">>} = file:pread(File, 0, 4),
+            {ok, ?FILE_FORMAT} = file:pread(File, 0, 4),
 
             %% read root position
             {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size-8, 8),

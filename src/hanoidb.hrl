@@ -27,6 +27,7 @@
 -define(TOP_LEVEL, 8).
 -define(BTREE_SIZE(Level), (1 bsl (Level))).
 -define(FIRST_BLOCK_POS, 4).
+-define(FILE_FORMAT, <<"HAN1">>).
 
 -define(TOMBSTONE, 'deleted').
 
