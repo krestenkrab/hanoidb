@@ -437,7 +437,6 @@ flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel
     {ok, State#state{ nursery=Nursery2 }}.
 
 start_app() ->
-    application:start(lager),
     case application:start(?MODULE) of
         ok ->
             ok;
