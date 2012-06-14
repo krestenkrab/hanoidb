@@ -38,8 +38,8 @@
 %% which is > any possible key, hence we need to allow to_key=undefined
 %% as a token of an interval that has no upper limit.
 %%
--record(key_range, { from_key = <<>>       :: binary(),
+-record(key_range, {   from_key = <<>>       :: binary(),
                        from_inclusive = true :: boolean(),
                        to_key                :: binary() | undefined,
                        to_inclusive = false  :: boolean(),
-                       limit :: pos_integer() | undefined }).
+                       limit                 :: pos_integer() | undefined }).
