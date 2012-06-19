@@ -1,11 +1,13 @@
-# HanoiDB Ordered Key/Value Storage
+# HanoiDB Indexed Key/Value Storage
 
-HanoiDB implements an ordered key/value storage engine, implemented
-using "doubling sizes" persistent ordered sets of key/value pairs,
-much like LevelDB.
+HanoiDB implements an indexed, key/value storage engine.  The primary index is
+a log-structured merge tree (LSM-BTree) implemented using "doubling sizes"
+persistent ordered sets of key/value pairs, similar is some regards to
+[LevelDB](http://code.google.com/p/leveldb/).  HanoiDB includes a visualizer
+which when used to watch a living database resembles the "Towers of Hanoi"
+puzzle game, which inspired the name of this database.
 
-Here's the bullet list:
-
+## Features
 - Insert, Delete and Read all have worst case *O*(log<sub>2</sub>(*N*)) latency.
 - Incremental space reclaimation: The cost of evicting stale key/values
   is amortized into insertion
@@ -14,20 +16,25 @@ Here's the bullet list:
 - Operations-friendly "append-only" storage
   - allows you to backup live system
   - crash-recovery is very fast and the logic is straight forward
-  - All data subject to CRC32 checksums
-- Supports efficient range queries
+  - all data subject to CRC32 checksums
+  - data can be compressed on disk to save space
+- Efficient range queries
   - Riak secondary indexing
   - Fast key and bucket listing
 - Uses bloom filters to avoid unnecessary lookups on disk
+- Time-based expiry of data
+  - configure the database to expire data older than n seconds
+  - specify a lifetime in seconds for any particular key/value pair
 - Efficient resource utilization
-  - Doesn't store all keys in memory
-  - Uses a modest number of file descriptors proportional to the number of levels
-  - IO is generally balanced between random and sequential
-  - Low CPU overhead
+  - doesn't store all keys in memory
+  - uses a modest number of file descriptors proportional to the number of levels
+  - I/O is generally balanced between random and sequential
+  - low CPU overhead
 - ~2000 lines of pure Erlang code in src/*.erl
 
-HanoiDB is developed by Trifork, a Riak expert solutions provider.  You're most
-welcome to contact us if you want help optimizing your Riak setup.
+HanoiDB is developed by Trifork, a Riak expert solutions provider, and Basho
+Technologies, makers of Riak.  HanoiDB can be used in Riak via the
+`riak_kv_tower_backend` repository.
 
 ### Configuration options
 
@@ -40,7 +47,7 @@ Put these values in your `app.config` in the `hanoidb` section
           %% Enable/disable on-disk compression.
           %%
           {compress, none | gzip},
-          
+
           %% Expire (automatically delete) entries after N seconds.
           %% When this value is 0 (zero), entries never expire.
           %%
@@ -76,20 +83,3 @@ Put these values in your `app.config` in the `hanoidb` section
           {merge_strategy, fast | predictable}
          ]},
 ```
-
-### How to deploy HanoiDB as a Riak/KV backend
-
-This storage engine can function as an alternative backend for Basho's Riak/KV.
-
-You can deploy `hanoidb` into a Riak devrel cluster using the `enable-hanoidb`
-script. Clone the `riak` repo, change your working directory to it, and then
-execute the `enable-hanoidb` script. It adds `hanoidb` as a dependency, runs `make
-all devrel`, and then modifies the configuration settings of the resulting dev
-nodes to use the hanoidb storage backend.
-
-1. `git clone git://github.com/basho/riak.git`
-1. `mkdir riak/deps`
-1. `cd riak/deps`
-1. `git clone git://github.com/basho/hanoidb.git`
-1. `cd ..`
-1. `./deps/hanoidb/enable-hanoidb`
