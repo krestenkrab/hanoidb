@@ -1,5 +1,6 @@
-REBAR = rebar
-DIALYZER = dialyzer
+REBAR=		rebar
+DIALYZER=	dialyzer
+
 
 .PHONY: plt analyze all deps compile get-deps clean
 
