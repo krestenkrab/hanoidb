@@ -61,18 +61,17 @@ full_test_() ->
       ?_test(test_tree_simple_1()),
       ?_test(test_tree_simple_2()),
       ?_test(test_tree_simple_4()),
-      ?_test(test_tree_simple_5()),
-      {timeout, 300, ?_test(test_tree())},
-      {timeout, 120, ?_test(test_qc())}
+      ?_test(test_tree_simple_5())
      ]}.
 
-full2_test_() ->
+longer_test_() ->
     {setup,
      spawn,
      fun () -> ok end,
      fun (_) -> ok end,
      [
-      {timeout, 300, ?_test(test_tree())}
+      {timeout, 300, ?_test(test_tree())},
+      {timeout, 120, ?_test(test_qc())}
      ]}.
 
 -ifdef(TRIQ).
@@ -149,7 +148,7 @@ initial_state() ->
 
 command(#state { open = Open, closed = Closed } = S) ->
     frequency(
-         [ {20, {call, ?SERVER, open, [oneof(dict:fetch_keys(Closed))]}}
+      [ {20, {call, ?SERVER, open, [oneof(dict:fetch_keys(Closed))]}}
         || closed_dicts(S)]
       ++ [ {20, {call, ?SERVER, close, [oneof(dict:fetch_keys(Open))]}}
         || open_dicts(S)]
@@ -284,14 +283,12 @@ test_tree_simple_1() ->
     {ok, Tree} = hanoidb:open("simple"),
     ok = hanoidb:put(Tree, <<>>, <<"data", 77:128>>),
     {ok, <<"data", 77:128>>} = hanoidb:get(Tree, <<>>),
-    ok = hanoidb:destroy(Tree),
     ok = hanoidb:close(Tree).
 
 test_tree_simple_2() ->
     {ok, Tree} = hanoidb:open("simple"),
     ok = hanoidb:put(Tree, <<"ã">>, <<"µ">>),
     ok = hanoidb:delete(Tree, <<"ã">>),
-    ok = hanoidb:destroy(Tree),
     ok = hanoidb:close(Tree).
 
 test_tree_simple_4() ->
@@ -302,7 +299,6 @@ test_tree_simple_4() ->
     {ok, Tree} = hanoidb:open("simple"),
     ok = hanoidb:put(Tree, Key, Value),
     ?assertEqual({ok, Value}, hanoidb:get(Tree, Key)),
-    ok = hanoidb:destroy(Tree),
     ok = hanoidb:close(Tree).
 
 test_tree_simple_5() ->
@@ -311,55 +307,44 @@ test_tree_simple_5() ->
     {ok, <<"bar">>} = hanoidb:get(Tree, <<"foo">>),
     ok = timer:sleep(3000),
     not_found = hanoidb:get(Tree, <<"foo">>),
-    ok = hanoidb:destroy(Tree),
     ok = hanoidb:close(Tree).
 
 test_tree() ->
     {ok, Tree} = hanoidb:open("simple2"),
     lists:foldl(fun(N,_) ->
-                        ok = hanoidb:put(Tree,
-                                               <<N:128>>, <<"data",N:128>>)
+                        ok = hanoidb:put(Tree, <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
                 lists:seq(2,10000,1)),
 %    io:format(user, "INSERT DONE 1~n", []),
 
     lists:foldl(fun(N,_) ->
-                        ok = hanoidb:put(Tree,
-                                               <<N:128>>, <<"data",N:128>>)
+                        ok = hanoidb:put(Tree, <<N:128>>, <<"data",N:128>>)
                 end,
                 ok,
                 lists:seq(4000,6000,1)),
-
 %    io:format(user, "INSERT DONE 2~n", []),
 
     hanoidb:delete(Tree, <<1500:128>>),
+%    io:format(user, "DELETE DONE 3~n", []),
 
-%    io:format(user, "INSERT DONE 3~n", []),
-
-    {Time,{ok,Count}} = timer:tc(?MODULE, run_fold, [Tree,1000,2000,5]),
-
-    error_logger:info_msg("time to fold: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
+    {Time,{ok,Count}} = timer:tc(?MODULE, run_fold, [Tree,1000,2000,9]),
+%    error_logger:info_msg("time to fold: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 
     {Time,{ok,Count}} = timer:tc(?MODULE, run_fold, [Tree,1000,2000,1000]),
-
-    error_logger:info_msg("time to fold: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
-
-
+%    error_logger:info_msg("time to fold: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
     ok = hanoidb:close(Tree).
 
 run_fold(Tree,From,To,Limit) ->
     {_, Count} = hanoidb:fold_range(Tree,
-                             fun(<<N:128>>,_Value, {N, C}) ->
-                                     {N + 1, C + 1};
-                                (<<1501:128>>,_Value, {1500, C}) ->
-                                     {1502, C + 1}
-                             end,
-                             {From, 0},
-                             #key_range{from_key= <<From:128>>, to_key= <<(To+1):128>>, limit=Limit}),
+                                    fun(<<N:128>>, _Value, {N, C}) ->
+                                            {N + 1, C + 1};
+                                       (<<1501:128>>, _Value, {1500, C}) ->
+                                            {1502, C + 1}
+                                    end,
+                                    {From, 0},
+                                    #key_range{from_key= <<From:128>>, to_key= <<(To+1):128>>, limit=Limit}),
     {ok, Count}.
-
-
 
 
 %% Command processing

@@ -58,7 +58,7 @@ merge_test() ->
     self() ! {step, {self(), none}, 2000000000},
     {Time,{ok,Count}} = timer:tc(hanoidb_merger, merge, ["test1", "test2", "test3", 10000, true, [{expiry_secs, 0}]]),
 
-    error_logger:info_msg("time to merge: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
+%    error_logger:info_msg("time to merge: ~p/sec (time=~p, count=~p)~n", [1000000/(Time/Count), Time/1000000, Count]),
 
     ok.
 

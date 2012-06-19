@@ -144,17 +144,17 @@ fold(Ref,Fun,Acc0) ->
     fold_range(Ref,Fun,Acc0,#key_range{from_key= <<>>, to_key=undefined}).
 
 -spec fold_range(hanoidb(),kv_fold_fun(),any(),key_range()) -> any().
-fold_range(Ref,Fun,Acc0,Range) ->
+fold_range(Ref,Fun,Acc0,#key_range{limit=Limit}=Range) ->
+    RangeType = case Limit < 10 of
+                    true -> blocking_range;
+                    false -> snapshot_range
+                end,
     {ok, FoldWorkerPID} = hanoidb_fold_worker:start(self()),
-    if Range#key_range.limit < 10 ->
-            ok = gen_server:call(Ref, {blocking_range, FoldWorkerPID, Range}, infinity);
-       true ->
-            ok = gen_server:call(Ref, {snapshot_range, FoldWorkerPID, Range}, infinity)
-    end,
-    MRef = erlang:monitor(process, FoldWorkerPID),
     ?log("fold_range begin: self=~p, worker=~p~n", [self(), FoldWorkerPID]),
-    Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0, Range#key_range.limit),
-    ?log("fold_range done: self:~p, result=~P~n", [self(), Result, 20]),
+    ok = gen_server:call(Ref, {RangeType, FoldWorkerPID, Range}, infinity),
+    MRef = erlang:monitor(process, FoldWorkerPID),
+    Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0, Limit),
+    ?log("fold_range done: self:~p, result=~P~n", [self(), Result]),
     Result.
 
 receive_fold_range(MRef,PID,_,Acc0, 0) ->

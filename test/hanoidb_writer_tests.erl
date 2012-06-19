@@ -67,7 +67,7 @@ simple1_test() ->
                   end,
                   []),
 
-    error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
+%    error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
 
     {ok, IN} = hanoidb_reader:open("testdata", [{expiry_secs,0}]),
     Middle = Max div 2,
@@ -83,7 +83,7 @@ simple1_test() ->
                       end,
                       []),
 
-    error_logger:info_msg("time to scan: ~p/sec~n", [1000000/(Time2/Max)]),
+%    error_logger:info_msg("time to scan: ~p/sec~n", [1000000/(Time2/Max)]),
 
     Max = Count-1,
 
@@ -97,9 +97,9 @@ simple1_test() ->
                       end,
                       []),
 
-    error_logger:info_msg("time to range_fold: ~p/sec~n", [1000000/(Time3/Max)]),
+%    error_logger:info_msg("time to range_fold: ~p/sec~n", [1000000/(Time3/Max)]),
 
-    error_logger:info_msg("count2=~p~n", [Count2]),
+%    error_logger:info_msg("count2=~p~n", [Count2]),
 
     Max = Count2-1,
 
