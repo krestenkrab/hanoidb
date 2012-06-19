@@ -95,7 +95,7 @@ init([Name,Options]) ->
     case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
             file:write(IdxFile, ?FILE_FORMAT),
-            {ok, BloomFilter} = ebloom:new(erlang:min(Size,16#ffffffff), 0.01, 123),
+            {ok, BloomFilter} = ebloom:new(erlang:min(Size, 16#ffffffff), 0.01, 123),
             BlockSize = hanoidb:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,
                          index_file_pos=?FIRST_BLOCK_POS, index_file=IdxFile,
@@ -166,9 +166,8 @@ serialize(#state{ bloom=Bloom, index_file=File, index_file_pos=Position }=State)
 
 deserialize(Binary) ->
     { State, BinBloom } = erlang:binary_to_term( Binary ),
-%    io:format("deserializing ~p @ ~p~n", [State#state.name,
-%                                        State#state.index_file_pos]),
     {ok, Bloom } = ebloom:deserialize(BinBloom),
+%    io:format("deserializing ~p @ ~p // ~p~n", [State#state.name, State#state.index_file_pos, Bloom]),
     {ok, IdxFile} = do_open(State#state.name, State#state.opts, []),
     State#state{ bloom = Bloom, index_file=IdxFile }.
 
@@ -215,7 +214,7 @@ flush_nodes(State) ->
     flush_nodes(State2).
 
 add_record(Level, Key, Value,
-           #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode |RestNodes],
+           #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode | RestNodes ],
                    value_count=VC, tombstone_count=TC  }=State) ->
     %% The top-of-stack node is at the level we wish to insert at.
 
@@ -233,7 +232,7 @@ add_record(Level, Key, Value,
 
     NewSize = NodeSize + hanoidb_util:estimate_node_size_increment(List, Key, Value),
 
-    ok = ebloom:insert( State#state.bloom, Key ),
+    ok = ebloom:insert(State#state.bloom, Key),
 
     if Level == 0 ->
             case Value of
