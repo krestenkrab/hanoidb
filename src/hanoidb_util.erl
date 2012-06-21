@@ -155,47 +155,39 @@ crc_encapsulate(Blob) ->
 
 decode_kv_list(<<?TAG_END, Custom/binary>>) ->
     decode_crc_data(Custom, [], []);
-
 decode_kv_list(<<?ERLANG_ENCODED, _/binary>>=TermData) ->
     {ok, erlang:term_to_binary(TermData)};
-
 decode_kv_list(<<?CRC_ENCODED, Custom/binary>>) ->
     decode_crc_data(Custom, [], []).
 
-
-
+-spec decode_crc_data(binary(), list(), list()) -> {ok, list()} | {error, data_corruption}.
 decode_crc_data(<<>>, [], Acc) ->
     {ok, lists:reverse(Acc)};
-
 decode_crc_data(<<>>, _BrokenData, Acc) ->
-    {ok, lists:reverse(Acc)};
-    % TODO: here we *should* report data corruption rather than
-    % simply returning "the good parts".
-    %    {error, data_corruption};
-
+    {error, data_corruption};
+    % TODO: we *could* simply return the good parts of the data...
+    % would that be so wrong?
+%    {ok, lists:reverse(Acc)};
 decode_crc_data(<< BinSize:32/unsigned, CRC:32/unsigned, Bin:BinSize/binary, ?TAG_END, Rest/binary >>, Broken, Acc) ->
     CRCTest = erlang:crc32( Bin ),
     if CRC == CRCTest ->
-            decode_crc_data(Rest, Broken, [ decode_kv_data( Bin ) | Acc ]);
+            decode_crc_data(Rest, Broken, [decode_kv_data(Bin) | Acc]);
        true ->
-            %% TODO: chunk is broken, ignore it. Maybe we should tell someone?
+            % TODO: chunk is broken, ignore it. Maybe we should tell someone?
             decode_crc_data(Rest, [Bin|Broken], Acc)
     end;
-
 decode_crc_data(Bad, Broken, Acc) ->
-    %% if a chunk is broken, try to find the next ?TAG_END and
+    %% If a chunk is broken, try to find the next ?TAG_END and
     %% start decoding from there.
     {Skipped, MaybeGood} = find_next_value(Bad),
     decode_crc_data(MaybeGood, [Skipped|Broken], Acc).
 
 find_next_value(<<>>) ->
     {<<>>, <<>>};
-
 find_next_value(Bin) ->
     case binary:match (Bin, <<?TAG_END>>) of
         {Pos, _Len} ->
             <<SkipBin :Pos /binary, ?TAG_END, MaybeGood /binary>> = Bin,
-
             {SkipBin, MaybeGood};
         nomatch ->
             {Bin, <<>>}
@@ -203,24 +195,17 @@ find_next_value(Bin) ->
 
 decode_kv_data(<<?TAG_KV_DATA, KLen:32/unsigned, Key:KLen/binary, Value/binary >>) ->
     {Key, Value};
-
 decode_kv_data(<<?TAG_DELETED, Key/binary>>) ->
     {Key, ?TOMBSTONE};
-
 decode_kv_data(<<?TAG_KV_DATA2, TStamp:32/unsigned, KLen:32/unsigned, Key:KLen/binary, Value/binary >>) ->
     {Key, {Value, TStamp}};
-
 decode_kv_data(<<?TAG_DELETED2, TStamp:32/unsigned, Key/binary>>) ->
     {Key, {?TOMBSTONE, TStamp}};
-
 decode_kv_data(<<?TAG_POSLEN32, Pos:64/unsigned, Len:32/unsigned, Key/binary>>) ->
     {Key, {Pos,Len}};
-
 decode_kv_data(<<?TAG_TRANSACT, Rest/binary>>) ->
     {ok, TX} = decode_crc_data(Rest, [], []),
     TX.
-
-%%%%%%%
 
 %% @doc Return number of seconds since 1970
 -spec tstamp() -> pos_integer().

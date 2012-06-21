@@ -36,8 +36,13 @@
 -export([first_node/1,next_node/1]).
 -export([serialize/1, deserialize/1]).
 
--record(node, { level, members=[] }).
--record(index, {file, root, bloom, name, config=[]}).
+-record(node, {level       :: non_neg_integer(),
+               members=[]  :: list(any()) }).
+-record(index, {file       :: port(),
+                root       :: #node{},
+                bloom      :: term(),
+                name       :: string(),
+                config=[]  :: term() }).
 
 -type read_file() :: #index{}.
 
@@ -57,13 +62,14 @@ open(Name, Config) ->
             {ok, #index{file=File, name=Name, config=Config}};
 
         false ->
-            case proplists:get_bool(folding, Config) of
-                true ->
-                    ReadBufferSize = hanoidb:get_opt(read_buffer_size, Config, 512 * 1024),
-                    {ok, File} = file:open(Name, [read,{read_ahead, ReadBufferSize},binary]);
-                false ->
-                    {ok, File} = file:open(Name, [read,binary])
-            end,
+            {ok, File} =
+                case proplists:get_bool(folding, Config) of
+                    true ->
+                        ReadBufferSize = hanoidb:get_opt(read_buffer_size, Config, 512 * 1024),
+                        file:open(Name, [read,{read_ahead, ReadBufferSize},binary]);
+                    false ->
+                        file:open(Name, [read,binary])
+                end,
 
             {ok, FileInfo} = file:read_file_info(Name),
 
@@ -75,7 +81,7 @@ open(Name, Config) ->
             {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size-12, 4),
             {ok, BloomData} = file:pread(File, FileInfo#file_info.size-12-BloomSize ,BloomSize),
 
-            {ok, Bloom} = ebloom:deserialize(zlib:unzip(BloomData)),
+            {ok, Bloom} = binary_to_term(zlib:unzip(BloomData)),
 
             %% suck in the root
             {ok, Root} = read_node(File, RootPos),
@@ -255,9 +261,9 @@ close(#index{file=File}) ->
 
 
 lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
-    case ebloom:contains(Bloom, Key) of
+    case bloom:is_element(Bloom, Key) orelse Key =:= <<>> of
         true ->
-            case lookup_in_node(File,Node,Key) of
+            case lookup_in_node(File, Node, Key) of
                 not_found ->
                     not_found;
                 {ok, {Value, TStamp}} ?ASSERT_WHEN(Value =:= ?TOMBSTONE; is_binary(Value))  ->
@@ -272,7 +278,7 @@ lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
             not_found
     end.
 
-lookup_in_node(_File,#node{level=0,members=Members},Key) ->
+lookup_in_node(_File,#node{level=0,members=Members}, Key) ->
     case lists:keyfind(Key,1,Members) of
         false ->
             not_found;

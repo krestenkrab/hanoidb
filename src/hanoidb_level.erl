@@ -806,23 +806,23 @@ filename(PFX, State) ->
 start_range_fold(FileName, WorkerPID, Range, State) ->
     Owner = self(),
     PID =
-        proc_lib:spawn( fun() ->
-try
-                                ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
-                                erlang:link(WorkerPID),
-                                {ok, File} = hanoidb_reader:open(FileName, [folding|State#state.opts]),
-                                do_range_fold2(File, WorkerPID, self(), Range),
-                                erlang:unlink(WorkerPID),
-                                hanoidb_reader:close(File),
+        proc_lib:spawn(fun() ->
+                               try
+                                   ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
+                                   erlang:link(WorkerPID),
+                                   {ok, File} = hanoidb_reader:open(FileName, [folding|State#state.opts]),
+                                   do_range_fold2(File, WorkerPID, self(), Range),
+                                   erlang:unlink(WorkerPID),
+                                   hanoidb_reader:close(File),
 
-                                %% this will release the pinning of the fold file
-                                Owner  ! {range_fold_done, self(), FileName},
-                                ok
-catch
-    Class:Ex ->
-        io:format(user, "BAD: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()])
-end
-                        end ),
+                                   %% this will release the pinning of the fold file
+                                   Owner  ! {range_fold_done, self(), FileName},
+                                   ok
+                               catch
+                                   Class:Ex ->
+                                       io:format(user, "BAD: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()])
+                               end
+                       end),
     {ok, PID}.
 
 -define(FOLD_CHUNK_SIZE, 100).
@@ -832,10 +832,10 @@ end
                     SelfOrRef :: pid() | reference(),
                     Range     :: #key_range{} ) -> ok.
 do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
-    try case hanoidb_reader:range_fold(fun(Key,Value,_) ->
+    try case hanoidb_reader:range_fold(fun(Key, Value, _) ->
                                                WorkerPID ! {level_result, SelfOrRef, Key, Value},
                                                {?FOLD_CHUNK_SIZE-1, []};
-                                          (Key,Value,{N,KVs}) ->
+                                          (Key, Value, {N, KVs}) ->
                                                {N-1,[{Key,Value}|KVs]}
                                        end,
                                        {?FOLD_CHUNK_SIZE-1,[]},

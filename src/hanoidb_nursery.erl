@@ -68,32 +68,37 @@ do_recover(Directory, TopLevel, MaxLevel, Config) ->
     %% repair the log file; storing it in nursery2
     LogFileName = ?LOGFILENAME(Directory),
     {ok, Nursery} = read_nursery_from_log(Directory, MaxLevel, Config),
-
     ok = finish(Nursery, TopLevel),
-
     %% assert log file is gone
     {error, enoent} = file:read_file_info(LogFileName),
-
     ok.
 
-fill_cache({Key,Value}, Cache)
+fill_cache({Key, Value}, Cache)
   when is_binary(Value); Value =:= ?TOMBSTONE ->
     gb_trees:enter(Key, Value, Cache);
-fill_cache({Key,{Value,_TStamp}=Entry}, Cache)
+fill_cache({Key, {Value, _TStamp}=Entry}, Cache)
   when is_binary(Value); Value =:= ?TOMBSTONE ->
     gb_trees:enter(Key, Entry, Cache);
 fill_cache([], Cache) ->
     Cache;
-fill_cache(Transaction, Cache) when is_list(Transaction) ->
-    lists:foldl(fun fill_cache/2, Cache, Transaction).
+fill_cache(Transactions, Cache)
+  when is_list(Transactions) ->
+    lists:foldl(fun fill_cache/2, Cache, Transactions).
 
 read_nursery_from_log(Directory, MaxLevel, Config) ->
-    {ok, LogBinary} = file:read_file( ?LOGFILENAME(Directory) ),
-    {ok, KVs} = hanoidb_util:decode_crc_data( LogBinary, [], [] ),
-    Cache = fill_cache(KVs, gb_trees:empty()),
+    {ok, LogBinary} = file:read_file(?LOGFILENAME(Directory)),
+    Cache =
+        case hanoidb_util:decode_crc_data(LogBinary, [], []) of
+            {ok, KVs} ->
+                fill_cache(KVs, gb_trees:empty());
+            {error, _Reason} ->
+                error_logger:info_msg("ignoring undecypherable bytes in ~p~n", [?LOGFILENAME(Directory)]),
+                gb_trees:empty()
+        end,
     {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel, config=Config }}.
 
-nursery_full(#nursery{count=Count}=Nursery) when Count + 1 > ?BTREE_SIZE(?TOP_LEVEL) ->
+nursery_full(#nursery{count=Count}=Nursery)
+  when Count + 1 > ?BTREE_SIZE(?TOP_LEVEL) ->
     {full, Nursery};
 nursery_full(Nursery) ->
     {ok, Nursery}.
@@ -107,29 +112,31 @@ do_add(Nursery, Key, Value, infinity, Top) ->
 do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config}, Key, Value, KeyExpiryTime, Top) ->
     DatabaseExpiryTime = hanoidb:get_opt(expiry_secs, Config),
 
-    {Data, NewValue} = case KeyExpiryTime + DatabaseExpiryTime of
-                         0 ->
-                               % Both the database expiry and this key's expiry are unset or set to 0
-                               % (aka infinity) so never automatically expire the value.
-                               { hanoidb_util:crc_encapsulate_kv_entry(Key, Value), Value };
-                         _ ->
-                               Expiry = case DatabaseExpiryTime == 0 of
-                                            true ->
-                                                % It was the database's setting that was 0 so expire this
-                                                % value after KeyExpiryTime seconds elapse.
-                                                hanoidb_util:expiry_time(KeyExpiryTime);
-                                            false ->
-                                                case KeyExpiryTime == 0 of
-                                                    true -> hanoidb_util:expiry_time(DatabaseExpiryTime);
-                                                    false -> hanoidb_util:expiry_time(min(KeyExpiryTime, DatabaseExpiryTime))
-                                                end
-                                        end,
-                               { hanoidb_util:crc_encapsulate_kv_entry(Key, {Value, Expiry}), {Value, Expiry} }
-                       end,
+    {Data, Cache2} =
+        case KeyExpiryTime + DatabaseExpiryTime of
+            0 ->
+                %% Both the database expiry and this key's expiry are unset or set to 0
+                %% (aka infinity) so never automatically expire the value.
+                { hanoidb_util:crc_encapsulate_kv_entry(Key, Value),
+                  gb_trees:enter(Key, Value, Cache) };
+            _ ->
+                Expiry = case DatabaseExpiryTime == 0 of
+                             true ->
+                                 %% It was the database's setting that was 0 so expire this
+                                 %% value after KeyExpiryTime seconds elapse.
+                                 hanoidb_util:expiry_time(KeyExpiryTime);
+                             false ->
+                                 case KeyExpiryTime == 0 of
+                                     true -> hanoidb_util:expiry_time(DatabaseExpiryTime);
+                                     false -> hanoidb_util:expiry_time(min(KeyExpiryTime, DatabaseExpiryTime))
+                                 end
+                         end,
+                { hanoidb_util:crc_encapsulate_kv_entry(Key, {Value, Expiry}),
+                  gb_trees:enter(Key,  {Value, Expiry}, Cache) }
+        end,
 
     ok = file:write(File, Data),
     Nursery1 = do_sync(File, Nursery),
-    Cache2 = gb_trees:enter(Key, NewValue, Cache),
 
     {ok, Nursery2} =
         do_inc_merge(Nursery1#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data),
@@ -137,23 +144,23 @@ do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=
     nursery_full(Nursery2).
 
 do_sync(File, Nursery) ->
-    case application:get_env(hanoidb, sync_strategy) of
-        {ok, sync} ->
-            file:datasync(File),
-            LastSync = now();
-        {ok, {seconds, N}} ->
-            MicrosSinceLastSync = timer:now_diff(now(), Nursery#nursery.last_sync),
-            if (MicrosSinceLastSync / 1000000) >= N ->
-                    file:datasync(File),
-                    LastSync = now();
-               true ->
-                    LastSync = Nursery#nursery.last_sync
-            end;
-        _ ->
-            LastSync = Nursery#nursery.last_sync
-    end,
-
-    Nursery#nursery{ last_sync = LastSync }.
+    LastSync =
+        case application:get_env(hanoidb, sync_strategy) of
+            {ok, sync} ->
+                file:datasync(File),
+                now();
+            {ok, {seconds, N}} ->
+                MicrosSinceLastSync = timer:now_diff(now(), Nursery#nursery.last_sync),
+                if (MicrosSinceLastSync / 1000000) >= N ->
+                        file:datasync(File),
+                        now();
+                   true ->
+                        Nursery#nursery.last_sync
+                end;
+            _ ->
+                Nursery#nursery.last_sync
+        end,
+    Nursery#nursery{last_sync = LastSync}.
 
 
 lookup(Key, #nursery{cache=Cache}) ->
@@ -161,7 +168,7 @@ lookup(Key, #nursery{cache=Cache}) ->
         {value, {Value, TStamp}} ->
             case hanoidb_util:has_expired(TStamp) of
                 true ->
-                    none;
+                    {value, ?TOMBSTONE};
                 false ->
                     {value, Value}
             end;
@@ -169,9 +176,9 @@ lookup(Key, #nursery{cache=Cache}) ->
             Reply
     end.
 
-% @doc
-% Finish this nursery (encode it to a btree, and delete the nursery file)
-% @end
+%% @doc
+%% Finish this nursery (encode it to a btree, and delete the nursery file)
+%% @end
 -spec finish(Nursery::#nursery{}, TopLevel::pid()) -> ok.
 finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
                  total_size=_TotalSize, count=Count,
@@ -188,24 +195,20 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
     end,
 
     case Count of
-        N when N>0 ->
+        N when N > 0 ->
             %% next, flush cache to a new BTree
             BTreeFileName = filename:join(Dir, "nursery.data"),
-            {ok, BT} = hanoidb_writer:open(BTreeFileName, [{size,?BTREE_SIZE(?TOP_LEVEL)},
-                                                           {compress, none} | Config ]),
+            {ok, BT} = hanoidb_writer:open(BTreeFileName,
+                                           [{size,?BTREE_SIZE(?TOP_LEVEL)},
+                                            {compress, none} | Config]),
             try
-                lists:foreach( fun({Key,Value}) ->
-                                       ok = hanoidb_writer:add(BT, Key, Value)
-                               end,
-                               gb_trees:to_list(Cache))
+                lists:foreach(fun({Key, Value}) ->
+                                      ok = hanoidb_writer:add(BT, Key, Value)
+                              end,
+                              gb_trees:to_list(Cache))
             after
                 ok = hanoidb_writer:close(BT)
             end,
-
-%            {ok, FileInfo} = file:read_file_info(BTreeFileName),
-%            error_logger:info_msg("dumping log (count=~p, size=~p, outsize=~p)~n",
-%                                  [ gb_trees:size(Cache), TotalSize, FileInfo#file_info.size ]),
-
 
             %% inject the B-Tree (blocking RPC)
             ok = hanoidb_level:inject(TopLevel, BTreeFileName),
@@ -245,10 +248,11 @@ add(Key, Value, Nursery, Top) ->
 
 add(Key, Value, Expiry, Nursery, Top) ->
     case do_add(Nursery, Key, Value, Expiry, Top) of
-        {ok, _Nursery} = OK ->
-            OK;
-        {full, Nursery2} ->
-            flush(Nursery2, Top)
+        {ok, Nursery0} ->
+            {ok, Nursery0};
+        {full, Nursery} ->
+            io:format("flush~n"),
+            flush(Nursery, Top)
     end.
 
 flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel, config=Config }, Top) ->

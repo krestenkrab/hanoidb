@@ -70,13 +70,11 @@
 % Create or open a hanoidb store.  Argument `Dir' names a
 % directory in which to keep the data files.  By convention, we
 % name hanoidb data directories with extension ".hanoidb".
-% @spec open(Dir::string()) -> hanoidb()
 - spec open(Dir::string()) -> hanoidb().
 open(Dir) ->
     open(Dir, []).
 
 % @doc Create or open a hanoidb store.
-% @spec open(Dir::string(), Options::[config_option()]) -> hanoidb()
 - spec open(Dir::string(), Opts::[config_option()]) -> hanoidb().
 open(Dir, Opts) ->
     ok = start_app(),
@@ -263,60 +261,59 @@ init([Dir, Opts0]) ->
 
     case file:read_file_info(Dir) of
         {ok, #file_info{ type=directory }} ->
-            {ok, TopLevel, MaxLevel} = open_levels(Dir,Opts),
+            {ok, TopLevel, MaxLevel} = open_levels(Dir, Opts),
             {ok, Nursery} = hanoidb_nursery:recover(Dir, TopLevel, MaxLevel, Opts);
-
         {error, E} when E =:= enoent ->
             ok = file:make_dir(Dir),
             {ok, TopLevel} = hanoidb_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
             MaxLevel = ?TOP_LEVEL,
             {ok, Nursery} = hanoidb_nursery:new(Dir, MaxLevel, Opts)
     end,
-
     {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts, max_level=MaxLevel }}.
 
 
-
-open_levels(Dir,Options) ->
+open_levels(Dir, Options) ->
     {ok, Files} = file:list_dir(Dir),
 
     %% parse file names and find max level
-    {MinLevel,MaxLevel} =
-        lists:foldl(fun(FileName, {MinLevel,MaxLevel}) ->
+    {MinLevel, MaxLevel, NumLevels} =
+        lists:foldl(fun(FileName, {MinLevel, MaxLevel, NumLevels}) ->
                             case parse_level(FileName) of
                                 {ok, Level} ->
-                                    { erlang:min(MinLevel, Level),
-                                      erlang:max(MaxLevel, Level) };
-                                _ ->
-                                    {MinLevel,MaxLevel}
+                                    {erlang:min(MinLevel, Level),
+                                     erlang:max(MaxLevel, Level),
+                                     NumLevels + 1};
+                                nomatch ->
+                                    {MinLevel, MaxLevel, NumLevels}
                             end
                     end,
-                    {?TOP_LEVEL, ?TOP_LEVEL},
+                    {?TOP_LEVEL, ?TOP_LEVEL, 0},
                     Files),
 
-%    error_logger:info_msg("found level files ... {~p,~p}~n", [MinLevel, MaxLevel]),
+    %% remove old nursery data file
+    NurseryFileName = filename:join(Dir, "nursery.data"),
+    file:delete(NurseryFileName),
 
-    %% remove old nursery file
-    file:delete(filename:join(Dir,"nursery.data")),
-
-    %%
-    %% Do enough incremental merge to be sure we won't deadlock in insert
-    %%
-    {TopLevel, MaxMerge} =
-        lists:foldl( fun(LevelNo, {NextLevel, MergeWork0}) ->
-                             {ok, Level} = hanoidb_level:open(Dir,LevelNo,NextLevel,Options,self()),
-
-                             MergeWork = MergeWork0 + hanoidb_level:unmerged_count(Level),
-
-                             {Level, MergeWork}
-                     end,
-                     {undefined, 0},
-                     lists:seq(MaxLevel, min(?TOP_LEVEL, MinLevel), -1)),
-
-    WorkPerIter = (MaxLevel-MinLevel+1)*?BTREE_SIZE(?TOP_LEVEL),
-    do_merge(TopLevel, WorkPerIter, MaxMerge),
-
-    {ok, TopLevel, MaxLevel}.
+    TopLevel1 =
+        case NumLevels > 0 of
+            true ->
+                %% Do enough incremental merge to be sure we won't deadlock in insert
+                {TopLevel, MaxMerge} =
+                    lists:foldl(fun(LevelNo, {NextLevel, MergeWork0}) ->
+                                        {ok, Level} = hanoidb_level:open(Dir, LevelNo, NextLevel, Options, self()),
+                                        MergeWork = MergeWork0 + hanoidb_level:unmerged_count(Level),
+                                        {Level, MergeWork}
+                                end,
+                                {undefined, 0},
+                                lists:seq(MaxLevel, min(?TOP_LEVEL, MinLevel), -1)),
+                WorkPerIter = (MaxLevel - MinLevel + 1) * ?BTREE_SIZE(?TOP_LEVEL),
+                error_logger:info_msg("do_merge ... {~p,~p,~p}~n", [TopLevel, WorkPerIter, MaxMerge]),
+                do_merge(TopLevel, WorkPerIter, MaxMerge),
+                TopLevel;
+            false ->
+                ?TOP_LEVEL
+        end,
+    {ok, TopLevel1, MaxLevel}.
 
 do_merge(TopLevel, _Inc, N) when N =< 0 ->
     ok = hanoidb_level:await_incremental_merge(TopLevel);
@@ -326,9 +323,8 @@ do_merge(TopLevel, Inc, N) ->
     do_merge(TopLevel, Inc, N-Inc).
 
 
-
 parse_level(FileName) ->
-    case re:run(FileName, "^[^\\d]+-(\\d+)\\.data$", [{capture,all_but_first,list}]) of
+    case re:run(FileName, "^[^\\d]+-(\\d+)\\.data\$", [{capture,all_but_first,list}]) of
         {match,[StringVal]} ->
             {ok, list_to_integer(StringVal)};
         _ ->
@@ -355,16 +351,14 @@ handle_cast(Info,State) ->
 
 
 %% premature delete -> cleanup
-terminate(normal,_State) ->
+terminate(normal, _State) ->
     ok;
-terminate(_Reason,_State) ->
-    error_logger:info_msg("got terminate(~p,~p)~n", [_Reason,_State]),
-    % flush_nursery(State),
+terminate(_Reason, _State) ->
+    error_logger:info_msg("got terminate(~p, ~p)~n", [_Reason, _State]),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
 
 
 handle_call({snapshot_range, FoldWorkerPID, Range}, _From, State=#state{ top=TopLevel, nursery=Nursery }) ->
@@ -431,9 +425,8 @@ do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = hanoidb_nursery:transact(TransactionSpec, Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
 
-flush_nursery(State=#state{nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel, opt=Config }) ->
-    ok = hanoidb_nursery:finish(Nursery, Top),
-    {ok, Nursery2} = hanoidb_nursery:new(Dir, MaxLevel, Config),
+flush_nursery(State=#state{ nursery=Nursery, top=Top }) ->
+    {ok, Nursery2} = hanoidb_nursery:flush(Nursery, Top),
     {ok, State#state{ nursery=Nursery2 }}.
 
 start_app() ->

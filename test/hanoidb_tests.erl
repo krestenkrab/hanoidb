@@ -53,10 +53,7 @@
 -define(SERVER, hanoidb_drv).
 
 full_test_() ->
-    {setup,
-     spawn,
-     fun () -> ok end,
-     fun (_) -> ok end,
+    {setup, spawn, fun () -> ok end, fun (_) -> ok end,
      [
       ?_test(test_tree_simple_1()),
       ?_test(test_tree_simple_2()),
@@ -288,7 +285,9 @@ test_tree_simple_1() ->
 test_tree_simple_2() ->
     {ok, Tree} = hanoidb:open("simple"),
     ok = hanoidb:put(Tree, <<"ã">>, <<"µ">>),
+    {ok, <<"µ">>} = hanoidb:get(Tree, <<"ã">>),
     ok = hanoidb:delete(Tree, <<"ã">>),
+    not_found = hanoidb:get(Tree, <<"ã">>),
     ok = hanoidb:close(Tree).
 
 test_tree_simple_4() ->
