@@ -435,7 +435,7 @@ main_loop(State = #state{ next=Next }) ->
 
         ?CALL(From, {init_snapshot_range_fold, WorkerPID, Range, List}) when State#state.folding == [] ->
 
-            ?log("init_snapshot_range_fold ~p -> ~p", [Range, WorkerPID]),
+            ?log("init_range_fold ~p -> ~p", [Range, WorkerPID]),
 
             case {State#state.a, State#state.b, State#state.c} of
                 {undefined, undefined, undefined} ->
@@ -487,8 +487,6 @@ main_loop(State = #state{ next=Next }) ->
             main_loop(State#state{ folding = NewFolding });
 
         ?CALL(From, {init_blocking_range_fold, WorkerPID, Range, List}) ->
-
-            ?log("init_blocking_range_fold ~p -> ~p", [Range, WorkerPID]),
 
             case {State#state.a, State#state.b, State#state.c} of
                 {undefined, undefined, undefined} ->
@@ -805,67 +803,62 @@ filename(PFX, State) ->
 
 start_range_fold(FileName, WorkerPID, Range, State) ->
     Owner = self(),
-    PID =
-        proc_lib:spawn(fun() ->
-                               try
-                                   ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
-                                   erlang:link(WorkerPID),
-                                   {ok, File} = hanoidb_reader:open(FileName, [folding|State#state.opts]),
-                                   do_range_fold2(File, WorkerPID, self(), Range),
-                                   erlang:unlink(WorkerPID),
-                                   hanoidb_reader:close(File),
+    PID = proc_lib:spawn( fun() ->
+          try
+              ?log("start_range_fold ~p on ~p -> ~p", [self, FileName, WorkerPID]),
+              erlang:link(WorkerPID),
+              {ok, File} = hanoidb_reader:open(FileName, [folding|State#state.opts]),
+              do_range_fold2(File, WorkerPID, self(), Range),
+              erlang:unlink(WorkerPID),
+              hanoidb_reader:close(File),
 
-                                   %% this will release the pinning of the fold file
-                                   Owner  ! {range_fold_done, self(), FileName},
-                                   ok
-                               catch
-                                   Class:Ex ->
-                                       io:format(user, "BAD: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()])
-                               end
-                       end),
+              %% this will release the pinning of the fold file
+              Owner  ! {range_fold_done, self(), FileName},
+              ok
+          catch
+    Class:Ex ->
+        io:format(user, "BAD: ~p:~p ~p~n", [Class,Ex,erlang:get_stacktrace()])
+          end
+                          end ),
     {ok, PID}.
-
--define(FOLD_CHUNK_SIZE, 100).
 
 -spec do_range_fold(BT        :: hanoidb_reader:read_file(),
                     WorkerPID :: pid(),
                     SelfOrRef :: pid() | reference(),
                     Range     :: #key_range{} ) -> ok.
 do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
-    try case hanoidb_reader:range_fold(fun(Key, Value, 0) ->
-                                               WorkerPID ! {level_result, SelfOrRef, Key, Value},
-                                               {?FOLD_CHUNK_SIZE-1, []};
-                                          (Key, Value, {N, KVs}) ->
-                                               {N-1,[{Key,Value}|KVs]}
-                                       end,
-                                       {?FOLD_CHUNK_SIZE-1,[]},
-                                       BT,
-                                       Range) of
-            {limit, _, LastKey} ->
-                WorkerPID ! {level_limit, SelfOrRef, LastKey};
-            {done, _} ->
-                %% tell fold merge worker we're done
-                WorkerPID ! {level_done, SelfOrRef}
-        end
-    catch
-        exit:worker_died -> ok
+    case hanoidb_reader:range_fold(fun(Key,Value,_) ->
+                                             WorkerPID ! {level_result, SelfOrRef, Key, Value},
+                                             ok
+                                     end,
+                                     ok,
+                                     BT,
+                                     Range) of
+        {limit, _, LastKey} ->
+            WorkerPID ! {level_limit, SelfOrRef, LastKey};
+        {done, _} ->
+            %% tell fold merge worker we're done
+            WorkerPID ! {level_done, SelfOrRef}
+
     end,
     ok.
 
+-define(FOLD_CHUNK_SIZE, 100).
+
 -spec do_range_fold2(BT        :: hanoidb_reader:read_file(),
-                     WorkerPID :: pid(),
-                     SelfOrRef :: pid() | reference(),
-                     Range     :: #key_range{} ) -> ok.
+                    WorkerPID :: pid(),
+                    SelfOrRef :: pid() | reference(),
+                    Range     :: #key_range{} ) -> ok.
 do_range_fold2(BT, WorkerPID, SelfOrRef, Range) ->
     try hanoidb_reader:range_fold(fun(Key,Value,{0,KVs}) ->
-                                          send(WorkerPID, SelfOrRef, [{Key,Value}|KVs]),
-                                          {?FOLD_CHUNK_SIZE-1, []};
-                                     (Key,Value,{N,KVs}) ->
-                                          {N-1,[{Key,Value}|KVs]}
-                                  end,
-                                  {?FOLD_CHUNK_SIZE-1,[]},
-                                  BT,
-                                  Range) of
+                                         send(WorkerPID, SelfOrRef, [{Key,Value}|KVs]),
+                                         {?FOLD_CHUNK_SIZE-1, []};
+                                    (Key,Value,{N,KVs}) ->
+                                         {N-1,[{Key,Value}|KVs]}
+                                 end,
+                                 {?FOLD_CHUNK_SIZE-1,[]},
+                                 BT,
+                                 Range) of
         {limit, {_,KVs}, LastKey} ->
             send(WorkerPID, SelfOrRef, KVs),
             WorkerPID ! {level_limit, SelfOrRef, LastKey};

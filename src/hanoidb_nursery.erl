@@ -97,15 +97,8 @@ read_nursery_from_log(Directory, MaxLevel, Config) ->
         end,
     {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel, config=Config }}.
 
-nursery_full(#nursery{count=Count}=Nursery)
-  when Count + 1 > ?BTREE_SIZE(?TOP_LEVEL) ->
-    {full, Nursery};
-nursery_full(Nursery) ->
-    {ok, Nursery}.
-
-% @doc
-% Add a Key/Value to the nursery
-% @end
+%% @doc Add a Key/Value to the nursery
+%% @end
 -spec do_add(#nursery{}, binary(), binary()|?TOMBSTONE, pos_integer() | infinity, pid()) -> {ok, #nursery{}}.
 do_add(Nursery, Key, Value, infinity, Top) ->
     do_add(Nursery, Key, Value, 0, Top);
@@ -141,7 +134,12 @@ do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=
     {ok, Nursery2} =
         do_inc_merge(Nursery1#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data),
                                        count=Count+1 }, 1, Top),
-    nursery_full(Nursery2).
+
+    if Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
+            {full, Nursery2};
+       true ->
+            {ok, Nursery2}
+    end.
 
 do_sync(File, Nursery) ->
     LastSync =
@@ -198,14 +196,13 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
         N when N > 0 ->
             %% next, flush cache to a new BTree
             BTreeFileName = filename:join(Dir, "nursery.data"),
-            {ok, BT} = hanoidb_writer:open(BTreeFileName,
-                                           [{size,?BTREE_SIZE(?TOP_LEVEL)},
-                                            {compress, none} | Config]),
+            {ok, BT} = hanoidb_writer:open(BTreeFileName, [{size, ?BTREE_SIZE(?TOP_LEVEL)},
+                                                           {compress, none} | Config]),
             try
-                gb_trees_ext:fold(fun(Key, Value, Acc) ->
-                                          ok = hanoidb_writer:add(BT, Key, Value),
-                                          Acc
-                                  end, [], Cache)
+                [] = gb_trees_ext:fold(fun(Key, Value, Acc) ->
+                                               ok = hanoidb_writer:add(BT, Key, Value),
+                                               Acc
+                                       end, [], Cache)
             after
                 ok = hanoidb_writer:close(BT)
             end,
@@ -293,37 +290,39 @@ transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSi
                  length(Spec), Top).
 
 do_inc_merge(Nursery=#nursery{ step=Step, merge_done=Done }, N, TopLevel) ->
-    if Step+N >= ?INC_MERGE_STEP ->
+    case Step+N >= ?INC_MERGE_STEP of
+        true ->
+            io:format("do_inc_merge: true ~p ~p ~p~n", [Step, N, ?INC_MERGE_STEP]),
             hanoidb_level:begin_incremental_merge(TopLevel, Step+N),
             {ok, Nursery#nursery{ step=0, merge_done=Done+Step+N }};
-       true ->
+        false ->
+            io:format("do_inc_merge: false ~p ~p ~p~n", [Step, N, ?INC_MERGE_STEP]),
             {ok, Nursery#nursery{ step=Step+N }}
     end.
 
 do_level_fold(#nursery{cache=Cache}, FoldWorkerPID, KeyRange) ->
     Ref = erlang:make_ref(),
     FoldWorkerPID ! {prefix, [Ref]},
-    case lists:foldl(fun(_,{LastKey,limit}) ->
-                        {LastKey,limit};
-                  ({Key,Value}, {LastKey,Count}) ->
-                             IsExpired = is_expired(Value),
-
-                       case ?KEY_IN_RANGE(Key,KeyRange) andalso (not IsExpired) of
-                           true ->
-                               BinOrTombstone = get_value(Value),
-                               FoldWorkerPID ! {level_result, Ref, Key, BinOrTombstone},
-                               case BinOrTombstone of
-                                   ?TOMBSTONE ->
-                                       {Key, Count};
-                                   _ ->
-                                       {Key, decrement(Count)}
-                               end;
-                           false ->
-                               {LastKey, Count}
-                       end
-               end,
-               {undefined, KeyRange#key_range.limit},
-               gb_trees:to_list(Cache))
+    case gb_trees_ext:fold(
+           fun(_, _, {LastKey, limit}) ->
+                   {LastKey, limit};
+              (Key, Value, {LastKey, Count}) ->
+                   case ?KEY_IN_RANGE(Key, KeyRange) andalso (not is_expired(Value)) of
+                       true ->
+                           BinOrTombstone = get_value(Value),
+                           FoldWorkerPID ! {level_result, Ref, Key, BinOrTombstone},
+                           case BinOrTombstone of
+                               ?TOMBSTONE ->
+                                   {Key, Count};
+                               _ ->
+                                   {Key, decrement(Count)}
+                           end;
+                       false ->
+                           {LastKey, Count}
+                   end
+           end,
+           {undefined, KeyRange#key_range.limit},
+           Cache)
     of
         {LastKey, limit} when LastKey =/= undefined ->
             FoldWorkerPID ! {level_limit, Ref, LastKey};

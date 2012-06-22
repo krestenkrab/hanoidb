@@ -39,7 +39,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3, serialize/1, deserialize/1]).
 
--export([open/2, add/3, count/1, close/1]).
+-export([open/1, open/2, add/3, count/1, close/1]).
 
 -record(node, {level      :: integer(),
                members=[] :: [ {binary(), binary()} ],
@@ -67,9 +67,12 @@
 
 %%% PUBLIC API
 
-open(Name, Options) -> %% TODO: should this be called start_link?
+open(Name,Options) ->
     hanoidb_util:ensure_expiry(Options),
-    gen_server:start_link(?MODULE, ?MODULE, [Name, Options], []).
+    gen_server:start_link(?MODULE, [Name, Options], []).
+
+open(Name) ->
+    gen_server:start_link(?MODULE, [Name,[{expiry_secs,0}]], []).
 
 add(Ref, Key, Value) ->
     gen_server:cast(Ref, {add, Key, Value}).
