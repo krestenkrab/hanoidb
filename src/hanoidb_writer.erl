@@ -172,11 +172,7 @@ do_open(Name, Options, OpenOpts) ->
 %% @doc flush pending nodes and write trailer
 flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom }=State) ->
 
-<<<<<<< Updated upstream
-    BloomBin = zlib:zip(term_to_binary(Bloom)),
-=======
     BloomBin = term_to_binary(Bloom, [compressed]),
->>>>>>> Stashed changes
     BloomSize = byte_size(BloomBin),
 
     IdxFile = State#state.index_file,
