@@ -832,7 +832,7 @@ start_range_fold(FileName, WorkerPID, Range, State) ->
                     SelfOrRef :: pid() | reference(),
                     Range     :: #key_range{} ) -> ok.
 do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
-    try case hanoidb_reader:range_fold(fun(Key, Value, _) ->
+    try case hanoidb_reader:range_fold(fun(Key, Value, 0) ->
                                                WorkerPID ! {level_result, SelfOrRef, Key, Value},
                                                {?FOLD_CHUNK_SIZE-1, []};
                                           (Key, Value, {N, KVs}) ->

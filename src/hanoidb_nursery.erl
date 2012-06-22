@@ -202,10 +202,10 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
                                            [{size,?BTREE_SIZE(?TOP_LEVEL)},
                                             {compress, none} | Config]),
             try
-                lists:foreach(fun({Key, Value}) ->
-                                      ok = hanoidb_writer:add(BT, Key, Value)
-                              end,
-                              gb_trees:to_list(Cache))
+                gb_trees_ext:fold(fun(Key, Value, Acc) ->
+                                          ok = hanoidb_writer:add(BT, Key, Value),
+                                          Acc
+                                  end, [], Cache)
             after
                 ok = hanoidb_writer:close(BT)
             end,
@@ -250,9 +250,8 @@ add(Key, Value, Expiry, Nursery, Top) ->
     case do_add(Nursery, Key, Value, Expiry, Top) of
         {ok, Nursery0} ->
             {ok, Nursery0};
-        {full, Nursery} ->
-            io:format("flush~n"),
-            flush(Nursery, Top)
+        {full, Nursery1} ->
+            flush(Nursery1, Top)
     end.
 
 flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel, config=Config }, Top) ->

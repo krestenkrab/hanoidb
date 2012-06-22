@@ -433,7 +433,7 @@ start_app() ->
     case application:start(?MODULE) of
         ok ->
             ok;
-        {error, {already_started, ?MODULE}} ->
+        {error, {already_started, _}} ->
             ok;
         {error, Reason} ->
             {error, Reason}

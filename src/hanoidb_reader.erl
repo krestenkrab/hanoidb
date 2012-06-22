@@ -81,7 +81,7 @@ open(Name, Config) ->
             {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size-12, 4),
             {ok, BloomData} = file:pread(File, FileInfo#file_info.size-12-BloomSize ,BloomSize),
 
-            {ok, Bloom} = binary_to_term(zlib:unzip(BloomData)),
+            {ok, Bloom} = binary_to_term(BloomData),
 
             %% suck in the root
             {ok, Root} = read_node(File, RootPos),
