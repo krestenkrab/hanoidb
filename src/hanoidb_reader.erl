@@ -66,9 +66,9 @@ open(Name, Config) ->
                 case proplists:get_bool(folding, Config) of
                     true ->
                         ReadBufferSize = hanoidb:get_opt(read_buffer_size, Config, 512 * 1024),
-                        file:open(Name, [read,{read_ahead, ReadBufferSize},binary]);
+                        file:open(Name, [read, {read_ahead, ReadBufferSize}, binary]);
                     false ->
-                        file:open(Name, [read,binary])
+                        file:open(Name, [read, binary])
                 end,
 
             {ok, FileInfo} = file:read_file_info(Name),
@@ -77,11 +77,11 @@ open(Name, Config) ->
             {ok, ?FILE_FORMAT} = file:pread(File, 0, 4),
 
             %% read root position
-            {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size-8, 8),
-            {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size-12, 4),
-            {ok, BloomData} = file:pread(File, FileInfo#file_info.size-12-BloomSize ,BloomSize),
+            {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size - 8, 8),
+            {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size - 12, 4),
+            {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
 
-            {ok, Bloom} = binary_to_term(BloomData),
+            {ok, Bloom} = hanoidb_util:decode_bloom(BloomData),
 
             %% suck in the root
             {ok, Root} = read_node(File, RootPos),

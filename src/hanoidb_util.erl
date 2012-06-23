@@ -205,6 +205,15 @@ decode_kv_data(<<?TAG_TRANSACT, Rest/binary>>) ->
     {ok, TX} = decode_crc_data(Rest, [], []),
     TX.
 
+encode_bloom(Bloom) ->
+    case bloom:is_bloom(Bloom) of
+        true -> zlib:gzip(term_to_binary(Bloom));
+        false -> <<>>
+    end.
+
+decode_bloom(Bin) ->
+    binary_to_term(zlib:gunzip(Bin)).
+
 %% @doc Return number of seconds since 1970
 -spec tstamp() -> pos_integer().
 tstamp() ->

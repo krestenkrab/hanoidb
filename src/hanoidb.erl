@@ -41,7 +41,11 @@
 -include_lib("include/hanoidb.hrl").
 -include_lib("include/plain_rpc.hrl").
 
--record(state, { top, nursery, dir, opt, max_level }).
+-record(state, { top       :: pos_integer(),
+                 nursery   :: term(),
+                 dir       :: string(),
+                 opt       :: term(),
+                 max_level :: pos_integer()}).
 
 %% 0 means never expire
 -define(DEFAULT_EXPIRY_SECS, 0).
@@ -249,25 +253,28 @@ drain_worker_and_return(MRef, PID, Value) ->
 
 init([Dir, Opts0]) ->
     %% ensure expory_secs option is set in config
-    case get_opt(expiry_secs, Opts0) of
-        undefined ->
-            Opts = [{expiry_secs, ?DEFAULT_EXPIRY_SECS}|Opts0];
-        N when is_integer(N), N >= 0 ->
-            Opts = [{expiry_secs, N}|Opts0]
-    end,
-
+    Opts =
+        case get_opt(expiry_secs, Opts0) of
+            undefined ->
+                [{expiry_secs, ?DEFAULT_EXPIRY_SECS}|Opts0];
+            N when is_integer(N), N >= 0 ->
+                [{expiry_secs, N}|Opts0]
+        end,
     hanoidb_util:ensure_expiry(Opts),
 
-    case file:read_file_info(Dir) of
-        {ok, #file_info{ type=directory }} ->
-            {ok, TopLevel, MaxLevel} = open_levels(Dir, Opts),
-            {ok, Nursery} = hanoidb_nursery:recover(Dir, TopLevel, MaxLevel, Opts);
-        {error, E} when E =:= enoent ->
-            ok = file:make_dir(Dir),
-            {ok, TopLevel} = hanoidb_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
-            MaxLevel = ?TOP_LEVEL,
-            {ok, Nursery} = hanoidb_nursery:new(Dir, MaxLevel, Opts)
-    end,
+    {Nursery, MaxLevel, TopLevel} =
+        case file:read_file_info(Dir) of
+            {ok, #file_info{ type=directory }} ->
+                {ok, TL, ML} = open_levels(Dir, Opts),
+                {ok, N0} = hanoidb_nursery:recover(Dir, TL, ML, Opts),
+                {N0, ML, TL};
+            {error, E} when E =:= enoent ->
+                ok = file:make_dir(Dir),
+                {ok, TL} = hanoidb_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
+                ML = ?TOP_LEVEL,
+                {ok, N0} = hanoidb_nursery:new(Dir, ML, Opts),
+                {N0, ML, TL}
+            end,
     {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts, max_level=MaxLevel }}.
 
 

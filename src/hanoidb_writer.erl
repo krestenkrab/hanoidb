@@ -94,11 +94,11 @@ init([Name, Options]) ->
     case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
             file:write(IdxFile, ?FILE_FORMAT),
-            BloomFilter = bloom:new(erlang:min(Size, 16#ffffffff), 0.01),
+            Bloom = bloom:new(erlang:min(Size, 16#ffffffff), 0.01),
             BlockSize = hanoidb:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,
                          index_file_pos=?FIRST_BLOCK_POS, index_file=IdxFile,
-                         bloom = BloomFilter,
+                         bloom = Bloom,
                          block_size = BlockSize,
                          compress = hanoidb:get_opt(compress, Options, none),
                          opts = Options
@@ -152,23 +152,20 @@ code_change(_OldVsn, State, _Extra) ->
 %    io:format("serializing ~p @ ~p~n", [State#state.name,
 %                                        State#state.index_file_pos]),
 serialize(#state{ bloom=Bloom, index_file=File, index_file_pos=Position }=State) ->
-
-    %% assert that we're on track
     case file:position(File, {eof, 0}) of
         {ok, Position} ->
             ok;
         {ok, WrongPosition} ->
             exit({bad_position, Position, WrongPosition})
     end,
-
     ok = file:close(File),
-    erlang:term_to_binary( { State#state{ index_file=closed }, term_to_binary(Bloom) } ).
+    erlang:term_to_binary( { State#state{ index_file=closed }, hanoidb_util:encode_bloom(Bloom) } ).
 
 deserialize(Binary) ->
-    {State, BinBloom} = erlang:binary_to_term(Binary),
-    {ok, Bloom} = term_to_binary(BinBloom),
+    {State, Bin} = erlang:binary_to_term(Binary),
+    Bloom = hanoidb_util:decode_bloom(Bin),
     {ok, IdxFile} = do_open(State#state.name, State#state.opts, []),
-    State#state{ bloom = Bloom, index_file=IdxFile }.
+    State#state{ bloom=Bloom, index_file=IdxFile }.
 
 
 do_open(Name, Options, OpenOpts) ->
@@ -178,10 +175,10 @@ do_open(Name, Options, OpenOpts) ->
 
 
 %% @doc flush pending nodes and write trailer
+flush_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos }) when N>0 ->
+    %% stack consists of one node with one {pos,len} member.  Just ignore this node.
+    flush_nodes(State#state{ nodes=[] });
 flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom }=State) ->
-    BloomBin = term_to_binary(Bloom, [compressed]),
-    BloomSize = byte_size(BloomBin),
-
     IdxFile = State#state.index_file,
 
     RootPos =
@@ -194,6 +191,8 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
                 ?FIRST_BLOCK_POS
         end,
 
+    BloomBin = hanoidb_util:encode_bloom(Bloom),
+    BloomSize = byte_size(BloomBin),
     Trailer = << 0:32, BloomBin/binary, BloomSize:32/unsigned,  RootPos:64/unsigned >>,
 
     ok = file:write(IdxFile, Trailer),
@@ -201,18 +200,17 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
     ok = file:close(IdxFile),
 
     {ok, State#state{ index_file=undefined, index_file_pos=undefined }};
-
-%% stack consists of one node with one {pos,len} member.  Just ignore this node.
-flush_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos }) when N>0 ->
-    flush_nodes(State#state{ nodes=[] });
-
 flush_nodes(State) ->
     {ok, State2} = close_node(State),
     flush_nodes(State2).
 
-add_record(Level, Key, Value,
-           #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode | RestNodes ],
-                   value_count=VC, tombstone_count=TC  }=State) ->
+
+add_record(Level, Key, Value, State=#state{ nodes=[] }) ->
+    add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=Level } ] });
+add_record(Level, Key, Value, State=#state{ nodes=[ #node{level=Level2 } |_]=Stack })
+  when Level < Level2 ->
+    add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=(Level2 - 1) } | Stack] });
+add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode | RestNodes ], value_count=VC, tombstone_count=TC  }=State) ->
     %% The top-of-stack node is at the level we wish to insert at.
 
     %% Assert that keys are increasing:
@@ -236,10 +234,8 @@ add_record(Level, Key, Value,
             end,
 
     {TC1, VC1} =
-        case Level == 0 of
-            true ->
-                {TC, VC};
-            false ->
+        case Level of
+            0 ->
                 case Value of
                     ?TOMBSTONE ->
                         {TC+1, VC};
@@ -247,7 +243,9 @@ add_record(Level, Key, Value,
                         {TC+1, VC};
                     _ ->
                         {TC, VC+1}
-                end
+                end;
+            _ ->
+                {TC, VC}
             end,
 
     NodeMembers = [{Key, Value} | List],
@@ -256,17 +254,10 @@ add_record(Level, Key, Value,
 
     case NewSize >= State#state.block_size of
         true ->
-            {ok, State2};
+            close_node(State2);
         false ->
-            close_node(State2)
-        end;
-
-add_record(Level, Key, Value, State=#state{ nodes=[] }) ->
-    add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=Level } ] });
-
-add_record(Level, Key, Value, State=#state{ nodes=[ #node{level=Level2 } |_]=Stack }) when Level < Level2 ->
-    add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=(Level2-1) } | Stack] }).
-
+            {ok, State2}
+    end.
 
 close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], compress=Compress} = State) ->
     OrderedMembers = lists:reverse(NodeMembers),
