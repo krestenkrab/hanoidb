@@ -40,9 +40,7 @@
 -define(TAG_DELETED2, 16#85).
 -define(TAG_END,      16#FF).
 
--compile({inline, [
-                   crc_encapsulate/1, crc_encapsulate_kv_entry/2
-                  ]}).
+-compile({inline, [crc_encapsulate/1, crc_encapsulate_kv_entry/2 ]}).
 
 
 index_file_name(Name) ->
@@ -56,22 +54,22 @@ file_exists(FileName) ->
             false
     end.
 
-
-
-
-estimate_node_size_increment(_KVList,Key,Value) ->
-    byte_size(Key)
-        + 10
-        + if
-              is_integer(Value) ->
-                  5;
-              is_binary(Value) ->
-                  5 + byte_size(Value);
-              is_atom(Value) ->
-                  8;
-              is_tuple(Value) ->
-                  13
-          end.
+estimate_node_size_increment(_KVList, Key, {Value, _TStamp})
+  when is_integer(Value) -> byte_size(Key) + 5 + 4;
+estimate_node_size_increment(_KVList, Key, {Value, _TStamp})
+  when is_binary(Value) -> byte_size(Key) + 5 + 4 + byte_size(Value);
+estimate_node_size_increment(_KVList, Key, {Value, _TStamp})
+  when is_atom(Value) -> byte_size(Key) + 8 + 4;
+estimate_node_size_increment(_KVList, Key, {Value, _TStamp})
+  when is_tuple(Value) -> byte_size(Key) + 13 + 4;
+estimate_node_size_increment(_KVList, Key, Value)
+  when is_integer(Value) -> byte_size(Key) + 5 + 4;
+estimate_node_size_increment(_KVList, Key, Value)
+  when is_binary(Value) -> byte_size(Key) + 5 + 4 + byte_size(Value);
+estimate_node_size_increment(_KVList, Key, Value)
+  when is_atom(Value) -> byte_size(Key) + 8 + 4;
+estimate_node_size_increment(_KVList, Key, Value)
+  when is_tuple(Value) -> byte_size(Key) + 13 + 4.
 
 -define(NO_COMPRESSION, 0).
 -define(SNAPPY_COMPRESSION, 1).

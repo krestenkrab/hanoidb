@@ -81,11 +81,11 @@ add(Ref, Key, Value) ->
 count(Ref) ->
     gen_server:call(Ref, count, infinity).
 
+%% @doc Close the btree index file
 close(Ref) ->
     gen_server:call(Ref, close, infinity).
 
 %%%
-
 
 init([Name, Options]) ->
     hanoidb_util:ensure_expiry(Options),
@@ -94,7 +94,7 @@ init([Name, Options]) ->
     case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
             file:write(IdxFile, ?FILE_FORMAT),
-            BloomFilter = bloom:new(erlang:min(Size, 16#ffffffff), 0.001),
+            BloomFilter = bloom:new(erlang:min(Size, 16#ffffffff), 0.01),
             BlockSize = hanoidb:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,
                          index_file_pos=?FIRST_BLOCK_POS, index_file=IdxFile,
@@ -109,34 +109,39 @@ init([Name, Options]) ->
     end.
 
 
-handle_cast({add, Key, Value}, State)
-  when is_binary(Key), (is_binary(Value) orelse Value == ?TOMBSTONE)->
-    {ok, State2} = add_record(0, Key, Value, State),
+handle_cast({add, Key, {?TOMBSTONE, TStamp}}, State)
+  when is_binary(Key) ->
+    {ok, State2} = add_record(0, Key, {?TOMBSTONE, TStamp}, State),
+    {noreply, State2};
+handle_cast({add, Key, ?TOMBSTONE}, State)
+  when is_binary(Key) ->
+    {ok, State2} = add_record(0, Key, ?TOMBSTONE, State),
     {noreply, State2};
 handle_cast({add, Key, {Value, TStamp}}, State)
-  when is_binary(Key), (is_binary(Value) orelse Value == ?TOMBSTONE)->
+  when is_binary(Key), is_binary(Value) ->
     {ok, State2} = add_record(0, Key, {Value, TStamp}, State),
+    {noreply, State2};
+handle_cast({add, Key, Value}, State)
+  when is_binary(Key), is_binary(Value) ->
+    {ok, State2} = add_record(0, Key, Value, State),
     {noreply, State2}.
 
 handle_call(count, _From, State = #state{ value_count=VC, tombstone_count=TC }) ->
     {ok, VC+TC, State};
-
 handle_call(close, _From, State) ->
     {ok, State2} = flush_nodes(State),
-    {stop,normal,ok,State2}.
+    {stop, normal, ok, State2}.
 
-handle_info(Info,State) ->
+handle_info(Info, State) ->
     error_logger:error_msg("Unknown info ~p~n", [Info]),
-    {stop,bad_msg,State}.
-
+    {stop, bad_msg, State}.
 
 terminate(normal,_State) ->
     ok;
-
-%% premature delete -> cleanup
 terminate(_Reason, State) ->
-    file:close( State#state.index_file ),
-    file:delete( hanoidb_util:index_file_name(State#state.name) ).
+    %% premature delete -> cleanup
+    file:close(State#state.index_file),
+    file:delete(hanoidb_util:index_file_name(State#state.name)).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -174,7 +179,6 @@ do_open(Name, Options, OpenOpts) ->
 
 %% @doc flush pending nodes and write trailer
 flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom }=State) ->
-
     BloomBin = term_to_binary(Bloom, [compressed]),
     BloomSize = byte_size(BloomBin),
 
@@ -213,7 +217,8 @@ add_record(Level, Key, Value,
 
     %% Assert that keys are increasing:
     case List of
-        [] -> ok;
+        [] ->
+            ok;
         [{PrevKey,_}|_] ->
             if
                 (Key >= PrevKey) -> ok;

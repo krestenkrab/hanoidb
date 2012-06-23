@@ -131,9 +131,9 @@ do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=
     ok = file:write(File, Data),
     Nursery1 = do_sync(File, Nursery),
 
-    {ok, Nursery2} =
-        do_inc_merge(Nursery1#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data),
-                                       count=Count+1 }, 1, Top),
+    {ok, Nursery2} = do_inc_merge(Nursery1#nursery{ cache=Cache2,
+                                                    total_size=TotalSize + erlang:iolist_size(Data),
+                                                    count=Count + 1 }, 1, Top),
 
     if Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
             {full, Nursery2};
@@ -199,10 +199,10 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
             {ok, BT} = hanoidb_writer:open(BTreeFileName, [{size, ?BTREE_SIZE(?TOP_LEVEL)},
                                                            {compress, none} | Config]),
             try
-                [] = gb_trees_ext:fold(fun(Key, Value, Acc) ->
+                ok = gb_trees_ext:fold(fun(Key, Value, Acc) ->
                                                ok = hanoidb_writer:add(BT, Key, Value),
                                                Acc
-                                       end, [], Cache)
+                                       end, ok, Cache)
             after
                 ok = hanoidb_writer:close(BT)
             end,
@@ -286,18 +286,15 @@ transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSi
 
     Count = gb_trees:size(Cache2),
 
-    do_inc_merge(Nursery2#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data), count=Count },
-                 length(Spec), Top).
+    do_inc_merge(Nursery2#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data), count=Count }, length(Spec), Top).
 
 do_inc_merge(Nursery=#nursery{ step=Step, merge_done=Done }, N, TopLevel) ->
     case Step+N >= ?INC_MERGE_STEP of
         true ->
-            io:format("do_inc_merge: true ~p ~p ~p~n", [Step, N, ?INC_MERGE_STEP]),
-            hanoidb_level:begin_incremental_merge(TopLevel, Step+N),
-            {ok, Nursery#nursery{ step=0, merge_done=Done+Step+N }};
+            hanoidb_level:begin_incremental_merge(TopLevel, Step + N),
+            {ok, Nursery#nursery{ step=0, merge_done=Done + Step + N }};
         false ->
-            io:format("do_inc_merge: false ~p ~p ~p~n", [Step, N, ?INC_MERGE_STEP]),
-            {ok, Nursery#nursery{ step=Step+N }}
+            {ok, Nursery#nursery{ step=Step + N }}
     end.
 
 do_level_fold(#nursery{cache=Cache}, FoldWorkerPID, KeyRange) ->

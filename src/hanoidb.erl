@@ -346,7 +346,6 @@ terminate(normal, _State) ->
     ok;
 terminate(_Reason, _State) ->
     error_logger:info_msg("got terminate(~p, ~p)~n", [_Reason, _State]),
-    % flush_nursery(State),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -386,11 +385,11 @@ handle_call({get, Key}, From, State=#state{ top=Top, nursery=Nursery } ) when is
             {noreply, State}
     end;
 
-handle_call(close, _From, State=#state{top=Top}) ->
+handle_call(close, _From, State=#state{ nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel, opt=Config }) ->
     try
-        {ok, State2} = flush_nursery(State),
+        ok = hanoidb_nursery:finish(Nursery, Top),
         ok = hanoidb_level:close(Top),
-        {stop, normal, ok, State2}
+        {stop, normal, ok, State#state{ nursery=hanoidb_nursery:new(Dir, MaxLevel, Config)}}
     catch
         E:R ->
             error_logger:info_msg("exception from close ~p:~p~n", [E,R]),
@@ -415,11 +414,6 @@ do_transact([], State) ->
     {ok, State};
 do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, Nursery2} = hanoidb_nursery:transact(TransactionSpec, Nursery, Top),
-    {ok, State#state{ nursery=Nursery2 }}.
-
-flush_nursery(State=#state{ nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel, opt=Config }) ->
-    ok = hanoidb_nursery:finish(Nursery, Top),
-    {ok, Nursery2} = hanoidb_nursery:new(Dir, MaxLevel, Config),
     {ok, State#state{ nursery=Nursery2 }}.
 
 start_app() ->
