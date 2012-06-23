@@ -81,7 +81,7 @@ open(Name, Config) ->
             {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size - 12, 4),
             {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
 
-            {ok, Bloom} = hanoidb_util:decode_bloom(BloomData),
+            Bloom = hanoidb_util:decode_bloom(BloomData),
 
             %% suck in the root
             {ok, Root} = read_node(File, RootPos),
