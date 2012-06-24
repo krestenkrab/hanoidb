@@ -224,7 +224,7 @@ add_record(Level, Key, Value, State=#state{ nodes=[] }) ->
 add_record(Level, Key, Value, State=#state{ nodes=[ #node{level=Level2 } |_]=Stack })
   when Level < Level2 ->
     add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=(Level2 - 1) } | Stack] });
-add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode | RestNodes ], value_count=VC, tombstone_count=TC  }=State) ->
+add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode | RestNodes ], value_count=VC, tombstone_count=TC, bloom=Bloom }=State) ->
     %% The top-of-stack node is at the level we wish to insert at.
 
     %% Assert that keys are increasing:
@@ -242,11 +242,7 @@ add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, s
 
     NewSize = NodeSize + hanoidb_util:estimate_node_size_increment(List, Key, Value),
 
-    Bloom = bloom:add_element(Key, State#state.bloom),
-    %% Bloom = case Key of
-    %%             <<>> -> State#state.bloom;
-    %%             _ ->    bloom:add_element(Key, State#state.bloom)
-    %%         end,
+    NewBloom = bloom:add_element(Key, Bloom),
 
     {TC1, VC1} =
         case Level of
@@ -265,7 +261,7 @@ add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, s
 
     NodeMembers = [{Key, Value} | List],
     State2 = State#state{ nodes=[CurrNode#node{members=NodeMembers, size=NewSize} | RestNodes],
-                          value_count=VC1, tombstone_count=TC1, bloom=Bloom },
+                          value_count=VC1, tombstone_count=TC1, bloom=NewBloom },
 
     case NewSize >= State#state.block_size of
         true ->
