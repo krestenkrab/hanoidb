@@ -261,7 +261,7 @@ close(#index{file=File}) ->
 
 
 lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
-    case bloom:is_element(Bloom, Key) orelse Key =:= <<>> of
+    case bloom:is_element(Bloom, Key) of
         true ->
             case lookup_in_node(File, Node, Key) of
                 not_found ->

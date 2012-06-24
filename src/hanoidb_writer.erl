@@ -111,16 +111,30 @@ init([Name, Options]) ->
 
 handle_cast({add, Key, {?TOMBSTONE, TStamp}}, State)
   when is_binary(Key) ->
-    {ok, State2} = add_record(0, Key, {?TOMBSTONE, TStamp}, State),
-    {noreply, State2};
+    NewState =
+        case hanoidb_util:has_expired(TStamp) of
+            true ->
+                State;
+            false ->
+                {ok, State2} = add_record(0, Key, {?TOMBSTONE, TStamp}, State),
+                State2
+        end,
+    {noreply, NewState};
 handle_cast({add, Key, ?TOMBSTONE}, State)
   when is_binary(Key) ->
-    {ok, State2} = add_record(0, Key, ?TOMBSTONE, State),
-    {noreply, State2};
+    {ok, NewState} = add_record(0, Key, ?TOMBSTONE, State),
+    {noreply, NewState};
 handle_cast({add, Key, {Value, TStamp}}, State)
   when is_binary(Key), is_binary(Value) ->
-    {ok, State2} = add_record(0, Key, {Value, TStamp}, State),
-    {noreply, State2};
+    NewState =
+        case hanoidb_util:has_expired(TStamp) of
+            true ->
+                State;
+            false ->
+                {ok, State2} = add_record(0, Key, {Value, TStamp}, State),
+                State2
+        end,
+    {noreply, NewState};
 handle_cast({add, Key, Value}, State)
   when is_binary(Key), is_binary(Value) ->
     {ok, State2} = add_record(0, Key, Value, State),
@@ -182,13 +196,13 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
     IdxFile = State#state.index_file,
 
     RootPos =
-        case LastNodePos =:= undefined of
-            true ->
-                LastNodePos;
-            false ->
+        case LastNodePos of
+            undefined ->
                 %% store contains no entries
                 ok = file:write(IdxFile, <<0:32,0:16>>),
-                ?FIRST_BLOCK_POS
+                ?FIRST_BLOCK_POS;
+            _ ->
+                LastNodePos
         end,
 
     BloomBin = hanoidb_util:encode_bloom(Bloom),
@@ -228,10 +242,11 @@ add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, s
 
     NewSize = NodeSize + hanoidb_util:estimate_node_size_increment(List, Key, Value),
 
-    Bloom = case Key of
-                <<>> -> State#state.bloom;
-                _ ->    bloom:add_element(Key, State#state.bloom)
-            end,
+    Bloom = bloom:add_element(Key, State#state.bloom),
+    %% Bloom = case Key of
+    %%             <<>> -> State#state.bloom;
+    %%             _ ->    bloom:add_element(Key, State#state.bloom)
+    %%         end,
 
     {TC1, VC1} =
         case Level of
