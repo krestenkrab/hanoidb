@@ -94,7 +94,7 @@ init([Name, Options]) ->
     case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
             file:write(IdxFile, ?FILE_FORMAT),
-            Bloom = bloom:new(erlang:min(Size, 16#ffffffff), 0.01),
+            Bloom = bloom:new(erlang:min(Size, 16#ffffffff), 0.001),
             BlockSize = hanoidb:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,
                          index_file_pos=?FIRST_BLOCK_POS, index_file=IdxFile,
