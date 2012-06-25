@@ -186,27 +186,25 @@ do_open(Name, Options, OpenOpts) ->
 
 
 %% @doc flush pending nodes and write trailer
-flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom }=State) ->
-    IdxFile = State#state.index_file,
+flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom, index_file=IdxFile }=State) ->
 
-    RootPos =
-        case LastNodePos =:= undefined of
-            true ->
+    {BloomBin, BloomSize, RootPos} =
+        case LastNodePos of
+            undefined ->
                 %% store contains no entries
                 ok = file:write(IdxFile, <<0:32,0:16>>),
-                ?FIRST_BLOCK_POS;
+                FilterSize = bloom:filter_size(Bloom),
+                {<<FilterSize:32/unsigned>>, 0, ?FIRST_BLOCK_POS};
             _ ->
-                LastNodePos
+                EncodedBloom = hanoidb_util:encode_bloom(Bloom),
+                {EncodedBloom, byte_size(EncodedBloom), LastNodePos}
         end,
 
-    BloomBin = hanoidb_util:encode_bloom(Bloom),
-    BloomSize = byte_size(BloomBin),
     Trailer = << 0:32, BloomBin/binary, BloomSize:32/unsigned,  RootPos:64/unsigned >>,
 
     ok = file:write(IdxFile, Trailer),
     ok = file:datasync(IdxFile),
     ok = file:close(IdxFile),
-
     {ok, State#state{ index_file=undefined, index_file_pos=undefined }};
 
 flush_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos })

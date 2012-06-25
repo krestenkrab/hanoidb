@@ -79,12 +79,25 @@ open(Name, Config) ->
             %% read root position
             {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size - 8, 8),
             {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size - 12, 4),
-            {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
 
-            Bloom = hanoidb_util:decode_bloom(BloomData),
+            Bloom =
+                case BloomSize of
+                    0 ->
+                        {ok, <<FilterSize:32/unsigned>>} = file:pread(File, (FileInfo#file_info.size - 16), 4),
+                        bloom:new(FilterSize, 0.001);
+                    _ ->
+                        {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
+                        hanoidb_util:decode_bloom(BloomData)
+                end,
 
-            %% suck in the root
-            {ok, Root} = read_node(File, RootPos),
+            %% read in the root node
+            Root =
+                case read_node(File, RootPos) of
+                    {ok, Node} ->
+                        Node;
+                    eof ->
+                        none
+                end,
 
             {ok, #index{file=File, root=Root, bloom=Bloom, name=Name, config=Config}}
     end.
