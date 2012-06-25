@@ -252,7 +252,6 @@ lookup_node(File,FromKey,#node{members=Members,level=N},_) ->
     end.
 
 
-
 first_node(#index{file=File}) ->
     case read_node(File, ?FIRST_BLOCK_POS) of
         {ok, #node{level=0, members=Members}} ->
@@ -370,21 +369,25 @@ find_start(K, KVs) ->
 
 
 
-read_node(File,{Pos,Size}) ->
-%   error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),
+read_node(File, {Pos, Size}) ->
+%    error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),
     {ok, <<_:32, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
     hanoidb_util:decode_index_node(Level, Data);
 
-read_node(File,Pos) ->
+read_node(File, Pos) ->
+%    error_logger:info_msg("read_node ~p ~p~n", [File, Pos]),
     {ok, Pos} = file:position(File, Pos),
     Result = read_node(File),
-%   error_logger:info_msg("decoded ~p ~p~n", [Pos, Result]),
+%    error_logger:info_msg("decoded ~p ~p~n", [Pos, Result]),
     Result.
 
 read_node(File) ->
+%    error_logger:info_msg("read_node ~p~n", [File]),
     {ok, <<Len:32, Level:16/unsigned>>} = file:read(File, 6),
+%    error_logger:info_msg("decoded ~p ~p~n", [Len, Level]),
     case Len of
-        0 -> eof;
+        0 ->
+            eof;
         _ ->
             {ok, Data} = file:read(File, Len-2),
             hanoidb_util:decode_index_node(Level, Data)

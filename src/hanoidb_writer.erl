@@ -93,7 +93,7 @@ init([Name, Options]) ->
 
     case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
-            file:write(IdxFile, ?FILE_FORMAT),
+            ok = file:write(IdxFile, ?FILE_FORMAT),
             Bloom = bloom:new(erlang:min(Size, 16#ffffffff), 0.001),
             BlockSize = hanoidb:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,
@@ -268,10 +268,9 @@ add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, s
             {ok, State2}
     end.
 
-close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], compress=Compress} = State) ->
+close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], compress=Compress, index_file_pos=NodePos} = State) ->
     OrderedMembers = lists:reverse(NodeMembers),
     {ok, BlockData} = hanoidb_util:encode_index_node(OrderedMembers, Compress),
-    NodePos = State#state.index_file_pos,
 
     BlockSize = erlang:iolist_size(BlockData),
     Data = [ <<(BlockSize+2):32/unsigned, Level:16/unsigned>> | BlockData ],
@@ -280,7 +279,7 @@ close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], c
     ok = file:write(State#state.index_file, Data),
 
     {FirstKey, _} = hd(OrderedMembers),
-    add_record(Level+1, FirstKey, {NodePos, DataSize},
+    add_record(Level + 1, FirstKey, {NodePos, DataSize},
                State#state{ nodes          = RestNodes,
                             index_file_pos = NodePos + DataSize,
                             last_node_pos  = NodePos,
