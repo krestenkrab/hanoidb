@@ -116,13 +116,13 @@ handle_cast({add, Key, {?TOMBSTONE, TStamp}}, State)
             true ->
                 State;
             false ->
-                {ok, State2} = add_record(0, Key, {?TOMBSTONE, TStamp}, State),
+                {ok, State2} = append_node(0, Key, {?TOMBSTONE, TStamp}, State),
                 State2
         end,
     {noreply, NewState};
 handle_cast({add, Key, ?TOMBSTONE}, State)
   when is_binary(Key) ->
-    {ok, NewState} = add_record(0, Key, ?TOMBSTONE, State),
+    {ok, NewState} = append_node(0, Key, ?TOMBSTONE, State),
     {noreply, NewState};
 handle_cast({add, Key, {Value, TStamp}}, State)
   when is_binary(Key), is_binary(Value) ->
@@ -131,19 +131,19 @@ handle_cast({add, Key, {Value, TStamp}}, State)
             true ->
                 State;
             false ->
-                {ok, State2} = add_record(0, Key, {Value, TStamp}, State),
+                {ok, State2} = append_node(0, Key, {Value, TStamp}, State),
                 State2
         end,
     {noreply, NewState};
 handle_cast({add, Key, Value}, State)
   when is_binary(Key), is_binary(Value) ->
-    {ok, State2} = add_record(0, Key, Value, State),
+    {ok, State2} = append_node(0, Key, Value, State),
     {noreply, State2}.
 
 handle_call(count, _From, State = #state{ value_count=VC, tombstone_count=TC }) ->
     {ok, VC+TC, State};
 handle_call(close, _From, State) ->
-    {ok, State2} = flush_nodes(State),
+    {ok, State2} = archive_nodes(State),
     {stop, normal, ok, State2}.
 
 handle_info(Info, State) ->
@@ -186,13 +186,13 @@ do_open(Name, Options, OpenOpts) ->
 
 
 %% @doc flush pending nodes and write trailer
-flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom, index_file=IdxFile }=State) ->
+archive_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom, index_file=IdxFile }=State) ->
 
     {BloomBin, BloomSize, RootPos} =
         case LastNodePos of
             undefined ->
                 %% store contains no entries
-                ok = file:write(IdxFile, <<0:32,0:16>>),
+                ok = file:write(IdxFile, <<0:32/unsigned, 0:16/unsigned>>),
                 FilterSize = bloom:filter_size(Bloom),
                 {<<FilterSize:32/unsigned>>, 0, ?FIRST_BLOCK_POS};
             _ ->
@@ -200,29 +200,29 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
                 {EncodedBloom, byte_size(EncodedBloom), LastNodePos}
         end,
 
-    Trailer = << 0:32, BloomBin/binary, BloomSize:32/unsigned,  RootPos:64/unsigned >>,
+    Trailer = << 0:32/unsigned, BloomBin/binary, BloomSize:32/unsigned,  RootPos:64/unsigned >>,
 
     ok = file:write(IdxFile, Trailer),
     ok = file:datasync(IdxFile),
     ok = file:close(IdxFile),
     {ok, State#state{ index_file=undefined, index_file_pos=undefined }};
 
-flush_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos })
+archive_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos })
   when N > 0 ->
     %% Ignore this node, its stack consists of one node with one {pos,len} member
-    flush_nodes(State#state{ nodes=[] });
+    archive_nodes(State#state{ nodes=[] });
 
-flush_nodes(State) ->
-    {ok, State2} = close_node(State),
-    flush_nodes(State2).
+archive_nodes(State) ->
+    {ok, State2} = flush_node_buffer(State),
+    archive_nodes(State2).
 
 
-add_record(Level, Key, Value, State=#state{ nodes=[] }) ->
-    add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=Level } ] });
-add_record(Level, Key, Value, State=#state{ nodes=[ #node{level=Level2 } |_]=Stack })
+append_node(Level, Key, Value, State=#state{ nodes=[] }) ->
+    append_node(Level, Key, Value, State#state{ nodes=[ #node{ level=Level } ] });
+append_node(Level, Key, Value, State=#state{ nodes=[ #node{level=Level2 } |_]=Stack })
   when Level < Level2 ->
-    add_record(Level, Key, Value, State#state{ nodes=[ #node{ level=(Level2 - 1) } | Stack] });
-add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode | RestNodes ], value_count=VC, tombstone_count=TC, bloom=Bloom }=State) ->
+    append_node(Level, Key, Value, State#state{ nodes=[ #node{ level=(Level2 - 1) } | Stack] });
+append_node(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, size=NodeSize}=CurrNode | RestNodes ], value_count=VC, tombstone_count=TC, bloom=Bloom }=State) ->
     %% The top-of-stack node is at the level we wish to insert at.
 
     %% Assert that keys are increasing:
@@ -263,12 +263,12 @@ add_record(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, s
 
     case NewSize >= State#state.block_size of
         true ->
-            close_node(State2);
+            flush_node_buffer(State2);
         false ->
             {ok, State2}
     end.
 
-close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], compress=Compress, index_file_pos=NodePos} = State) ->
+flush_node_buffer(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], compress=Compress, index_file_pos=NodePos} = State) ->
     OrderedMembers = lists:reverse(NodeMembers),
     {ok, BlockData} = hanoidb_util:encode_index_node(OrderedMembers, Compress),
 
@@ -279,8 +279,8 @@ close_node(#state{nodes=[#node{ level=Level, members=NodeMembers }|RestNodes], c
     ok = file:write(State#state.index_file, Data),
 
     {FirstKey, _} = hd(OrderedMembers),
-    add_record(Level + 1, FirstKey, {NodePos, DataSize},
-               State#state{ nodes          = RestNodes,
-                            index_file_pos = NodePos + DataSize,
-                            last_node_pos  = NodePos,
-                            last_node_size = DataSize }).
+    append_node(Level + 1, FirstKey, {NodePos, DataSize},
+                State#state{ nodes          = RestNodes,
+                             index_file_pos = NodePos + DataSize,
+                             last_node_pos  = NodePos,
+                             last_node_size = DataSize }).

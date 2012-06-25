@@ -38,6 +38,7 @@
 
 -record(node, {level       :: non_neg_integer(),
                members=[]  :: list(any()) }).
+
 -record(index, {file       :: port(),
                 root       :: #node{},
                 bloom      :: term(),
@@ -122,7 +123,7 @@ fold(Fun, Acc0, #index{file=File}) ->
     {ok, Node} = read_node(File,?FIRST_BLOCK_POS),
     fold0(File,fun({K,V},Acc) -> Fun(K,V,Acc) end,Node,Acc0).
 
-fold0(File,Fun,#node{level=0,members=List},Acc0) ->
+fold0(File,Fun,#node{level=0, members=List},Acc0) ->
     Acc1 = lists:foldl(Fun,Acc0,List),
     fold1(File,Fun,Acc1);
 fold0(File,Fun,_InnerNode,Acc0) ->
@@ -371,7 +372,7 @@ find_start(K, KVs) ->
 
 read_node(File, {Pos, Size}) ->
 %    error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),
-    {ok, <<_:32, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
+    {ok, <<_:32/unsigned, Level:16/unsigned, Data/binary>>} = file:pread(File, Pos, Size),
     hanoidb_util:decode_index_node(Level, Data);
 
 read_node(File, Pos) ->
@@ -383,7 +384,7 @@ read_node(File, Pos) ->
 
 read_node(File) ->
 %    error_logger:info_msg("read_node ~p~n", [File]),
-    {ok, <<Len:32, Level:16/unsigned>>} = file:read(File, 6),
+    {ok, <<Len:32/unsigned, Level:16/unsigned>>} = file:read(File, 6),
 %    error_logger:info_msg("decoded ~p ~p~n", [Len, Level]),
     case Len of
         0 ->
@@ -399,12 +400,12 @@ next_leaf_node(File) ->
         eof ->
             %% premature end-of-file
             eof;
-        {ok, <<0:32, _:16>>} ->
+        {ok, <<0:32/unsigned, _:16/unsigned>>} ->
             eof;
-        {ok, <<Len:32, 0:16>>} ->
+        {ok, <<Len:32/unsigned, 0:16/unsigned>>} ->
             {ok, Data} = file:read(File, Len-2),
             hanoidb_util:decode_index_node(0, Data);
-        {ok, <<Len:32, _:16>>} ->
+        {ok, <<Len:32/unsigned, _:16/unsigned>>} ->
             {ok, _} = file:position(File, {cur,Len-2}),
             next_leaf_node(File)
     end.
