@@ -37,7 +37,6 @@
 %% A merger which is inactive for this long will sleep
 %% which means that it will close open files, and compress
 %% the current bloom filter.
-%%
 -define(HIBERNATE_TIMEOUT, 5000).
 
 -define(COMPRESSION_METHOD, gzip).
@@ -55,9 +54,9 @@ merge(A,B,C, Size, IsLastLevel, Options) ->
     {ok, Out} =
         case ?LOCAL_WRITER of
             true ->
-                hanoidb_writer:init([C, [{size,Size} | Options]]);
+                hanoidb_writer:init([C, [{size, Size} | Options]]);
             false ->
-                hanoidb_writer:open(C, [{size,Size} | Options])
+                hanoidb_writer:open(C, [{size, Size} | Options])
         end,
     {node, AKVs} = hanoidb_reader:first_node(BT1),
     {node, BKVs} = hanoidb_reader:first_node(BT2),

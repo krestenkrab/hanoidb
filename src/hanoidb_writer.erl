@@ -161,10 +161,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 
-%%%%% INTERNAL FUNCTIONS
-
-%    io:format("serializing ~p @ ~p~n", [State#state.name,
-%                                        State#state.index_file_pos]),
+%% INTERNAL FUNCTIONS
 serialize(#state{ bloom=Bloom, index_file=File, index_file_pos=Position }=State) ->
     case file:position(File, {eof, 0}) of
         {ok, Position} ->
