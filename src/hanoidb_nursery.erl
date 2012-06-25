@@ -130,15 +130,14 @@ do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=
 
     ok = file:write(File, Data),
     Nursery1 = do_sync(File, Nursery),
-
     {ok, Nursery2} = do_inc_merge(Nursery1#nursery{ cache=Cache2,
                                                     total_size=TotalSize + erlang:iolist_size(Data),
                                                     count=Count + 1 }, 1, Top),
-
-    if Count+1 >= ?BTREE_SIZE(?TOP_LEVEL) ->
-            {full, Nursery2};
-       true ->
-            {ok, Nursery2}
+    case has_room(Nursery2, 1) of
+        true ->
+            {ok, Nursery2};
+        false ->
+            {full, Nursery2}
     end.
 
 do_sync(File, Nursery) ->
@@ -257,7 +256,7 @@ flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel, config=Config }, Top) ->
     hanoidb_nursery:new(Dir, MaxLevel, Config).
 
 has_room(#nursery{ count=Count }, N) ->
-    (Count+N) < ?BTREE_SIZE(?TOP_LEVEL).
+    (Count + N + 1) < ?BTREE_SIZE(?TOP_LEVEL).
 
 ensure_space(Nursery, NeededRoom, Top) ->
     case has_room(Nursery, NeededRoom) of

@@ -211,6 +211,12 @@ flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNod
     ok = file:close(IdxFile),
 
     {ok, State#state{ index_file=undefined, index_file_pos=undefined }};
+
+flush_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos })
+  when N > 0 ->
+    %% Ignore this node, its stack consists of one node with one {pos,len} member
+    flush_nodes(State#state{ nodes=[] });
+
 flush_nodes(State) ->
     {ok, State2} = close_node(State),
     flush_nodes(State2).
