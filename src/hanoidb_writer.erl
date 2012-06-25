@@ -186,15 +186,12 @@ do_open(Name, Options, OpenOpts) ->
 
 
 %% @doc flush pending nodes and write trailer
-flush_nodes(State=#state{ nodes=[#node{level=N, members=[{_,{Pos,_Len}}]}], last_node_pos=Pos }) when N>0 ->
-    %% stack consists of one node with one {pos,len} member.  Just ignore this node.
-    flush_nodes(State#state{ nodes=[] });
 flush_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom }=State) ->
     IdxFile = State#state.index_file,
 
     RootPos =
-        case LastNodePos of
-            undefined ->
+        case LastNodePos =:= undefined of
+            true ->
                 %% store contains no entries
                 ok = file:write(IdxFile, <<0:32,0:16>>),
                 ?FIRST_BLOCK_POS;

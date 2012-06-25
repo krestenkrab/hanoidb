@@ -246,8 +246,8 @@ add(Key, Value, Expiry, Nursery, Top) ->
     case do_add(Nursery, Key, Value, Expiry, Top) of
         {ok, Nursery0} ->
             {ok, Nursery0};
-        {full, Nursery1} ->
-            flush(Nursery1, Top)
+        {full, Nursery0} ->
+            flush(Nursery0, Top)
     end.
 
 flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel, config=Config }, Top) ->
