@@ -67,8 +67,8 @@ longer_test_() ->
      fun () -> ok end,
      fun (_) -> ok end,
      [
-      {timeout, 300, ?_test(test_tree())},
-      {timeout, 120, ?_test(test_qc())}
+       {timeout, 300, ?_test(test_tree())},
+       {timeout, 120, ?_test(test_qc())}
      ]}.
 
 -ifdef(TRIQ).
@@ -335,12 +335,12 @@ test_tree() ->
     ok = hanoidb:close(Tree).
 
 run_fold(Tree,From,To,Limit) ->
-    {_, Count} = hanoidb:fold_range(Tree,
-                                    fun(<<N:128>>, _Value, {N, C}) ->
-                                            {N + 1, C + 1};
-                                       (<<1501:128>>, _Value, {1500, C}) ->
-                                            {1502, C + 1}
-                                    end,
+    F = fun(<<N:128>>, _Value, {N, C}) ->
+                {N + 1, C + 1};
+           (<<1501:128>>, _Value, {1500, C}) ->
+                {1502, C + 1}
+        end,
+    {_, Count} = hanoidb:fold_range(Tree, F,
                                     {From, 0},
                                     #key_range{from_key= <<From:128>>, to_key= <<(To+1):128>>, limit=Limit}),
     {ok, Count}.

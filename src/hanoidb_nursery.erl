@@ -177,18 +177,15 @@ lookup(Key, #nursery{cache=Cache}) ->
 %% Finish this nursery (encode it to a btree, and delete the nursery file)
 %% @end
 -spec finish(Nursery::#nursery{}, TopLevel::pid()) -> ok.
-finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
-                 total_size=_TotalSize, count=Count,
-                 config=Config, merge_done=DoneMerge
-               }, TopLevel) ->
+finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, count=Count,
+                 config=Config, merge_done=DoneMerge }, TopLevel) ->
 
     hanoidb_util:ensure_expiry(Config),
 
-    %% first, close the log file (if it is open)
-    if LogFile /= undefined ->
-            ok = file:close(LogFile);
-       true ->
-            ok
+    %% First, close the log file (if it is open)
+    case LogFile /= undefined of
+        true -> ok = file:close(LogFile);
+        false -> ok
     end,
 
     case Count of

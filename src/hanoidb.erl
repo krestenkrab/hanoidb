@@ -72,7 +72,7 @@
 
 %% @doc
 %% Create or open a hanoidb store.  Argument `Dir' names a
-%%% directory in which to keep the data files.  By convention, we
+%% directory in which to keep the data files.  By convention, we
 %% name hanoidb data directories with extension ".hanoidb".
 - spec open(Dir::string()) -> hanoidb().
 open(Dir) ->
@@ -395,8 +395,9 @@ handle_call({get, Key}, From, State=#state{ top=Top, nursery=Nursery } ) when is
 handle_call(close, _From, State=#state{ nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel, opt=Config }) ->
     try
         ok = hanoidb_nursery:finish(Nursery, Top),
+        {ok, Nursery2} = hanoidb_nursery:new(Dir, MaxLevel, Config),
         ok = hanoidb_level:close(Top),
-        {stop, normal, ok, State#state{ nursery=hanoidb_nursery:new(Dir, MaxLevel, Config)}}
+        {stop, normal, ok, State#state{ nursery=Nursery2 }}
     catch
         E:R ->
             error_logger:info_msg("exception from close ~p:~p~n", [E,R]),

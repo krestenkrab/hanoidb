@@ -94,7 +94,7 @@ init([Name, Options]) ->
     case do_open(Name, Options, [exclusive]) of
         {ok, IdxFile} ->
             ok = file:write(IdxFile, ?FILE_FORMAT),
-            Bloom = bloom:new(erlang:min(Size, 16#ffffffff), 0.001),
+            Bloom = bloom:bloom(Size),
             BlockSize = hanoidb:get_opt(block_size, Options, ?NODE_SIZE),
             {ok, #state{ name=Name,
                          index_file_pos=?FIRST_BLOCK_POS, index_file=IdxFile,
@@ -170,11 +170,11 @@ serialize(#state{ bloom=Bloom, index_file=File, index_file_pos=Position }=State)
             exit({bad_position, Position, WrongPosition})
     end,
     ok = file:close(File),
-    erlang:term_to_binary( { State#state{ index_file=closed }, hanoidb_util:encode_bloom(Bloom) } ).
+    erlang:term_to_binary( { State#state{ index_file=closed }, bloom:encode(Bloom) } ).
 
 deserialize(Binary) ->
     {State, Bin} = erlang:binary_to_term(Binary),
-    Bloom = hanoidb_util:decode_bloom(Bin),
+    Bloom = bloom:decode(Bin),
     {ok, IdxFile} = do_open(State#state.name, State#state.opts, []),
     State#state{ bloom=Bloom, index_file=IdxFile }.
 
@@ -193,10 +193,9 @@ archive_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastN
             undefined ->
                 %% store contains no entries
                 ok = file:write(IdxFile, <<0:32/unsigned, 0:16/unsigned>>),
-                FilterSize = bloom:filter_size(Bloom),
-                {<<FilterSize:32/unsigned>>, 0, ?FIRST_BLOCK_POS};
+                {<<(bloom:size(Bloom)):32/unsigned>>, 0, ?FIRST_BLOCK_POS};
             _ ->
-                EncodedBloom = hanoidb_util:encode_bloom(Bloom),
+                EncodedBloom = bloom:encode(Bloom),
                 {EncodedBloom, byte_size(EncodedBloom), LastNodePos}
         end,
 
@@ -240,7 +239,7 @@ append_node(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, 
 
     NewSize = NodeSize + hanoidb_util:estimate_node_size_increment(List, Key, Value),
 
-    NewBloom = bloom:add_element(Key, Bloom),
+    NewBloom = bloom:add(Key, Bloom),
 
     {TC1, VC1} =
         case Level of

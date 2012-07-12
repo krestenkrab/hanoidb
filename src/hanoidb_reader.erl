@@ -84,11 +84,11 @@ open(Name, Config) ->
             Bloom =
                 case BloomSize of
                     0 ->
-                        {ok, <<FilterSize:32/unsigned>>} = file:pread(File, (FileInfo#file_info.size - 16), 4),
-                        bloom:new(FilterSize, 0.001);
+                        {ok, <<NumElems:32/unsigned>>} = file:pread(File, (FileInfo#file_info.size - 16), 4),
+                        bloom:bloom(NumElems);
                     _ ->
                         {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
-                        hanoidb_util:decode_bloom(BloomData)
+                        bloom:decode(BloomData)
                 end,
 
             %% read in the root node
@@ -256,7 +256,9 @@ lookup_node(File,FromKey,#node{members=Members,level=N},_) ->
 first_node(#index{file=File}) ->
     case read_node(File, ?FIRST_BLOCK_POS) of
         {ok, #node{level=0, members=Members}} ->
-            {node, Members}
+            {node, Members};
+        eof->
+            none
     end.
 
 next_node(#index{file=File}=_Index) ->
@@ -274,7 +276,7 @@ close(#index{file=File}) ->
 
 
 lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
-    case bloom:is_element(Key, Bloom) of
+    case bloom:member(Key, Bloom) of
         true ->
             case lookup_in_node(File, Node, Key) of
                 not_found ->
