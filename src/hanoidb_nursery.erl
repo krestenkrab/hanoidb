@@ -208,7 +208,7 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
 
             %% Issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
-            {ok, Nursery2} = do_inc_merge(Nursery, Count, TopLevel);
+            {ok, _Nursery2} = do_inc_merge(Nursery, Count, TopLevel);
 
         _ ->
             ok

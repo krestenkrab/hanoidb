@@ -135,35 +135,41 @@ scan(BT1, BT2, Out, IsLastLevel, AKVs, [], Step) ->
             scan_only(BT1, Out, IsLastLevel, AKVs, Step)
     end;
 
-scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=AKVs, [{Key2,Value2}|BT]=BKVs, Step) ->
-    if Key1 < Key2 ->
-            case ?LOCAL_WRITER of
-                true ->
-                    {noreply, Out2} = hanoidb_writer:handle_cast({add, Key1, Value1}, Out);
-                false ->
-                    ok = hanoidb_writer:add(Out2=Out, Key1, Value1)
-            end,
-            scan(BT1, BT2, Out2, IsLastLevel, AT, BKVs, step(Step));
-
-       Key2 < Key1 ->
-            case ?LOCAL_WRITER of
-                true ->
-                    {noreply, Out2} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out);
-                false ->
-                    ok = hanoidb_writer:add(Out2=Out, Key2, Value2)
-            end,
-            scan(BT1, BT2, Out2, IsLastLevel, AKVs, BT, step(Step));
-
-       true ->
-            case ?LOCAL_WRITER of
-                true ->
-                    {noreply, Out2} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out);
-                false ->
-                    ok = hanoidb_writer:add(Out2=Out, Key2, Value2)
-            end,
-            scan(BT1, BT2, Out2, IsLastLevel, AT, BT, step(Step, 2))
-    end.
-
+scan(BT1, BT2, Out, IsLastLevel, [{Key1,Value1}|AT]=_AKVs, [{Key2,_Value2}|_BT]=BKVs, Step)
+  when Key1 < Key2 ->
+    Out3 =
+        case ?LOCAL_WRITER of
+            true ->
+                {noreply, Out2} = hanoidb_writer:handle_cast({add, Key1, Value1}, Out),
+                Out2;
+            false ->
+                ok = hanoidb_writer:add(Out, Key1, Value1),
+                Out
+        end,
+    scan(BT1, BT2, Out3, IsLastLevel, AT, BKVs, step(Step));
+scan(BT1, BT2, Out, IsLastLevel, [{Key1,_Value1}|_AT]=AKVs, [{Key2,Value2}|BT]=_BKVs, Step)
+  when Key1 > Key2 ->
+    Out3 =
+        case ?LOCAL_WRITER of
+            true ->
+                {noreply, Out2} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out),
+                Out2;
+            false ->
+                ok = hanoidb_writer:add(Out, Key2, Value2),
+                Out
+        end,
+    scan(BT1, BT2, Out3, IsLastLevel, AKVs, BT, step(Step));
+scan(BT1, BT2, Out, IsLastLevel, [{_Key1,_Value1}|AT]=_AKVs, [{Key2,Value2}|BT]=_BKVs, Step) ->
+    Out3 =
+        case ?LOCAL_WRITER of
+            true ->
+                {noreply, Out2} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out),
+                Out2;
+            false ->
+                ok = hanoidb_writer:add(Out, Key2, Value2),
+                Out
+        end,
+    scan(BT1, BT2, Out3, IsLastLevel, AT, BT, step(Step, 2)).
 
 hibernate_scan_only(Keep) ->
     erlang:garbage_collect(),
@@ -213,10 +219,13 @@ scan_only(BT, Out, true, [{_,?TOMBSTONE}|Rest], Step) ->
     scan_only(BT, Out, true, Rest, step(Step));
 
 scan_only(BT, Out, IsLastLevel, [{Key,Value}|Rest], Step) ->
-    case ?LOCAL_WRITER of
-        true ->
-            {noreply, Out2} = hanoidb_writer:handle_cast({add, Key, Value}, Out);
-        false ->
-            ok = hanoidb_writer:add(Out2=Out, Key, Value)
-    end,
-    scan_only(BT, Out2, IsLastLevel, Rest, step(Step)).
+    Out3 =
+        case ?LOCAL_WRITER of
+            true ->
+                {noreply, Out2} = hanoidb_writer:handle_cast({add, Key, Value}, Out),
+                Out2;
+            false ->
+                ok = hanoidb_writer:add(Out, Key, Value),
+                Out
+        end,
+    scan_only(BT, Out3, IsLastLevel, Rest, step(Step)).

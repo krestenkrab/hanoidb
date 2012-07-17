@@ -25,7 +25,20 @@
 -module(hanoidb_util).
 -author('Kresten Krab Thorup <krab@trifork.com>').
 
--compile(export_all).
+-export([  compress/2
+         , uncompress/1
+         , index_file_name/1
+         , estimate_node_size_increment/3
+         , encode_index_node/2
+         , decode_index_node/2
+         , crc_encapsulate_kv_entry/2
+         , decode_crc_data/3
+         , file_exists/1
+         , crc_encapsulate_transaction/2
+         , tstamp/0
+         , expiry_time/1
+         , has_expired/1
+         , ensure_expiry/1 ]).
 
 -include("src/hanoidb.hrl").
 
@@ -100,14 +113,14 @@ do_compression(gzip, Bin) ->
 do_compression(_, Bin) ->
     {?NO_COMPRESSION, Bin}.
 
-decompress(<<?NO_COMPRESSION, Data/binary>>) ->
+uncompress(<<?NO_COMPRESSION, Data/binary>>) ->
     Data;
-decompress(<<?SNAPPY_COMPRESSION, Data/binary>>) ->
+uncompress(<<?SNAPPY_COMPRESSION, Data/binary>>) ->
     {ok, UncompressedData} = snappy:decompress(Data),
     UncompressedData;
-%decompress(<<?LZ4_COMPRESSION, Data/binary>>) ->
+%uncompress(<<?LZ4_COMPRESSION, Data/binary>>) ->
 %    lz4:uncompress(Data);
-decompress(<<?GZIP_COMPRESSION, Data/binary>>) ->
+uncompress(<<?GZIP_COMPRESSION, Data/binary>>) ->
     zlib:gunzip(Data).
 
 encode_index_node(KVList, Method) ->
@@ -120,7 +133,7 @@ encode_index_node(KVList, Method) ->
     {ok, [MethodName | OutData]}.
 
 decode_index_node(Level, Data) ->
-    TermData = decompress(Data),
+    TermData = uncompress(Data),
     {ok, KVList} = decode_kv_list(TermData),
     {ok, {node, Level, KVList}}.
 
