@@ -98,7 +98,7 @@ function dynamic() {
             let "now=now-start"
             free=`df -m . 2> /dev/null | tail -1 | awk '{print $4}'`
             used=`du -m 2> /dev/null | awk '{print $1}' `
-            printf "%5d %6d [%s\n" "$t" "$now" "$s ${used}Mb (${free}Mb free)"
+            printf "%5d %6d [%s\n" "$t" "$now" "$s ${used}MB (${free}MB free)"
             old="$s"
         else
             # Sleep a little bit:

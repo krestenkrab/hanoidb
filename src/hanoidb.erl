@@ -155,7 +155,7 @@ fold_range(Ref,Fun,Acc0,#key_range{limit=Limit}=Range) ->
     ok = gen_server:call(Ref, {RangeType, FoldWorkerPID, Range}, infinity),
     MRef = erlang:monitor(process, FoldWorkerPID),
     Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0, Limit),
-    ?log("fold_range done: self:~p, result=~P~n", [self(), Result]),
+    ?log("fold_range done: self:~p, result=~p~n", [self(), Result]),
     Result.
 
 receive_fold_range(MRef,PID,_,Acc0, 0) ->
