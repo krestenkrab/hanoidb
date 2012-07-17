@@ -177,15 +177,15 @@ lookup(Key, #nursery{cache=Cache}) ->
 %% Finish this nursery (encode it to a btree, and delete the nursery file)
 %% @end
 -spec finish(Nursery::#nursery{}, TopLevel::pid()) -> ok.
-finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, count=Count,
-                 config=Config, merge_done=DoneMerge }, TopLevel) ->
+finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
+                 count=Count, config=Config }=Nursery, TopLevel) ->
 
     hanoidb_util:ensure_expiry(Config),
 
     %% First, close the log file (if it is open)
-    case LogFile /= undefined of
-        true -> ok = file:close(LogFile);
-        false -> ok
+    case LogFile of
+        undefined -> ok;
+        _ -> ok = file:close(LogFile)
     end,
 
     case Count of
@@ -203,16 +203,12 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, count=Count,
                 ok = hanoidb_writer:close(BT)
             end,
 
-            %% inject the B-Tree (blocking RPC)
+            %% Inject the B-Tree (blocking RPC)
             ok = hanoidb_level:inject(TopLevel, BTreeFileName),
 
-            %% issue some work if this is a top-level inject (blocks until previous such
+            %% Issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
-            if DoneMerge >= ?BTREE_SIZE(?TOP_LEVEL) ->
-                    ok;
-               true ->
-                    hanoidb_level:begin_incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL) - DoneMerge)
-            end;
+            {ok, Nursery2} = do_inc_merge(Nursery, Count, TopLevel);
 
         _ ->
             ok
@@ -285,11 +281,10 @@ transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSi
     do_inc_merge(Nursery2#nursery{ cache=Cache2, total_size=TotalSize+erlang:iolist_size(Data), count=Count }, length(Spec), Top).
 
 do_inc_merge(Nursery=#nursery{ step=Step, merge_done=Done }, N, TopLevel) ->
-    case Step+N >= ?INC_MERGE_STEP of
-        true ->
+    if Step+N >= ?INC_MERGE_STEP ->
             hanoidb_level:begin_incremental_merge(TopLevel, Step + N),
             {ok, Nursery#nursery{ step=0, merge_done=Done + Step + N }};
-        false ->
+       true ->
             {ok, Nursery#nursery{ step=Step + N }}
     end.
 

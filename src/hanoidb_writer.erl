@@ -188,17 +188,17 @@ do_open(Name, Options, OpenOpts) ->
 %% @doc flush pending nodes and write trailer
 archive_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastNodeSize, bloom=Bloom, index_file=IdxFile }=State) ->
 
-    {BloomBin, BloomSize, RootPos} =
+    BloomBin = bloom:encode(Bloom),
+    BloomSize = byte_size(BloomBin),
+    RootPos =
         case LastNodePos of
             undefined ->
                 %% store contains no entries
                 ok = file:write(IdxFile, <<0:32/unsigned, 0:16/unsigned>>),
-                {<<(bloom:size(Bloom)):32/unsigned>>, 0, ?FIRST_BLOCK_POS};
+                ?FIRST_BLOCK_POS;
             _ ->
-                EncodedBloom = bloom:encode(Bloom),
-                {EncodedBloom, byte_size(EncodedBloom), LastNodePos}
+                LastNodePos
         end,
-
     Trailer = << 0:32/unsigned, BloomBin/binary, BloomSize:32/unsigned,  RootPos:64/unsigned >>,
 
     ok = file:write(IdxFile, Trailer),

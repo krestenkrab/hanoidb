@@ -52,8 +52,16 @@ merge(A,B,C, Size, IsLastLevel, Options) ->
             false ->
                 hanoidb_writer:open(C, [{size, Size} | Options])
         end,
-    {node, AKVs} = hanoidb_reader:first_node(BT1),
-    {node, BKVs} = hanoidb_reader:first_node(BT2),
+    AKVs =
+        case hanoidb_reader:first_node(BT1) of
+            {node, AKV} -> AKV;
+            none -> []
+        end,
+    BKVs =
+        case hanoidb_reader:first_node(BT2) of
+            {node, BKV} ->BKV;
+            none -> []
+        end,
     scan(BT1, BT2, Out, IsLastLevel, AKVs, BKVs, {0, none}).
 
 terminate(Out) ->

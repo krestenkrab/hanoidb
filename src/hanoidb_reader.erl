@@ -80,16 +80,8 @@ open(Name, Config) ->
             %% read root position
             {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size - 8, 8),
             {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size - 12, 4),
-
-            Bloom =
-                case BloomSize of
-                    0 ->
-                        {ok, <<NumElems:32/unsigned>>} = file:pread(File, (FileInfo#file_info.size - 16), 4),
-                        bloom:bloom(NumElems);
-                    _ ->
-                        {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
-                        bloom:decode(BloomData)
-                end,
+            {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
+            Bloom = bloom:decode(BloomData),
 
             %% read in the root node
             Root =
