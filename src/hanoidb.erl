@@ -146,10 +146,10 @@ fold(Ref,Fun,Acc0) ->
 
 -spec fold_range(hanoidb(),kv_fold_fun(),any(),key_range()) -> any().
 fold_range(Ref,Fun,Acc0,#key_range{limit=Limit}=Range) ->
-    RangeType = case Limit < 10 of
-                    true -> blocking_range;
-                    false -> snapshot_range
-                end,
+    RangeType =
+        if Limit < 10 -> blocking_range;
+           true ->       snapshot_range
+        end,
     {ok, FoldWorkerPID} = hanoidb_fold_worker:start(self()),
     ?log("fold_range begin: self=~p, worker=~p~n", [self(), FoldWorkerPID]),
     ok = gen_server:call(Ref, {RangeType, FoldWorkerPID, Range}, infinity),

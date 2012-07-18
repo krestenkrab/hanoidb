@@ -106,24 +106,24 @@ do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=
     DatabaseExpiryTime = hanoidb:get_opt(expiry_secs, Config),
 
     {Data, Cache2} =
-        case KeyExpiryTime + DatabaseExpiryTime of
-            0 ->
+        if (KeyExpiryTime + DatabaseExpiryTime) == 0 ->
                 %% Both the database expiry and this key's expiry are unset or set to 0
                 %% (aka infinity) so never automatically expire the value.
                 { hanoidb_util:crc_encapsulate_kv_entry(Key, Value),
                   gb_trees:enter(Key, Value, Cache) };
-            _ ->
-                Expiry = case DatabaseExpiryTime == 0 of
-                             true ->
-                                 %% It was the database's setting that was 0 so expire this
-                                 %% value after KeyExpiryTime seconds elapse.
-                                 hanoidb_util:expiry_time(KeyExpiryTime);
-                             false ->
-                                 case KeyExpiryTime == 0 of
-                                     true -> hanoidb_util:expiry_time(DatabaseExpiryTime);
-                                     false -> hanoidb_util:expiry_time(min(KeyExpiryTime, DatabaseExpiryTime))
-                                 end
-                         end,
+           true ->
+                Expiry =
+                    if DatabaseExpiryTime == 0 ->
+                            %% It was the database's setting that was 0 so expire this
+                            %% value after KeyExpiryTime seconds elapse.
+                            hanoidb_util:expiry_time(KeyExpiryTime);
+                       true ->
+                            if KeyExpiryTime == 0 ->
+                                    hanoidb_util:expiry_time(DatabaseExpiryTime);
+                               true ->
+                                    hanoidb_util:expiry_time(min(KeyExpiryTime, DatabaseExpiryTime))
+                            end
+                    end,
                 { hanoidb_util:crc_encapsulate_kv_entry(Key, {Value, Expiry}),
                   gb_trees:enter(Key,  {Value, Expiry}, Cache) }
         end,
@@ -177,7 +177,7 @@ lookup(Key, #nursery{cache=Cache}) ->
 %% Finish this nursery (encode it to a btree, and delete the nursery file)
 %% @end
 -spec finish(Nursery::#nursery{}, TopLevel::pid()) -> ok.
-finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
+finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, merge_done=DoneMerge,
                  count=Count, config=Config }=Nursery, TopLevel) ->
 
     hanoidb_util:ensure_expiry(Config),
@@ -208,7 +208,12 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile,
 
             %% Issue some work if this is a top-level inject (blocks until previous such
             %% incremental merge is finished).
-            {ok, _Nursery2} = do_inc_merge(Nursery, Count, TopLevel);
+            if DoneMerge >= ?BTREE_SIZE(?TOP_LEVEL) ->
+                    ok;
+               true ->
+                    hanoidb_level:begin_incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL) - DoneMerge)
+            end;
+%            {ok, _Nursery2} = do_inc_merge(Nursery, Count, TopLevel);
 
         _ ->
             ok
