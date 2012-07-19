@@ -274,7 +274,7 @@ lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
                 not_found ->
                     not_found;
                 {ok, {Value, TStamp}} ?ASSERT_WHEN(Value =:= ?TOMBSTONE; is_binary(Value))  ->
-                    case hanoidb_utils:has_expired(TStamp) of
+                    case hanoidb_util:has_expired(TStamp) of
                         true -> not_found;
                         false -> {ok, Value}
                     end;
