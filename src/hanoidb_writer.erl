@@ -254,7 +254,7 @@ append_node(Level, Key, Value, #state{ nodes=[ #node{level=Level, members=List, 
                 end;
             _ ->
                 {TC, VC}
-            end,
+        end,
 
     NodeMembers = [{Key, Value} | List],
     State2 = State#state{ nodes=[CurrNode#node{members=NodeMembers, size=NewSize} | RestNodes],
