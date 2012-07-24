@@ -61,7 +61,6 @@
 %% merge, just to clean up and optimize future operations.
 -define(MERGE_TIMEOUT,1000).
 
-
 -ifdef(DEBUG).
 -define(log(Fmt,Args), debug_log(State,Fmt,Args)).
 debug_log(State,Fmt,Args) ->
@@ -169,17 +168,17 @@ initialize2(State) ->
     MFileName = filename("M",State),
 
     %% remove old merge file
-    file:delete( filename("X",State)),
+    file:delete(filename("X",State)),
 
     %% remove old fold files (hard links to A/B/C used during fold)
-    file:delete( filename("AF",State)),
-    file:delete( filename("BF",State)),
-    file:delete( filename("CF",State)),
+    file:delete(filename("AF",State)),
+    file:delete(filename("BF",State)),
+    file:delete(filename("CF",State)),
 
     case file:read_file_info(MFileName) of
         {ok, _} ->
 
-            %% recover from post-merge crash. This is the case where
+            %% Recover from post-merge crash. This is the case where
             %% a merge completed, resulting in a file that needs to
             %% stay at the *same* level because the resulting size
             %% is smaller than or equal to this level's files.
@@ -187,32 +186,34 @@ initialize2(State) ->
             file:delete(BFileName),
             ok = file:rename(MFileName, AFileName),
 
-            {ok, BTA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
+            {ok, IXA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
 
             case file:read_file_info(CFileName) of
                 {ok, _} ->
                     file:rename(CFileName, BFileName),
-                    {ok, BTB} = hanoidb_reader:open(BFileName, [random|State#state.opts]),
-                    check_begin_merge_then_loop0(init_state(State#state{ a= BTA, b=BTB }));
+                    {ok, IXB} = hanoidb_reader:open(BFileName, [random|State#state.opts]),
+                    check_begin_merge_then_loop0(init_state(State#state{ a= IXA, b=IXB }));
 
                 {error, enoent} ->
-                    main_loop(init_state(State#state{ a= BTA, b=undefined }))
+                    main_loop(init_state(State#state{ a= IXA, b=undefined }))
             end;
 
         {error, enoent} ->
             case file:read_file_info(BFileName) of
                 {ok, _} ->
-                    {ok, BTA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
-                    {ok, BTB} = hanoidb_reader:open(BFileName, [random|State#state.opts]),
+                    {ok, IXA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
+                    {ok, IXB} = hanoidb_reader:open(BFileName, [random|State#state.opts]),
 
-                    case file:read_file_info(CFileName) of
-                        {ok, _} ->
-                            {ok, BTC} = hanoidb_reader:open(CFileName, [random|State#state.opts]);
+                    IXC =
+                        case file:read_file_info(CFileName) of
+                            {ok, _} ->
+                                {ok, C} = hanoidb_reader:open(CFileName, [random|State#state.opts]),
+                                C;
                         {error, enoent} ->
-                            BTC = undefined
+                            undefined
                     end,
 
-                    check_begin_merge_then_loop0(init_state(State#state{ a=BTA, b=BTB, c=BTC }));
+                    check_begin_merge_then_loop0(init_state(State#state{ a=IXA, b=IXB, c=IXC }));
 
                 {error, enoent} ->
 
@@ -221,8 +222,8 @@ initialize2(State) ->
 
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
-                            {ok, BTA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
-                            main_loop(init_state(State#state{ a=BTA }));
+                            {ok, IXA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
+                            main_loop(init_state(State#state{ a=IXA }));
 
                         {error, enoent} ->
                             main_loop(init_state(State))
@@ -234,15 +235,16 @@ init_state(State) ->
     ?log("opened level ~p, state=~p", [State#state.level, State]),
     State.
 
-check_begin_merge_then_loop0(State=#state{a=BTA, b=BTB, merge_pid=undefined})
-  when BTA/=undefined, BTB /= undefined ->
+check_begin_merge_then_loop0(State=#state{a=IXA, b=IXB, merge_pid=undefined})
+  when IXA/=undefined, IXB /= undefined ->
     {ok, MergePID} = begin_merge(State),
     MergeRef = monitor(process, MergePID),
-    if State#state.c == undefined ->
-            WIP = ?BTREE_SIZE(State#state.level);
-       true ->
-            WIP = 2*?BTREE_SIZE(State#state.level)
-    end,
+    WIP =
+        if State#state.c == undefined ->
+                ?BTREE_SIZE(State#state.level);
+           true ->
+                2*?BTREE_SIZE(State#state.level)
+        end,
 
     MergePID ! {step, {self(), MergeRef}, WIP},
     main_loop(State#state{merge_pid=MergePID,work_done=0,
@@ -252,8 +254,8 @@ check_begin_merge_then_loop0(State) ->
     check_begin_merge_then_loop(State).
 
 
-check_begin_merge_then_loop(State=#state{a=BTA, b=BTB, merge_pid=undefined})
-  when BTA/=undefined, BTB /= undefined ->
+check_begin_merge_then_loop(State=#state{a=IXA, b=IXB, merge_pid=undefined})
+  when IXA/=undefined, IXB /= undefined ->
     {ok, MergePID} = begin_merge(State),
     main_loop(State#state{merge_pid=MergePID,work_done=0 });
 check_begin_merge_then_loop(State) ->
@@ -286,17 +288,15 @@ main_loop(State = #state{ next=Next }) ->
 
         ?CALL(From, {inject, FileName}) when State#state.c == undefined ->
 
-            case {State#state.a, State#state.b} of
-                {undefined, undefined} ->
-                    ToFileName = filename("A",State),
-                    SetPos = #state.a;
-                {_, undefined} ->
-                    ToFileName = filename("B",State),
-                    SetPos = #state.b;
-                {_, _} ->
-                    ToFileName = filename("C",State),
-                    SetPos = #state.c
-            end,
+            {ToFileName, SetPos} =
+                case {State#state.a, State#state.b} of
+                    {undefined, undefined} ->
+                        {filename("A",State), #state.a};
+                    {_, undefined} ->
+                        {filename("B",State), #state.b};
+                    {_, _} ->
+                        {filename("C",State), #state.c}
+                end,
 
             ?log("inject ~s~n", [ToFileName]),
 
@@ -362,12 +362,13 @@ main_loop(State = #state{ next=Next }) ->
             State1 = State#state{ work_done = State#state.work_done + State#state.work_in_progress,
                                   work_in_progress = 0 },
 
-            case State1#state.step_next_ref of
-                undefined ->
-                    State2 = reply_step_ok(State1);
-                _ ->
-                    State2 = State1
-            end,
+            State2 =
+                case State1#state.step_next_ref of
+                    undefined ->
+                        reply_step_ok(State1);
+                    _ ->
+                        State1
+                end,
 
             main_loop(State2#state{ step_merge_ref=undefined });
 
@@ -380,12 +381,13 @@ main_loop(State = #state{ next=Next }) ->
             ?log("merge worker died ~p", [_Reason]),
             %% current merge worker died (or just finished)
 
-            case State#state.step_next_ref of
-                undefined ->
-                    State2 = reply_step_ok(State);
-                _ ->
-                    State2 = State
-            end,
+            State2 =
+                case State#state.step_next_ref of
+                    undefined ->
+                        reply_step_ok(State);
+                    _ ->
+                        State
+                end,
 
             main_loop(State2#state{ step_merge_ref=undefined, work_in_progress=0 });
 
@@ -437,16 +439,15 @@ main_loop(State = #state{ next=Next }) ->
 
             ?log("init_range_fold ~p -> ~p", [Range, WorkerPID]),
 
+            {FoldingPIDs, NextList} =
             case {State#state.a, State#state.b, State#state.c} of
                 {undefined, undefined, undefined} ->
-                    FoldingPIDs = [],
-                    NextList = List;
+                    {[], List};
 
                 {_, undefined, undefined} ->
                     ok = file:make_link(filename("A", State), filename("AF", State)),
                     {ok, PID0} = start_range_fold(filename("AF",State), WorkerPID, Range, State),
-                    NextList = [PID0|List],
-                    FoldingPIDs = [PID0];
+                    {[PID0|List], [PID0]};
 
                 {_, _, undefined} ->
                     ok = file:make_link(filename("A", State), filename("AF", State)),
@@ -455,8 +456,7 @@ main_loop(State = #state{ next=Next }) ->
                     ok = file:make_link(filename("B", State), filename("BF", State)),
                     {ok, PIDB} = start_range_fold(filename("BF",State), WorkerPID, Range, State),
 
-                    NextList = [PIDA,PIDB|List],
-                    FoldingPIDs = [PIDB,PIDA];
+                    {[PIDA,PIDB|List], [PIDB,PIDA]};
 
                 {_, _, _} ->
                     ok = file:make_link(filename("A", State), filename("AF", State)),
@@ -468,8 +468,7 @@ main_loop(State = #state{ next=Next }) ->
                     ok = file:make_link(filename("C", State), filename("CF", State)),
                     {ok, PIDC} = start_range_fold(filename("CF",State), WorkerPID, Range, State),
 
-                    NextList = [PIDA,PIDB,PIDC|List],
-                    FoldingPIDs = [PIDC,PIDB,PIDA]
+                    {[PIDA,PIDB,PIDC|List], [PIDC,PIDB,PIDA]}
             end,
 
             case Next of
@@ -488,36 +487,37 @@ main_loop(State = #state{ next=Next }) ->
 
         ?CALL(From, {init_blocking_range_fold, WorkerPID, Range, List}) ->
 
-            case {State#state.a, State#state.b, State#state.c} of
-                {undefined, undefined, undefined} ->
-                    RefList = List;
+            RefList =
+                case {State#state.a, State#state.b, State#state.c} of
+                    {undefined, undefined, undefined} ->
+                        List;
 
-                {_, undefined, undefined} ->
-                    ARef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
-                    RefList = [ARef|List];
+                    {_, undefined, undefined} ->
+                        ARef = erlang:make_ref(),
+                        ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
+                        [ARef|List];
 
-                {_, _, undefined} ->
-                    BRef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
+                    {_, _, undefined} ->
+                        BRef = erlang:make_ref(),
+                        ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
 
-                    ARef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
+                        ARef = erlang:make_ref(),
+                        ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
 
-                    RefList = [ARef,BRef|List];
+                        [ARef,BRef|List];
 
-                {_, _, _} ->
-                    CRef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.c, WorkerPID, CRef, Range),
+                    {_, _, _} ->
+                        CRef = erlang:make_ref(),
+                        ok = do_range_fold(State#state.c, WorkerPID, CRef, Range),
 
-                    BRef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
+                        BRef = erlang:make_ref(),
+                        ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
 
-                    ARef = erlang:make_ref(),
-                    ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
+                        ARef = erlang:make_ref(),
+                        ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
 
-                    RefList = [ARef,BRef,CRef|List]
-            end,
+                        [ARef,BRef,CRef|List]
+                end,
 
             case Next of
                 undefined ->
@@ -606,14 +606,15 @@ main_loop(State = #state{ next=Next }) ->
             {ok, State2} = close_and_delete_a_and_b(State),
 
             % if there is a "C" file, then move it to "A" position.
-            case State2#state.c of
-                undefined ->
-                    State3=State2;
-                TreeFile ->
-                    %% TODO: on what OS's is it ok to rename an open file?
-                    ok = file:rename(filename("C", State2), filename("A", State2)),
-                    State3 = State2#state{ a = TreeFile, b=undefined, c=undefined }
-            end,
+            State3 =
+                case State2#state.c of
+                    undefined ->
+                        State2;
+                    TreeFile ->
+                        %% TODO: on what OS's is it ok to rename an open file?
+                        ok = file:rename(filename("C", State2), filename("A", State2)),
+                        State2#state{ a = TreeFile, b=undefined, c=undefined }
+                end,
 
             main_loop(State3#state{ inject_done_ref=undefined });
 
@@ -646,46 +647,58 @@ main_loop(State = #state{ next=Next }) ->
             ?log("got unexpected exit ~p from ~p~n", [Reason, PID]),
             error_logger:info_msg("got unexpected exit ~p from ~p~n", [Reason, PID])
 
-
     end.
 
 do_step(StepFrom, PreviousWork, StepSize, State) ->
-    if (State#state.b =/= undefined) andalso (State#state.merge_pid =/= undefined) ->
-            WorkLeftHere = max(0, (2 * ?BTREE_SIZE(State#state.level)) - State#state.work_done);
-       true ->
-            WorkLeftHere = 0
-    end,
+    WorkLeftHere =
+        if (State#state.b =/= undefined) andalso (State#state.merge_pid =/= undefined) ->
+                max(0, (2 * ?BTREE_SIZE(State#state.level)) - State#state.work_done);
+           true ->
+                 0
+        end,
     WorkUnit      = StepSize,
     MaxLevel      = max(State#state.max_level, State#state.level),
-    TotalWork     = (MaxLevel-?TOP_LEVEL+1) * WorkUnit,
+    Depth         = MaxLevel-?TOP_LEVEL+1,
+    TotalWork     = Depth * WorkUnit,
     WorkUnitsLeft = max(0, TotalWork-PreviousWork),
 
-    case hanoidb:get_opt( merge_strategy, State#state.opts, fast) of
-        fast ->
-            WorkToDoHere = min(WorkLeftHere, WorkUnitsLeft);
-        predictable ->
-            WorkToDoHere = min(WorkLeftHere, WorkUnit)
-    end,
-
+    %% TODO: The goal was to offer a less variable latency option for merging but this
+    %% heuristic doesn't work when there are aggressive deletes (expiry or delete).
+    %% https://github.com/basho/hanoidb/issues/7
+    WorkToDoHere =
+        min(WorkLeftHere, WorkUnitsLeft),
+        %% case hanoidb:get_opt( merge_strategy, State#state.opts, fast) of
+        %%     fast ->
+        %%         min(WorkLeftHere, WorkUnitsLeft);
+        %%     predictable ->
+        %%         if (WorkLeftHere < Depth * WorkUnit) ->
+        %%                 min(WorkLeftHere, WorkUnit);
+        %%            true ->
+        %%                 min(WorkLeftHere, WorkUnitsLeft)
+        %%         end
+        %% end,
     WorkIncludingHere  = PreviousWork + WorkToDoHere,
 
     ?log("do_step prev:~p, do:~p of ~p ~n", [PreviousWork, WorkToDoHere, WorkLeftHere]),
 
     %% delegate the step_level request to the next level
     Next = State#state.next,
-    if Next =:= undefined ->
-            DelegateRef = undefined;
-       true ->
-            DelegateRef = plain_rpc:send_call(Next, {step_level, WorkIncludingHere, StepSize})
+    DelegateRef =
+        if Next =:= undefined ->
+                undefined;
+           true ->
+                plain_rpc:send_call(Next, {step_level, WorkIncludingHere, StepSize})
     end,
 
-    if WorkToDoHere > 0 ->
-            MergePID = State#state.merge_pid,
-            MergeRef = monitor(process, MergePID),
-            MergePID ! {step, {self(), MergeRef}, WorkToDoHere};
-       true ->
-            MergeRef = undefined
-    end,
+    MergeRef =
+        if WorkToDoHere > 0 ->
+                MergePID = State#state.merge_pid,
+                Monitor = monitor(process, MergePID),
+                MergePID ! {step, {self(), Monitor}, WorkToDoHere},
+                Monitor;
+           true ->
+                undefined
+        end,
 
     if (DelegateRef =:= undefined) andalso (MergeRef =:= undefined) ->
             %% nothing to do ... just return OK
