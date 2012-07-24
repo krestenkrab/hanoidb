@@ -87,7 +87,7 @@ estimate_node_size_increment(_KVList, Key, Value)
 -define(NO_COMPRESSION, 0).
 -define(SNAPPY_COMPRESSION, 1).
 -define(GZIP_COMPRESSION, 2).
-%-define(LZ4_COMPRESSION, 3).
+%%-define(LZ4_COMPRESSION, 3).
 
 use_compressed(UncompressedSize, CompressedSize) when CompressedSize < UncompressedSize ->
     true;
@@ -102,14 +102,14 @@ compress(snappy, Bin) ->
         false ->
             {?NO_COMPRESSION, Bin}
     end;
-%compress(lz4, Bin) ->
-%    lz4:compress(Bin)
-%    case use_compressed(erlang:iolist_size(Bin), erlang:iolist_size(CompressedBin)) of
-%        true ->
-%            {?LZ4_COMPRESSION, CompressedBin};
-%        false ->
-%            {?NO_COMPRESSION, Bin}
-%    end;
+%% compress(lz4, Bin) ->
+%%     {ok, CompressedBin} = lz4:compress(Bin),
+%%     case use_compressed(erlang:iolist_size(Bin), erlang:iolist_size(CompressedBin)) of
+%%         true ->
+%%             {?LZ4_COMPRESSION, CompressedBin};
+%%         false ->
+%%             {?NO_COMPRESSION, Bin}
+%%     end;
 compress(gzip, Bin) ->
     CompressedBin = zlib:gzip(Bin),
     case use_compressed(erlang:iolist_size(Bin), erlang:iolist_size(CompressedBin)) of
@@ -126,8 +126,8 @@ uncompress(<<?NO_COMPRESSION, Data/binary>>) ->
 uncompress(<<?SNAPPY_COMPRESSION, Data/binary>>) ->
     {ok, UncompressedData} = snappy:decompress(Data),
     UncompressedData;
-%uncompress(<<?LZ4_COMPRESSION, Data/binary>>) ->
-%    lz4:uncompress(Data);
+%%uncompress(<<?LZ4_COMPRESSION, Data/binary>>) ->
+%%    lz4:uncompress(Data);
 uncompress(<<?GZIP_COMPRESSION, Data/binary>>) ->
     zlib:gunzip(Data).
 

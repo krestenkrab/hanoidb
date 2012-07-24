@@ -25,8 +25,19 @@
 -module(hanoidb_writer_tests).
 
 -ifdef(TEST).
+-ifdef(TEST).
+-ifdef(TRIQ).
+-include_lib("triq/include/triq.hrl").
+-include_lib("triq/include/triq_statem.hrl").
+-else.
 -include_lib("proper/include/proper.hrl").
+-endif.
 -include_lib("eunit/include/eunit.hrl").
+-endif.
+
+-ifdef(PROPER).
+-behaviour(proper_statem).
+-endif.
 -endif.
 
 -include("include/hanoidb.hrl").

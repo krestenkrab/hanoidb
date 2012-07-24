@@ -22,7 +22,7 @@
 
 %% Modified slightly by Justin Sheehy to make it a single file (incorporated
 %% the array-based bitarray internally).
--module(bloom).
+-module(hanoidb_bloom).
 -author("Paulo Sergio Almeida <psa@di.uminho.pt>").
 
 -export([sbf/1, sbf/2, sbf/3, sbf/4,

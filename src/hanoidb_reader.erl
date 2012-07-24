@@ -81,7 +81,7 @@ open(Name, Config) ->
             {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size - 8, 8),
             {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size - 12, 4),
             {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
-            Bloom = bloom:decode(BloomData),
+            Bloom = hanoidb_bloom:decode(BloomData),
 
             %% read in the root node
             Root =
@@ -268,7 +268,7 @@ close(#index{file=File}) ->
 
 
 lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
-    case bloom:member(Key, Bloom) of
+    case hanoidb_bloom:member(Key, Bloom) of
         true ->
             case lookup_in_node(File, Node, Key) of
                 not_found ->
