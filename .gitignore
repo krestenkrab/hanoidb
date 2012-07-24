@@ -2,4 +2,4 @@ ebin
 deps
 *~
 .eunit
-/.fractal_btree.plt
+.project
