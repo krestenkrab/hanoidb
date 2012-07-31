@@ -547,7 +547,9 @@ main_loop(State = #state{ next=Next }) ->
             end;
 
         ?CAST(_From,{merge_done, Count, OutFileName})
-          when Count =< ?BTREE_SIZE(State#state.level), State#state.c =:= undefined ->
+          when Count =< ?BTREE_SIZE(State#state.level),
+               State#state.c =:= undefined,
+               Next =:= undefined ->
 
             ?log("merge_done, out:~w~n -> self", [Count]),
 
