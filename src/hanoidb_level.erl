@@ -546,7 +546,10 @@ main_loop(State = #state{ next=Next }) ->
                     main_loop(State2#state{ a = AFile, c = undefined, merge_pid=undefined })
             end;
 
-        ?CAST(_From,{merge_done, Count, OutFileName}) when Count =< ?BTREE_SIZE(State#state.level) ->
+        ?CAST(_From,{merge_done, Count, OutFileName})
+          when Count =< ?BTREE_SIZE(State#state.level),
+               State#state.c =:= undefined,
+               Next =:= undefined ->
 
             ?log("merge_done, out:~w~n -> self", [Count]),
 
@@ -666,17 +669,17 @@ do_step(StepFrom, PreviousWork, StepSize, State) ->
     %% heuristic doesn't work when there are aggressive deletes (expiry or delete).
     %% https://github.com/basho/hanoidb/issues/7
     WorkToDoHere =
-        min(WorkLeftHere, WorkUnitsLeft),
-        %% case hanoidb:get_opt( merge_strategy, State#state.opts, fast) of
-        %%     fast ->
-        %%         min(WorkLeftHere, WorkUnitsLeft);
-        %%     predictable ->
-        %%         if (WorkLeftHere < Depth * WorkUnit) ->
-        %%                 min(WorkLeftHere, WorkUnit);
-        %%            true ->
-        %%                 min(WorkLeftHere, WorkUnitsLeft)
-        %%         end
-        %% end,
+        %% min(WorkLeftHere, WorkUnitsLeft),
+        case hanoidb:get_opt( merge_strategy, State#state.opts, fast) of
+            fast ->
+                min(WorkLeftHere, WorkUnitsLeft);
+            predictable ->
+                if (WorkLeftHere < Depth * WorkUnit) ->
+                        min(WorkLeftHere, WorkUnit);
+                   true ->
+                        min(WorkLeftHere, WorkUnitsLeft)
+                end
+        end,
     WorkIncludingHere  = PreviousWork + WorkToDoHere,
 
     ?log("do_step prev:~p, do:~p of ~p ~n", [PreviousWork, WorkToDoHere, WorkLeftHere]),
