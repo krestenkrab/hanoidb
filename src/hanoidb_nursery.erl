@@ -178,7 +178,7 @@ lookup(Key, #nursery{cache=Cache}) ->
 %% @end
 -spec finish(Nursery::#nursery{}, TopLevel::pid()) -> ok.
 finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, merge_done=DoneMerge,
-                 count=Count, config=Config }=Nursery, TopLevel) ->
+                 count=Count, config=Config }, TopLevel) ->
 
     hanoidb_util:ensure_expiry(Config),
 
@@ -264,19 +264,36 @@ ensure_space(Nursery, NeededRoom, Top) ->
             flush(Nursery, Top)
     end.
 
-transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSize }, Top) ->
+transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSize, config=Config }, Top) ->
     Nursery1 = ensure_space(Nursery, length(Spec), Top),
 
-    TStamp = hanoidb_util:tstamp(),
-    Data = hanoidb_util:crc_encapsulate_transaction(Spec, TStamp),
+    Expiry =
+        case hanoidb:get_opt(expiry_secs, Config) of
+            0 ->
+                infinity;
+            DatabaseExpiryTime ->
+                hanoidb_util:expiry_time(DatabaseExpiryTime)
+        end,
+
+    Data = hanoidb_util:crc_encapsulate_transaction(Spec, Expiry),
     ok = file:write(File, Data),
 
     Nursery2 = do_sync(File, Nursery1),
 
     Cache2 = lists:foldl(fun({put, Key, Value}, Cache) ->
-                                 gb_trees:enter(Key, {Value, TStamp}, Cache);
+                                 case Expiry of
+                                     infinity ->
+                                         gb_trees:enter(Key, Value, Cache);
+                                     _ ->
+                                         gb_trees:enter(Key, {Value, Expiry}, Cache)
+                                 end;
                             ({delete, Key}, Cache) ->
-                                 gb_trees:enter(Key, {?TOMBSTONE, TStamp}, Cache)
+                                 case Expiry of
+                                     infinity ->
+                                         gb_trees:enter(Key, ?TOMBSTONE, Cache);
+                                     _ ->
+                                         gb_trees:enter(Key, {?TOMBSTONE, Expiry}, Cache)
+                                 end
                          end,
                          Cache0,
                          Spec),
@@ -344,7 +361,7 @@ is_expired({_Value, TStamp}) ->
 is_expired(Bin) when is_binary(Bin) ->
     false.
 
-get_value({Value, TStamp}) when is_integer(TStamp) ->
+get_value({Value, TStamp}) when is_integer(TStamp); TStamp =:= infinity ->
     Value;
 get_value(Value) when Value =:= ?TOMBSTONE; is_binary(Value) ->
     Value.

@@ -146,6 +146,8 @@ decode_index_node(Level, Data) ->
     {ok, {node, Level, KVList}}.
 
 
+crc_encapsulate_kv_entry(Key, {Value, infinity}) ->
+    crc_encapsulate_kv_entry(Key, Value);
 crc_encapsulate_kv_entry(Key, {?TOMBSTONE, TStamp}) -> %
     crc_encapsulate( [?TAG_DELETED2, <<TStamp:32>> | Key] );
 crc_encapsulate_kv_entry(Key, ?TOMBSTONE) ->
@@ -158,12 +160,12 @@ crc_encapsulate_kv_entry(Key, {Pos,Len}) when Len < 16#ffffffff ->
     crc_encapsulate( [?TAG_POSLEN32, <<Pos:64/unsigned, Len:32/unsigned>>, Key] ).
 
 
-crc_encapsulate_transaction(TransactionSpec, TStamp) ->
+crc_encapsulate_transaction(TransactionSpec, Expiry) ->
     crc_encapsulate([?TAG_TRANSACT |
              lists:map(fun({delete, Key}) ->
-                                crc_encapsulate_kv_entry(Key, {?TOMBSTONE, TStamp});
+                                crc_encapsulate_kv_entry(Key, {?TOMBSTONE, Expiry});
                            ({put, Key, Value}) ->
-                                crc_encapsulate_kv_entry(Key, {Value, TStamp})
+                                crc_encapsulate_kv_entry(Key, {Value, Expiry})
                         end,
                         TransactionSpec)]).
 
@@ -239,7 +241,10 @@ expiry_time(ExpirySecs) when ExpirySecs > 0 ->
 
 -spec has_expired(pos_integer()) -> true|false.
 has_expired(Expiration) when Expiration > 0 ->
-    Expiration < tstamp().
+    Expiration < tstamp();
+has_expired(infinity) ->
+    false.
+
 
 ensure_expiry(Opts) ->
     case hanoidb:get_opt(expiry_secs, Opts) of
