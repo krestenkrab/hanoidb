@@ -242,7 +242,10 @@ lookup_node(File,FromKey,#node{members=Members,level=N},_) ->
             end;
         not_found ->
             none
-    end.
+    end;
+lookup_node(_,_,none,_) ->
+    none.
+
 
 
 first_node(#index{file=File}) ->
