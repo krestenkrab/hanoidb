@@ -439,10 +439,10 @@ main_loop(State = #state{ next=Next }) ->
 
             ?log("init_range_fold ~p -> ~p", [Range, WorkerPID]),
 
-            {FoldingPIDs, NextList} =
+            {NextList, FoldingPIDs} =
             case {State#state.a, State#state.b, State#state.c} of
                 {undefined, undefined, undefined} ->
-                    {[], List};
+                    {List, []};
 
                 {_, undefined, undefined} ->
                     ok = file:make_link(filename("A", State), filename("AF", State)),
