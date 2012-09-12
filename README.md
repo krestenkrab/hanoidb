@@ -83,3 +83,14 @@ Put these values in your `app.config` in the `hanoidb` section
           {merge_strategy, fast | predictable}
          ]},
 ```
+
+
+### Contributors
+
+- Kresten Krab Thorup @krestenkrab
+- Greg Burd @gburd
+- Jesper Louis Andersen @jlouis
+- Steve Vinoski @vinoski
+- Erik Søe Sørensen, @eriksoe
+- Yamamoto Takashi @yamt
+
