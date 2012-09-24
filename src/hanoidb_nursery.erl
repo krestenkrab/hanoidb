@@ -32,8 +32,16 @@
 -include("hanoidb.hrl").
 -include_lib("kernel/include/file.hrl").
 
--record(nursery, { log_file, dir, cache, total_size=0, count=0,
-                   last_sync=now(), max_level, config=[], step=0, merge_done=0 }).
+-record(nursery, { log_file :: file:fd(),
+                   dir :: string(),
+                   cache :: gb_tree(),
+                   total_size=0 :: integer(),
+                   count=0 :: integer(),
+                   last_sync=now() :: erlang:timestamp(),
+                   max_level :: integer(),
+                   config=[] :: [{atom(), term()}],
+                   step=0 :: integer(),
+                   merge_done=0 :: integer()}).
 
 -spec new(string(), integer(), [_]) -> {ok, #nursery{}} | {error, term()}.
 
