@@ -99,7 +99,7 @@ read_nursery_from_log(Directory, MaxLevel, Config) ->
 
 %% @doc Add a Key/Value to the nursery
 %% @end
--spec do_add(#nursery{}, binary(), binary()|?TOMBSTONE, pos_integer() | infinity, pid()) -> {ok, #nursery{}}.
+-spec do_add(#nursery{}, binary(), binary()|?TOMBSTONE, non_neg_integer() | infinity, pid()) -> {ok, #nursery{}}.
 do_add(Nursery, Key, Value, infinity, Top) ->
     do_add(Nursery, Key, Value, 0, Top);
 do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config}, Key, Value, KeyExpiryTime, Top) ->
