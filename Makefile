@@ -31,15 +31,12 @@ clean-test-btrees:
 plt: compile
 	$(DIALYZER) --build_plt --output_plt .hanoi.plt \
 		-pa deps/plain_fsm/ebin \
-		-pa deps/ebloom/ebin \
 		deps/plain_fsm/ebin \
-		deps/ebloom/ebin \
 		--apps kernel stdlib
 
 analyze: compile
 	$(DIALYZER) --plt .hanoi.plt \
 	-pa deps/plain_fsm/ebin \
-	-pa deps/ebloom/ebin \
 	ebin
 
 repl:
