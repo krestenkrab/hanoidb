@@ -264,9 +264,10 @@ ensure_space(Nursery, NeededRoom, Top) ->
             flush(Nursery, Top)
     end.
 
-transact(Spec, Nursery=#nursery{ log_file=File, cache=Cache0, total_size=TotalSize, config=Config }, Top) ->
-    Nursery1 = ensure_space(Nursery, length(Spec), Top),
+transact(Spec, Nursery, Top) ->
+    transact1(Spec, ensure_space(Nursery, length(Spec), Top), Top).
 
+transact1(Spec, Nursery1=#nursery{ log_file=File, cache=Cache0, total_size=TotalSize, config=Config }, Top) ->
     Expiry =
         case hanoidb:get_opt(expiry_secs, Config) of
             0 ->
