@@ -1,6 +1,6 @@
 -module(hanoidb_dense_bitmap).
 
--export([new/1, set/2, build/1, member/2]).
+-export([new/1, set/2, build/1, unbuild/1, member/2]).
 -define(BITS_PER_CELL, 32).
 
 -define(REPR_NAME, dense_bitmap).
@@ -10,7 +10,6 @@ new(N) ->
     Width = 1 + (N-1) div ?BITS_PER_CELL,
     Value = erlang:make_tuple(Width+1, 0, [{1,?REPR_NAME}]),
     ets:insert(Tab, Value),
-    %io:format("DB| create(): ~p of width ~p\n", [Tab, Width]),
     {dense_bitmap_ets, N, Width, Tab}.
 
 %% Set a bit.
@@ -26,6 +25,11 @@ build({dense_bitmap_ets, _, _, Tab}) ->
     [Row] = ets:lookup(Tab, ?REPR_NAME),
     ets:delete(Tab),
     Row.
+
+unbuild(Row) when element(1,Row)==?REPR_NAME ->
+    Tab = ets:new(dense_bitmap, [private, set]),
+    ets:insert(Tab, Row),
+    {dense_bitmap_ets, undefined, undefined, Tab}.
 
 member(I, Row) when element(1,Row)==?REPR_NAME ->
     Cell = 2 + I div ?BITS_PER_CELL,

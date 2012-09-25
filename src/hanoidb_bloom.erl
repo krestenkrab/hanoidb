@@ -196,7 +196,10 @@ bitmask_new(LogN) ->
 bitmask_set(I, BM) ->
     case element(1,BM) of
         array -> bitarray_set(I, BM);
-        dense_bitmap_ets -> hanoidb_dense_bitmap:set(I, BM)
+        dense_bitmap_ets -> hanoidb_dense_bitmap:set(I, BM);
+        dense_bitmap ->
+            %% Surprise - we need to mutate a built representation:
+            hanoidb_dense_bitmap:set(I, hanoidb_dense_bitmap:unbuild(BM))
     end.
 
 %%% Convert to external form.
