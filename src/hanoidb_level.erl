@@ -80,12 +80,14 @@ debug_log(State,Fmt,Args) ->
 
 open(Dir,Level,Next,Opts,Owner) when Level>0 ->
     hanoidb_util:ensure_expiry(Opts),
-    PID = plain_fsm:spawn(?MODULE,
+    SpawnOpt = hanoidb:get_opt(spawn_opt, Opts, []),
+    PID = plain_fsm:spawn_opt(?MODULE,
                               fun() ->
                                       process_flag(trap_exit,true),
                                       link(Owner),
                                       initialize(#state{dir=Dir,level=Level,next=Next,opts=Opts,owner=Owner})
-                              end),
+                              end,
+                              SpawnOpt),
     {ok, PID}.
 
 lookup(Ref, Key) ->

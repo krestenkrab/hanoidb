@@ -69,6 +69,7 @@
                        | {merge_strategy, fast | predictable }
                        | {sync_strategy, none | sync | {seconds, pos_integer()}}
                        | {expiry_secs, non_neg_integer()}
+                       | {spawn_opt, list()}
                        .
 
 %% @doc
@@ -83,14 +84,16 @@ open(Dir) ->
 - spec open(Dir::string(), Opts::[config_option()]) -> {ok, hanoidb()} | ignore | {error, term()}.
 open(Dir, Opts) ->
     ok = start_app(),
-    gen_server:start(?MODULE, [Dir, Opts], []).
+    SpawnOpt = hanoidb:get_opt(spawn_opt, Opts, []),
+    gen_server:start(?MODULE, [Dir, Opts], [{spawn_opt,SpawnOpt}]).
 
 %% @doc Create or open a hanoidb store with a registered name.
 - spec open(Name::{local, Name::atom()} | {global, GlobalName::term()} | {via, ViaName::term()},
             Dir::string(), Opts::[config_option()]) -> {ok, hanoidb()} | ignore | {error, term()}.
 open(Name, Dir, Opts) ->
     ok = start_app(),
-    gen_server:start(Name, ?MODULE, [Dir, Opts], []).
+    SpawnOpt = hanoidb:get_opt(spawn_opt, Opts, []),
+    gen_server:start(Name, ?MODULE, [Dir, Opts], [{spawn_opt,SpawnOpt}]).
 
 %% @doc
 %% Create or open a hanoidb store as part of a supervision tree.
@@ -105,7 +108,8 @@ open_link(Dir) ->
 - spec open_link(Dir::string(), Opts::[config_option()]) -> {ok, hanoidb()} | ignore | {error, term()}.
 open_link(Dir, Opts) ->
     ok = start_app(),
-    gen_server:start_link(?MODULE, [Dir, Opts], []).
+    SpawnOpt = hanoidb:get_opt(spawn_opt, Opts, []),
+    gen_server:start_link(?MODULE, [Dir, Opts], [{spawn_opt,SpawnOpt}]).
 
 %% @doc Create or open a hanoidb store as part of a supervision tree
 %% with a registered name.
@@ -113,7 +117,8 @@ open_link(Dir, Opts) ->
                  Dir::string(), Opts::[config_option()]) -> {ok, hanoidb()} | ignore | {error, term()}.
 open_link(Name, Dir, Opts) ->
     ok = start_app(),
-    gen_server:start_link(Name, ?MODULE, [Dir, Opts], []).
+    SpawnOpt = hanoidb:get_opt(spawn_opt, Opts, []),
+    gen_server:start_link(Name, ?MODULE, [Dir, Opts], [{spawn_opt,SpawnOpt}]).
 
 %% @doc
 %% Close a Hanoi data store.
