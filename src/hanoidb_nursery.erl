@@ -269,7 +269,8 @@ ensure_space(Nursery, NeededRoom, Top) ->
         true ->
             Nursery;
         false ->
-            flush(Nursery, Top)
+            {ok, Nursery1} = flush(Nursery, Top),
+            Nursery1
     end.
 
 transact(Spec, Nursery, Top) ->
