@@ -49,9 +49,9 @@
          next_state/3, postcondition/3,
          precondition/2]).
 
--record(tree, { elements = dict:new() }).
--record(state, { open = dict:new(),
-                 closed = dict:new() }).
+-record(tree, { elements = dict:new() :: dict() }).
+-record(state, { open    = dict:new() :: dict(),
+                 closed  = dict:new() :: dict()}).
 -define(SERVER, hanoidb_drv).
 
 full_test_() ->
