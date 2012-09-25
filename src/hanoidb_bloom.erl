@@ -188,7 +188,7 @@ set_bits(Mask, I1, I, [H|T], Acc) ->
 %%%========== Dispatch to appropriate representation:
 bitmask_new(LogN) ->
     if LogN >= 20 -> % Use sparse representation.
-            bitarray_new(1 bsl LogN);
+            hanoidb_sparse_bitmap:new(LogN);
        true ->       % Use dense representation.
             hanoidb_dense_bitmap:new(1 bsl LogN)
     end.
@@ -196,6 +196,7 @@ bitmask_new(LogN) ->
 bitmask_set(I, BM) ->
     case element(1,BM) of
         array -> bitarray_set(I, BM);
+        sparse_bitmap -> hanoidb_sparse_bitmap:set(I, BM);
         dense_bitmap_ets -> hanoidb_dense_bitmap:set(I, BM);
         dense_bitmap ->
             %% Surprise - we need to mutate a built representation:
@@ -206,12 +207,14 @@ bitmask_set(I, BM) ->
 bitmask_build(BM) ->
     case element(1,BM) of
         array -> BM;
+        sparse_bitmap -> BM;
         dense_bitmap_ets -> hanoidb_dense_bitmap:build(BM)
     end.
 
 bitmask_get(I, BM) ->
     case element(1,BM) of
         array -> bitarray_get(I, BM);
+        sparse_bitmap -> hanoidb_sparse_bitmap:member(I, BM);
         dense_bitmap_ets -> hanoidb_dense_bitmap:member(I, BM);
         dense_bitmap     -> hanoidb_dense_bitmap:member(I, BM)
     end.
