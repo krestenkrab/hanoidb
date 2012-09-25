@@ -71,7 +71,10 @@ bloom(N, E) when is_number(N), N >= 0,
     bloom(bits, 32, E).
 
 bloom(Mode, N, E) ->
-    K = 1 + trunc(log2(1/E)),
+    K = case Mode of
+            size -> 1 + trunc(log2(1/E));
+            bits -> 1
+        end,
     P = pow(E, 1 / K),
 
     Mb =
