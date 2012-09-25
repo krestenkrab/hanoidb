@@ -148,9 +148,12 @@ masked_pair(Mask, X, Y) -> {X band Mask, Y band Mask}.
 
 all_set(_Mask, _I1, _I, []) -> true;
 all_set(Mask, I1, I, [H|T]) ->
-    case bitarray_get(I, H) of
-        true -> all_set(Mask, I1, (I+I1) band Mask, T);
-        false -> false
+    case element(1, H) of
+        array ->
+            case bitarray_get(I, H) of
+                true -> all_set(Mask, I1, (I+I1) band Mask, T);
+                false -> false
+            end
     end.
 
 %% Adds element to set
@@ -184,6 +187,7 @@ set_bits(_Mask, _I1, _I, [], Acc) -> lists:reverse(Acc);
 set_bits(Mask, I1, I, [H|T], Acc) ->
     set_bits(Mask, I1, (I+I1) band Mask, T, [bitarray_set(I, H) | Acc]).
 
+%%%========== Bitarray representation - suitable for sparse arrays ==========
 bitarray_new(N) -> array:new((N-1) div ?W + 1, {default, 0}).
 
 bitarray_set(I, A) ->
@@ -196,6 +200,8 @@ bitarray_get(I, A) ->
     AI = I div ?W,
     V = array:get(AI, A),
     V band (1 bsl (I rem ?W)) =/= 0.
+
+%%%^^^^^^^^^^ Bitarray representation - suitable for sparse arrays ^^^^^^^^^^
 
 encode(Bloom) ->
     zlib:gzip(term_to_binary(Bloom)).
