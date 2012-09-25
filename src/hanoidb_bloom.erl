@@ -87,7 +87,7 @@ bloom(Mode, N, E) ->
     M = 1 bsl Mb,
     D = trunc(log(1-P) / log(1-1/M)),
     #bloom{e=E, n=D, mb=Mb, size = 0,
-           a = [bitarray_new(1 bsl Mb) || _ <- lists:seq(1, K)]}.
+           a = [bitmask_new(Mb) || _ <- lists:seq(1, K)]}.
 
 log2(X) -> log(X) / log(2).
 
@@ -150,7 +150,7 @@ all_set(_Mask, _I1, _I, []) -> true;
 all_set(Mask, I1, I, [H|T]) ->
     case element(1, H) of
         array ->
-            case bitarray_get(I, H) of
+            case bitmask_get(I, H) of
                 true -> all_set(Mask, I1, (I+I1) band Mask, T);
                 false -> false
             end
@@ -185,7 +185,22 @@ hash_add(Hashes, #bloom{mb=Mb, a=A, size=Size} = B) ->
 
 set_bits(_Mask, _I1, _I, [], Acc) -> lists:reverse(Acc);
 set_bits(Mask, I1, I, [H|T], Acc) ->
-    set_bits(Mask, I1, (I+I1) band Mask, T, [bitarray_set(I, H) | Acc]).
+    set_bits(Mask, I1, (I+I1) band Mask, T, [bitmask_set(I, H) | Acc]).
+
+
+%%%========== Dispatch to appropriate representation:
+bitmask_new(LogN) ->
+    bitarray_new(1 bsl LogN).
+
+bitmask_set(I, BM) ->
+    case element(1,BM) of
+        array -> bitarray_set(I, BM)
+    end.
+
+bitmask_get(I, BM) ->
+    case element(1,BM) of
+        array -> bitarray_get(I, BM)
+    end.
 
 %%%========== Bitarray representation - suitable for sparse arrays ==========
 bitarray_new(N) -> array:new((N-1) div ?W + 1, {default, 0}).
