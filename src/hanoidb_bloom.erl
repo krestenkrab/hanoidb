@@ -148,12 +148,9 @@ masked_pair(Mask, X, Y) -> {X band Mask, Y band Mask}.
 
 all_set(_Mask, _I1, _I, []) -> true;
 all_set(Mask, I1, I, [H|T]) ->
-    case element(1, H) of
-        array ->
-            case bitmask_get(I, H) of
-                true -> all_set(Mask, I1, (I+I1) band Mask, T);
-                false -> false
-            end
+    case bitmask_get(I, H) of
+        true -> all_set(Mask, I1, (I+I1) band Mask, T);
+        false -> false
     end.
 
 %% Adds element to set
