@@ -187,16 +187,30 @@ set_bits(Mask, I1, I, [H|T], Acc) ->
 
 %%%========== Dispatch to appropriate representation:
 bitmask_new(LogN) ->
-    bitarray_new(1 bsl LogN).
+    if LogN >= 20 -> % Use sparse representation.
+            bitarray_new(1 bsl LogN);
+       true ->       % Use dense representation.
+            hanoidb_dense_bitmap:new(1 bsl LogN)
+    end.
 
 bitmask_set(I, BM) ->
     case element(1,BM) of
-        array -> bitarray_set(I, BM)
+        array -> bitarray_set(I, BM);
+        dense_bitmap_ets -> hanoidb_dense_bitmap:set(I, BM)
+    end.
+
+%%% Convert to external form.
+bitmask_build(BM) ->
+    case element(1,BM) of
+        array -> BM;
+        dense_bitmap_ets -> hanoidb_dense_bitmap:build(BM)
     end.
 
 bitmask_get(I, BM) ->
     case element(1,BM) of
-        array -> bitarray_get(I, BM)
+        array -> bitarray_get(I, BM);
+        dense_bitmap_ets -> hanoidb_dense_bitmap:member(I, BM);
+        dense_bitmap     -> hanoidb_dense_bitmap:member(I, BM)
     end.
 
 %%%========== Bitarray representation - suitable for sparse arrays ==========
@@ -216,10 +230,16 @@ bitarray_get(I, A) ->
 %%%^^^^^^^^^^ Bitarray representation - suitable for sparse arrays ^^^^^^^^^^
 
 encode(Bloom) ->
-    zlib:gzip(term_to_binary(Bloom)).
+    zlib:gzip(term_to_binary(bloom_build(Bloom))).
 
 decode(Bin) ->
     binary_to_term(zlib:gunzip(Bin)).
+
+%%% Convert to external form.
+bloom_build(Bloom=#bloom{a=Bitmasks}) ->
+    Bloom#bloom{a=[bitmask_build(X) || X <- Bitmasks]};
+bloom_build(Sbf=#sbf{b=Blooms}) ->
+    Sbf#sbf{b=[bloom_build(X) || X <- Blooms]}.
 
 %% UNIT TESTS
 
