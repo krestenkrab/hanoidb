@@ -93,4 +93,4 @@ Put these values in your `app.config` in the `hanoidb` section
 - Steve Vinoski @vinoski
 - Erik Søe Sørensen, @eriksoe
 - Yamamoto Takashi @yamt
-
+- Joseph Wayne Norton @norton
