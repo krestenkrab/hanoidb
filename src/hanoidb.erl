@@ -42,8 +42,8 @@
 -include_lib("include/hanoidb.hrl").
 -include_lib("include/plain_rpc.hrl").
 
--record(state, { top       :: pos_integer(),
-                 nursery   :: term(),
+-record(state, { top       :: pid(),
+                 nursery   :: #nursery{},
                  dir       :: string(),
                  opt       :: term(),
                  max_level :: pos_integer()}).
@@ -407,6 +407,9 @@ handle_call({get, Key}, From, State=#state{ top=Top, nursery=Nursery } ) when is
             {noreply, State}
     end;
 
+handle_call(close, _From, State=#state{ nursery=undefined }) ->
+    {stop, normal, ok, State};
+
 handle_call(close, _From, State=#state{ nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel, opt=Config }) ->
     try
         ok = hanoidb_nursery:finish(Nursery, Top),
@@ -424,8 +427,8 @@ handle_call(destroy, _From, State=#state{top=Top, nursery=Nursery }) ->
     ok = hanoidb_level:destroy(Top),
     {stop, normal, ok, State#state{ top=undefined, nursery=undefined, max_level=?TOP_LEVEL }}.
 
-
-do_put(Key, Value, Expiry, State=#state{ nursery=Nursery, top=Top }) ->
+-spec do_put(key(), value(), expiry(), #state{}) -> {ok, #state{}}.
+do_put(Key, Value, Expiry, State=#state{ nursery=Nursery, top=Top }) when Nursery =/= undefined ->
     {ok, Nursery2} = hanoidb_nursery:add(Key, Value, Expiry, Nursery, Top),
     {ok, State#state{nursery=Nursery2}}.
 

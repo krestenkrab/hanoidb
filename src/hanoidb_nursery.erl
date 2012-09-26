@@ -32,17 +32,6 @@
 -include("hanoidb.hrl").
 -include_lib("kernel/include/file.hrl").
 
--record(nursery, { log_file :: file:fd(),
-                   dir :: string(),
-                   cache :: gb_tree(),
-                   total_size=0 :: integer(),
-                   count=0 :: integer(),
-                   last_sync=now() :: erlang:timestamp(),
-                   max_level :: integer(),
-                   config=[] :: [{atom(), term()}],
-                   step=0 :: integer(),
-                   merge_done=0 :: integer()}).
-
 -spec new(string(), integer(), [_]) -> {ok, #nursery{}} | {error, term()}.
 
 -define(LOGFILENAME(Dir), filename:join(Dir, "nursery.log")).
@@ -99,15 +88,15 @@ read_nursery_from_log(Directory, MaxLevel, Config) ->
         case hanoidb_util:decode_crc_data(LogBinary, [], []) of
             {ok, KVs} ->
                 fill_cache(KVs, gb_trees:empty());
-            {error, _Reason} ->
+            {partial, KVs, _ErrorData} ->
                 error_logger:info_msg("ignoring undecypherable bytes in ~p~n", [?LOGFILENAME(Directory)]),
-                gb_trees:empty()
+                fill_cache(KVs, gb_trees:empty())
         end,
     {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel, config=Config }}.
 
 %% @doc Add a Key/Value to the nursery
 %% @end
--spec do_add(#nursery{}, binary(), binary()|?TOMBSTONE, non_neg_integer() | infinity, pid()) -> {ok, #nursery{}}.
+-spec do_add(#nursery{}, binary(), binary()|?TOMBSTONE, non_neg_integer() | infinity, pid()) -> {ok, #nursery{}} | {full, #nursery{}}.
 do_add(Nursery, Key, Value, infinity, Top) ->
     do_add(Nursery, Key, Value, 0, Top);
 do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config}, Key, Value, KeyExpiryTime, Top) ->
@@ -244,10 +233,11 @@ destroy(#nursery{ dir=Dir, log_file=LogFile }) ->
     file:delete(LogFileName),
     ok.
 
-
+-spec add(key(), value(), #nursery{}, pid()) -> {ok, #nursery{}}.
 add(Key, Value, Nursery, Top) ->
     add(Key, Value, infinity, Nursery, Top).
 
+-spec add(key(), value(), expiry(), #nursery{}, pid()) -> {ok, #nursery{}}.
 add(Key, Value, Expiry, Nursery, Top) ->
     case do_add(Nursery, Key, Value, Expiry, Top) of
         {ok, Nursery0} ->
@@ -256,6 +246,7 @@ add(Key, Value, Expiry, Nursery, Top) ->
             flush(Nursery0, Top)
     end.
 
+-spec flush(#nursery{}, pid()) -> {ok, #nursery{}}.
 flush(Nursery=#nursery{ dir=Dir, max_level=MaxLevel, config=Config }, Top) ->
     ok = finish(Nursery, Top),
     {error, enoent} = file:read_file_info(filename:join(Dir, "nursery.log")),

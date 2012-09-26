@@ -853,13 +853,13 @@ do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
                                      BT,
                                      Range) of
         {limit, _, LastKey} ->
-            WorkerPID ! {level_limit, SelfOrRef, LastKey};
+            WorkerPID ! {level_limit, SelfOrRef, LastKey},
+            ok;
         {done, _} ->
             %% tell fold merge worker we're done
-            WorkerPID ! {level_done, SelfOrRef}
-
-    end,
-    ok.
+            WorkerPID ! {level_done, SelfOrRef},
+            ok
+    end.
 
 -define(FOLD_CHUNK_SIZE, 100).
 

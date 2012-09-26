@@ -45,7 +45,7 @@ receive_reply(MRef) ->
     end.
 
 send_reply({PID,Ref}, Reply) ->
-    erlang:send(PID, ?REPLY(Ref, Reply)),
+    _ = erlang:send(PID, ?REPLY(Ref, Reply)),
     ok.
 
 call(PID,Request) ->

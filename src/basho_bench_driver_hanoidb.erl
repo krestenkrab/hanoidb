@@ -24,11 +24,11 @@
 
 -module(basho_bench_driver_hanoidb).
 
--record(state, { tree,
-                 filename,
-                 flags,
-                 sync_interval,
-                 last_sync }).
+-record(state, { tree :: hanoidb:hanoidb(),
+                 filename :: string(),
+                 flags :: list(),
+                 sync_interval :: integer() | infinity,
+                 last_sync :: erlang:timestamp() }).
 
 -export([new/1,
          run/4]).
@@ -62,11 +62,12 @@ new(_Id) ->
     Config = basho_bench_config:get(hanoidb_flags, []),
 
     %% Look for sync interval config
+    SyncInterval =
     case basho_bench_config:get(hanoidb_sync_interval, infinity) of
         Value when is_integer(Value) ->
-            SyncInterval = Value;
+            Value;
         infinity ->
-            SyncInterval = infinity
+            infinity
     end,
 
     %% Get any bitcask flags
@@ -106,7 +107,7 @@ run(delete, KeyGen, _ValueGen, State) ->
 
 run(fold_100, KeyGen, _ValueGen, State) ->
     [From,To] = lists:usort([KeyGen(), KeyGen()]),
-    case hanoidb:sync_fold_range(State#state.tree,
+    case hanoidb:fold_range(State#state.tree,
                                    fun(_Key,_Value,Count) ->
                                            Count+1
                                    end,

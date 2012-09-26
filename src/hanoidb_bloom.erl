@@ -46,7 +46,7 @@
     n     :: non_neg_integer(),    % maximum number of elements
     mb    :: non_neg_integer(),    % 2^mb = m, the size of each slice (bitvector)
     size  :: non_neg_integer(),    % number of elements
-    a     :: [binary()]            % list of bitvectors
+    a     :: [array()]            % list of bitvectors
 }).
 
 -record(sbf, {
@@ -183,16 +183,18 @@ set_bits(Mask, I1, I, [H|T], Acc) ->
 
 bitarray_new(N) -> array:new((N-1) div ?W + 1, {default, 0}).
 
+-spec bitarray_set( non_neg_integer(), array() ) -> array().
 bitarray_set(I, A) ->
     AI = I div ?W,
     V = array:get(AI, A),
     V1 = V bor (1 bsl (I rem ?W)),
     array:set(AI, V1, A).
 
+-spec bitarray_get( non_neg_integer(), array() ) -> boolean().
 bitarray_get(I, A) ->
     AI = I div ?W,
     V = array:get(AI, A),
-    V band (1 bsl (I rem ?W)) =/= 0.
+    (V band (1 bsl (I rem ?W))) =/= 0.
 
 encode(Bloom) ->
     zlib:gzip(term_to_binary(Bloom)).

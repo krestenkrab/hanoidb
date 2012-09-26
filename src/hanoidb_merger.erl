@@ -40,16 +40,11 @@
 %% merges, so we default to running the entire merge in one process.
 -define(LOCAL_WRITER, true).
 
+-spec merge(string(), string(), string(), integer(), boolean(), list()) -> {ok, integer()}.
 merge(A,B,C, Size, IsLastLevel, Options) ->
     {ok, IXA} = hanoidb_reader:open(A, [sequential|Options]),
     {ok, IXB} = hanoidb_reader:open(B, [sequential|Options]),
-    {ok, Out} =
-        case ?LOCAL_WRITER of
-            true ->
-                hanoidb_writer:init([C, [{size, Size} | Options]]);
-            false ->
-                hanoidb_writer:open(C, [{size, Size} | Options])
-        end,
+    {ok, Out} = hanoidb_writer:init([C, [{size, Size} | Options]]),
     AKVs =
         case hanoidb_reader:first_node(IXA) of
             {node, AKV} -> AKV;
@@ -63,16 +58,9 @@ merge(A,B,C, Size, IsLastLevel, Options) ->
     scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, {0, none}).
 
 terminate(Out) ->
-    case ?LOCAL_WRITER of
-        true ->
-            {ok, Count, _} = hanoidb_writer:handle_call(count, self(), Out),
-            {stop, normal, ok, _} = hanoidb_writer:handle_call(close, self(), Out),
-            {ok, Count};
-        false ->
-            Count = hanoidb_writer:count(Out),
-            ok = hanoidb_writer:close(Out),
-            {ok, Count}
-    end.
+    {ok, Count, _} = hanoidb_writer:handle_call(count, self(), Out),
+    {stop, normal, ok, _} = hanoidb_writer:handle_call(close, self(), Out),
+    {ok, Count}.
 
 step(S) ->
     step(S, 1).
@@ -103,16 +91,11 @@ scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, {N, FromPID}) when N < 1, AKVs =/= 
         {step, From, HowMany} ->
             scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, {N+HowMany, From})
     after ?HIBERNATE_TIMEOUT ->
-            case ?LOCAL_WRITER of
-                true ->
-                    Args = {hanoidb_reader:serialize(IXA),
-                            hanoidb_reader:serialize(IXB),
-                            hanoidb_writer:serialize(Out), IsLastLevel, AKVs, BKVs, N},
-                    Keep = zlib:gzip(erlang:term_to_binary(Args)),
-                    hibernate_scan(Keep);
-                false ->
-                    scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, {0, none})
-            end
+            Args = {hanoidb_reader:serialize(IXA),
+                    hanoidb_reader:serialize(IXB),
+                    hanoidb_writer:serialize(Out), IsLastLevel, AKVs, BKVs, N},
+            Keep = zlib:gzip(erlang:term_to_binary(Args)),
+            hibernate_scan(Keep)
     end;
 
 scan(IXA, IXB, Out, IsLastLevel, [], BKVs, Step) ->
@@ -135,38 +118,14 @@ scan(IXA, IXB, Out, IsLastLevel, AKVs, [], Step) ->
 
 scan(IXA, IXB, Out, IsLastLevel, [{Key1,Value1}|AT]=_AKVs, [{Key2,_Value2}|_IX]=BKVs, Step)
   when Key1 < Key2 ->
-    Out3 =
-        case ?LOCAL_WRITER of
-            true ->
-                {noreply, Out2} = hanoidb_writer:handle_cast({add, Key1, Value1}, Out),
-                Out2;
-            false ->
-                ok = hanoidb_writer:add(Out, Key1, Value1),
-                Out
-        end,
+    {noreply, Out3} = hanoidb_writer:handle_cast({add, Key1, Value1}, Out),
     scan(IXA, IXB, Out3, IsLastLevel, AT, BKVs, step(Step));
 scan(IXA, IXB, Out, IsLastLevel, [{Key1,_Value1}|_AT]=AKVs, [{Key2,Value2}|IX]=_BKVs, Step)
   when Key1 > Key2 ->
-    Out3 =
-        case ?LOCAL_WRITER of
-            true ->
-                {noreply, Out2} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out),
-                Out2;
-            false ->
-                ok = hanoidb_writer:add(Out, Key2, Value2),
-                Out
-        end,
+    {noreply, Out3} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out),
     scan(IXA, IXB, Out3, IsLastLevel, AKVs, IX, step(Step));
 scan(IXA, IXB, Out, IsLastLevel, [{_Key1,_Value1}|AT]=_AKVs, [{Key2,Value2}|IX]=_BKVs, Step) ->
-    Out3 =
-        case ?LOCAL_WRITER of
-            true ->
-                {noreply, Out2} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out),
-                Out2;
-            false ->
-                ok = hanoidb_writer:add(Out, Key2, Value2),
-                Out
-        end,
+    {noreply, Out3} = hanoidb_writer:handle_cast({add, Key2, Value2}, Out),
     scan(IXA, IXB, Out3, IsLastLevel, AT, IX, step(Step, 2)).
 
 hibernate_scan_only(Keep) ->
@@ -217,13 +176,5 @@ scan_only(IX, Out, true, [{_,?TOMBSTONE}|Rest], Step) ->
     scan_only(IX, Out, true, Rest, step(Step));
 
 scan_only(IX, Out, IsLastLevel, [{Key,Value}|Rest], Step) ->
-    Out3 =
-        case ?LOCAL_WRITER of
-            true ->
-                {noreply, Out2} = hanoidb_writer:handle_cast({add, Key, Value}, Out),
-                Out2;
-            false ->
-                ok = hanoidb_writer:add(Out, Key, Value),
-                Out
-        end,
+    {noreply, Out3} = hanoidb_writer:handle_cast({add, Key, Value}, Out),
     scan_only(IX, Out3, IsLastLevel, Rest, step(Step)).

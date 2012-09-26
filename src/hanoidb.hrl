@@ -47,3 +47,25 @@
 
 -define(KEY_IN_RANGE(Key,Range),
         (?KEY_IN_FROM_RANGE(Key,Range) andalso ?KEY_IN_TO_RANGE(Key,Range))).
+
+-record(nursery, { log_file :: file:fd(),
+                   dir :: string(),
+                   cache :: gb_tree(),
+                   total_size=0 :: integer(),
+                   count=0 :: integer(),
+                   last_sync=now() :: erlang:timestamp(),
+                   max_level :: integer(),
+                   config=[] :: [{atom(), term()}],
+                   step=0 :: integer(),
+                   merge_done=0 :: integer()}).
+
+-type kventry() :: { key(), expvalue() } | [ kventry() ].
+-type key() :: binary().
+-type txspec() :: { delete, key() } | { put, key(), value() }.
+-type value() :: ?TOMBSTONE | binary().
+-type expiry() :: infinity | integer().
+-type filepos() :: { non_neg_integer(), non_neg_integer() }.
+-type expvalue() :: { value(), expiry() }
+                  | value()
+                  | filepos().
+

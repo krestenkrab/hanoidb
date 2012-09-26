@@ -39,28 +39,32 @@
 -record(node, {level       :: non_neg_integer(),
                members=[]  :: list(any()) }).
 
--record(index, {file       :: port(),
-                root       :: #node{},
+-record(index, {file       :: file:io_device(),
+                root       :: #node{} | none,
                 bloom      :: term(),
                 name       :: string(),
                 config=[]  :: term() }).
 
 -type read_file() :: #index{}.
 
--spec open(Name::string()) -> read_file().
+-spec open(Name::string()) -> {ok, read_file()} | {error, any()}.
 open(Name) ->
     open(Name, [random]).
 
 -type config() :: [sequential | folding | random | {atom(), term()}].
 
--spec open(Name::string(), config()) -> read_file().
+-spec open(Name::string(), config()) -> {ok, read_file()}  | {error, any()}.
 
 open(Name, Config) ->
     case proplists:get_bool(sequential, Config) of
         true ->
             ReadBufferSize = hanoidb:get_opt(read_buffer_size, Config, 512 * 1024),
-            {ok, File} = file:open(Name, [raw,read,{read_ahead, ReadBufferSize},binary]),
-            {ok, #index{file=File, name=Name, config=Config}};
+            case file:open(Name, [raw,read,{read_ahead, ReadBufferSize},binary]) of
+                {ok, File} ->
+                    {ok, #index{file=File, name=Name, config=Config}};
+                {error, _}=Err ->
+                    Err
+            end;
 
         false ->
             {ok, File} =
@@ -129,13 +133,15 @@ fold1(File,Fun,Acc0) ->
             fold0(File,Fun,Node,Acc0)
     end.
 
+-spec range_fold(function(), any(), #index{}, #key_range{}) ->
+                        {limit, any(), binary()} | {done, any()}.
 range_fold(Fun, Acc0, #index{file=File,root=Root}, Range) ->
     case lookup_node(File,Range#key_range.from_key,Root,?FIRST_BLOCK_POS) of
         {ok, {Pos,_}} ->
-            file:position(File, Pos),
+            {ok, _} = file:position(File, Pos),
             do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
         {ok, Pos} ->
-            file:position(File, Pos),
+            {ok, _} = file:position(File, Pos),
             do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
         none ->
             {done, Acc0}
@@ -266,6 +272,8 @@ next_node(#index{file=File}=_Index) ->
             end_of_data
     end.
 
+close(#index{file=undefined}) ->
+    ok;
 close(#index{file=File}) ->
     file:close(File).
 
@@ -308,8 +316,8 @@ lookup_in_node(File,#node{members=Members},Key) ->
                                                           {ok, Node} ->
                                                               Result = lookup_in_node2(File, Node, Key),
                                                               plain_rpc:send_reply(From, Result);
-                                                          {error, _}=Error ->
-                                                              plain_rpc:send_reply(From, Error)
+                                                          eof ->
+                                                              plain_rpc:send_reply(From, {error, eof})
                                                       end
                                               end
                                       end),
@@ -339,8 +347,8 @@ lookup_in_node2(File,#node{members=Members},Key) ->
             case read_node(File, {Pos,Size}) of
                 {ok, Node} ->
                     lookup_in_node2(File, Node, Key);
-                {error, _}=Error ->
-                    Error
+                eof ->
+                    {error, eof}
             end;
         not_found ->
             not_found
@@ -365,7 +373,8 @@ find_start(K, KVs) ->
     find_1(K, KVs).
 
 
-
+-spec read_node(file:io_device(), non_neg_integer() | { non_neg_integer(), non_neg_integer() }) ->
+                       {ok, #node{}} | eof.
 
 read_node(File, {Pos, Size}) ->
 %    error_logger:info_msg("read_node ~p ~p ~p~n", [File, Pos, Size]),

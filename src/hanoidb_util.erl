@@ -56,9 +56,11 @@
 -compile({inline, [crc_encapsulate/1, crc_encapsulate_kv_entry/2 ]}).
 
 
+-spec index_file_name(string()) -> string().
 index_file_name(Name) ->
     Name.
 
+-spec file_exists(string()) -> boolean().
 file_exists(FileName) ->
     case file:read_file_info(FileName) of
         {ok, _} ->
@@ -146,6 +148,7 @@ decode_index_node(Level, Data) ->
     {ok, {node, Level, KVList}}.
 
 
+-spec crc_encapsulate_kv_entry(binary(), expvalue()) -> iolist().
 crc_encapsulate_kv_entry(Key, {Value, infinity}) ->
     crc_encapsulate_kv_entry(Key, Value);
 crc_encapsulate_kv_entry(Key, {?TOMBSTONE, TStamp}) -> %
@@ -153,13 +156,13 @@ crc_encapsulate_kv_entry(Key, {?TOMBSTONE, TStamp}) -> %
 crc_encapsulate_kv_entry(Key, ?TOMBSTONE) ->
     crc_encapsulate( [?TAG_DELETED | Key] );
 crc_encapsulate_kv_entry(Key, {Value, TStamp}) when is_binary(Value) ->
-    crc_encapsulate( [?TAG_KV_DATA2, <<TStamp:32, (byte_size(Key)):32/unsigned>>, Key | Value] );
+    crc_encapsulate( [?TAG_KV_DATA2, <<TStamp:32, (byte_size(Key)):32/unsigned>>, Key, Value] );
 crc_encapsulate_kv_entry(Key, Value) when is_binary(Value) ->
-    crc_encapsulate( [?TAG_KV_DATA, <<(byte_size(Key)):32/unsigned>>, Key | Value] );
+    crc_encapsulate( [?TAG_KV_DATA, <<(byte_size(Key)):32/unsigned>>, Key, Value] );
 crc_encapsulate_kv_entry(Key, {Pos,Len}) when Len < 16#ffffffff ->
     crc_encapsulate( [?TAG_POSLEN32, <<Pos:64/unsigned, Len:32/unsigned>>, Key] ).
 
-
+-spec crc_encapsulate_transaction( [ txspec() ], expiry() ) -> iolist().
 crc_encapsulate_transaction(TransactionSpec, Expiry) ->
     crc_encapsulate([?TAG_TRANSACT |
              lists:map(fun({delete, Key}) ->
@@ -169,11 +172,13 @@ crc_encapsulate_transaction(TransactionSpec, Expiry) ->
                         end,
                         TransactionSpec)]).
 
+-spec crc_encapsulate( iolist() ) -> iolist().
 crc_encapsulate(Blob) ->
     CRC = erlang:crc32(Blob),
     Size = erlang:iolist_size(Blob),
     [<< (Size):32/unsigned, CRC:32/unsigned >>, Blob, ?TAG_END].
 
+-spec decode_kv_list( binary() ) -> {ok, [ kventry() ]}  | {partial, [kventry()], iolist()}.
 decode_kv_list(<<?TAG_END, Custom/binary>>) ->
     decode_crc_data(Custom, [], []);
 decode_kv_list(<<?ERLANG_ENCODED, _/binary>>=TermData) ->
@@ -181,14 +186,13 @@ decode_kv_list(<<?ERLANG_ENCODED, _/binary>>=TermData) ->
 decode_kv_list(<<?CRC_ENCODED, Custom/binary>>) ->
     decode_crc_data(Custom, [], []).
 
--spec decode_crc_data(binary(), list(), list()) -> {ok, list()} | {error, data_corruption}.
+-spec decode_crc_data(binary(), list(), list()) -> {ok, [kventry()]} | {partial, [kventry()], iolist()}.
 decode_crc_data(<<>>, [], Acc) ->
     {ok, lists:reverse(Acc)};
-decode_crc_data(<<>>, _BrokenData, Acc) ->
-%    {error, data_corruption};
+decode_crc_data(<<>>, BrokenData, Acc) ->
+    {partial, lists:reverse(Acc), BrokenData};
     % TODO: we *could* simply return the good parts of the data...
     % would that be so wrong?
-    {ok, lists:reverse(Acc)};
 decode_crc_data(<< BinSize:32/unsigned, CRC:32/unsigned, Bin:BinSize/binary, ?TAG_END, Rest/binary >>, Broken, Acc) ->
     CRCTest = erlang:crc32( Bin ),
     if CRC == CRCTest ->
@@ -203,6 +207,7 @@ decode_crc_data(Bad, Broken, Acc) ->
     {Skipped, MaybeGood} = find_next_value(Bad),
     decode_crc_data(MaybeGood, [Skipped|Broken], Acc).
 
+-spec find_next_value(binary()) -> { binary(), binary() }.
 find_next_value(<<>>) ->
     {<<>>, <<>>};
 find_next_value(Bin) ->
@@ -214,6 +219,7 @@ find_next_value(Bin) ->
             {Bin, <<>>}
     end.
 
+-spec decode_kv_data( binary() ) -> kventry().
 decode_kv_data(<<?TAG_KV_DATA, KLen:32/unsigned, Key:KLen/binary, Value/binary >>) ->
     {Key, Value};
 decode_kv_data(<<?TAG_DELETED, Key/binary>>) ->

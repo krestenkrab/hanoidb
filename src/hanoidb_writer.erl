@@ -42,10 +42,10 @@
 -export([open/1, open/2, add/3, count/1, close/1]).
 
 -record(node, {level      :: integer(),
-               members=[] :: [ {binary(), binary()} ],
+               members=[] :: [ {key(), expvalue()} ],
                size=0     :: integer()}).
 
--record(state, {index_file               :: port(),
+-record(state, {index_file               :: file:io_device() | undefined,
                 index_file_pos           :: integer(),
 
                 last_node_pos            :: pos_integer(),
@@ -154,7 +154,7 @@ terminate(normal,_State) ->
     ok;
 terminate(_Reason, State) ->
     %% premature delete -> cleanup
-    file:close(State#state.index_file),
+    _ignore = file:close(State#state.index_file),
     file:delete(hanoidb_util:index_file_name(State#state.name)).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -170,7 +170,7 @@ serialize(#state{ bloom=Bloom, index_file=File, index_file_pos=Position }=State)
             exit({bad_position, Position, WrongPosition})
     end,
     ok = file:close(File),
-    erlang:term_to_binary( { State#state{ index_file=closed }, hanoidb_bloom:encode(Bloom) } ).
+    erlang:term_to_binary( { State#state{ index_file=undefined }, hanoidb_bloom:encode(Bloom) } ).
 
 deserialize(Binary) ->
     {State, Bin} = erlang:binary_to_term(Binary),

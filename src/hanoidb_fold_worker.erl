@@ -68,7 +68,7 @@
 -include("hanoidb.hrl").
 -include("plain_rpc.hrl").
 
--record(state, {sendto, sendto_ref}).
+-record(state, {sendto :: pid(), sendto_ref :: reference()}).
 
 start(SendTo) ->
     F = fun() ->
@@ -195,7 +195,7 @@ emit_next(State, [], _Queues) ->
     Msg =  {fold_done, self()},
     Target = State#state.sendto,
     ?log( "~p ! ~p~n", [Target, Msg]),
-    plain_rpc:cast(Target, Msg),
+    _ = plain_rpc:cast(Target, Msg),
     end_of_fold(State);
 
 emit_next(State, [{FirstPID,FirstKV}|Rest]=Values, Queues) ->
@@ -215,7 +215,7 @@ emit_next(State, [{FirstPID,FirstKV}|Rest]=Values, Queues) ->
             fill(State, Values, Queues, FillFrom);
         {{Key, limit}, _} ->
             ?log( "~p ! ~p~n", [State#state.sendto, {fold_limit, self(), Key}]),
-            plain_rpc:cast(State#state.sendto, {fold_limit, self(), Key}),
+            _ = plain_rpc:cast(State#state.sendto, {fold_limit, self(), Key}),
             end_of_fold(State);
         {{Key, Value}, FillFrom} ->
             ?log( "~p ! ~p~n", [State#state.sendto, {fold_result, self(), Key, '...'}]),

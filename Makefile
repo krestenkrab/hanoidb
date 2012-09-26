@@ -30,13 +30,21 @@ clean-test-btrees:
 
 plt: compile
 	$(DIALYZER) --build_plt --output_plt .hanoi.plt \
+		-pa deps/snappy/ebin \
 		-pa deps/plain_fsm/ebin \
 		deps/plain_fsm/ebin \
 		--apps kernel stdlib
 
 analyze: compile
 	$(DIALYZER) --plt .hanoi.plt \
+	-pa deps/snappy/ebin \
 	-pa deps/plain_fsm/ebin \
+	ebin
+
+analyze-nospec: compile
+	$(DIALYZER) --plt .hanoi.plt \
+	-pa deps/plain_fsm/ebin \
+        --no_spec \
 	ebin
 
 repl:
