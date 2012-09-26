@@ -71,7 +71,10 @@ bloom(N, E) when is_number(N), N >= 0,
     bloom(bits, 32, E).
 
 bloom(Mode, N, E) ->
-    K = 1 + trunc(log2(1/E)),
+    K = case Mode of
+            size -> 1 + trunc(log2(1/E));
+            bits -> 1
+        end,
     P = pow(E, 1 / K),
 
     Mb =
@@ -84,7 +87,7 @@ bloom(Mode, N, E) ->
     M = 1 bsl Mb,
     D = trunc(log(1-P) / log(1-1/M)),
     #bloom{e=E, n=D, mb=Mb, size = 0,
-           a = [bitarray_new(1 bsl Mb) || _ <- lists:seq(1, K)]}.
+           a = [bitmask_new(Mb) || _ <- lists:seq(1, K)]}.
 
 log2(X) -> log(X) / log(2).
 
@@ -145,7 +148,7 @@ masked_pair(Mask, X, Y) -> {X band Mask, Y band Mask}.
 
 all_set(_Mask, _I1, _I, []) -> true;
 all_set(Mask, I1, I, [H|T]) ->
-    case bitarray_get(I, H) of
+    case bitmask_get(I, H) of
         true -> all_set(Mask, I1, (I+I1) band Mask, T);
         false -> false
     end.
@@ -179,8 +182,44 @@ hash_add(Hashes, #bloom{mb=Mb, a=A, size=Size} = B) ->
 
 set_bits(_Mask, _I1, _I, [], Acc) -> lists:reverse(Acc);
 set_bits(Mask, I1, I, [H|T], Acc) ->
-    set_bits(Mask, I1, (I+I1) band Mask, T, [bitarray_set(I, H) | Acc]).
+    set_bits(Mask, I1, (I+I1) band Mask, T, [bitmask_set(I, H) | Acc]).
 
+
+%%%========== Dispatch to appropriate representation:
+bitmask_new(LogN) ->
+    if LogN >= 20 -> % Use sparse representation.
+            hanoidb_sparse_bitmap:new(LogN);
+       true ->       % Use dense representation.
+            hanoidb_dense_bitmap:new(1 bsl LogN)
+    end.
+
+bitmask_set(I, BM) ->
+    case element(1,BM) of
+        array -> bitarray_set(I, BM);
+        sparse_bitmap -> hanoidb_sparse_bitmap:set(I, BM);
+        dense_bitmap_ets -> hanoidb_dense_bitmap:set(I, BM);
+        dense_bitmap ->
+            %% Surprise - we need to mutate a built representation:
+            hanoidb_dense_bitmap:set(I, hanoidb_dense_bitmap:unbuild(BM))
+    end.
+
+%%% Convert to external form.
+bitmask_build(BM) ->
+    case element(1,BM) of
+        array -> BM;
+        sparse_bitmap -> BM;
+        dense_bitmap_ets -> hanoidb_dense_bitmap:build(BM)
+    end.
+
+bitmask_get(I, BM) ->
+    case element(1,BM) of
+        array -> bitarray_get(I, BM);
+        sparse_bitmap -> hanoidb_sparse_bitmap:member(I, BM);
+        dense_bitmap_ets -> hanoidb_dense_bitmap:member(I, BM);
+        dense_bitmap     -> hanoidb_dense_bitmap:member(I, BM)
+    end.
+
+%%%========== Bitarray representation - suitable for sparse arrays ==========
 bitarray_new(N) -> array:new((N-1) div ?W + 1, {default, 0}).
 
 -spec bitarray_set( non_neg_integer(), array() ) -> array().
@@ -196,11 +235,19 @@ bitarray_get(I, A) ->
     V = array:get(AI, A),
     (V band (1 bsl (I rem ?W))) =/= 0.
 
+%%%^^^^^^^^^^ Bitarray representation - suitable for sparse arrays ^^^^^^^^^^
+
 encode(Bloom) ->
-    zlib:gzip(term_to_binary(Bloom)).
+    zlib:gzip(term_to_binary(bloom_build(Bloom))).
 
 decode(Bin) ->
     binary_to_term(zlib:gunzip(Bin)).
+
+%%% Convert to external form.
+bloom_build(Bloom=#bloom{a=Bitmasks}) ->
+    Bloom#bloom{a=[bitmask_build(X) || X <- Bitmasks]};
+bloom_build(Sbf=#sbf{b=Blooms}) ->
+    Sbf#sbf{b=[bloom_build(X) || X <- Blooms]}.
 
 %% UNIT TESTS
 
