@@ -41,12 +41,14 @@
 
 -define(W, 27).
 
+-type bitmask() :: array() | any().
+
 -record(bloom, {
     e     :: float(),              % error probability
     n     :: non_neg_integer(),    % maximum number of elements
     mb    :: non_neg_integer(),    % 2^mb = m, the size of each slice (bitvector)
     size  :: non_neg_integer(),    % number of elements
-    a     :: [array()]            % list of bitvectors
+    a     :: [bitmask()]            % list of bitvectors
 }).
 
 -record(sbf, {
@@ -195,7 +197,7 @@ bitmask_new(LogN) ->
 
 bitmask_set(I, BM) ->
     case element(1,BM) of
-        array -> bitarray_set(I, BM);
+        array -> bitarray_set(I, as_array(BM));
         sparse_bitmap -> hanoidb_sparse_bitmap:set(I, BM);
         dense_bitmap_ets -> hanoidb_dense_bitmap:set(I, BM);
         dense_bitmap ->
@@ -213,17 +215,24 @@ bitmask_build(BM) ->
 
 bitmask_get(I, BM) ->
     case element(1,BM) of
-        array -> bitarray_get(I, BM);
+        array -> bitarray_get(I, as_array(BM));
         sparse_bitmap -> hanoidb_sparse_bitmap:member(I, BM);
         dense_bitmap_ets -> hanoidb_dense_bitmap:member(I, BM);
         dense_bitmap     -> hanoidb_dense_bitmap:member(I, BM)
+    end.
+
+-spec as_array(bitmask()) -> array().
+as_array(BM) ->
+    case array:is_array(BM) of
+        true -> BM
     end.
 
 %%%========== Bitarray representation - suitable for sparse arrays ==========
 bitarray_new(N) -> array:new((N-1) div ?W + 1, {default, 0}).
 
 -spec bitarray_set( non_neg_integer(), array() ) -> array().
-bitarray_set(I, A) ->
+bitarray_set(I, A1) ->
+    A = as_array(A1),
     AI = I div ?W,
     V = array:get(AI, A),
     V1 = V bor (1 bsl (I rem ?W)),
