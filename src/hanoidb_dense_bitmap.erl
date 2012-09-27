@@ -18,7 +18,11 @@ set(I, {dense_bitmap_ets, _,_, Tab}=DBM) ->
     BitInCell = I rem ?BITS_PER_CELL,
     Old = ets:lookup_element(Tab, ?REPR_NAME, Cell),
     New = Old bor (1 bsl BitInCell),
-    ets:update_element(Tab, ?REPR_NAME, {Cell,New}),
+    if New =:= Old ->
+            ok; % The bit is already set
+       true ->
+            ets:update_element(Tab, ?REPR_NAME, {Cell,New})
+    end,
     DBM.
 
 build({dense_bitmap_ets, _, _, Tab}) ->
