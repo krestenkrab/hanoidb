@@ -148,10 +148,7 @@ masked_pair(Mask, X, Y) -> {X band Mask, Y band Mask}.
 
 all_set(_Mask, _I1, _I, []) -> true;
 all_set(Mask, I1, I, [H|T]) ->
-    case bitmask_get(I, H) of
-        true -> all_set(Mask, I1, (I+I1) band Mask, T);
-        false -> false
-    end.
+    bitmask_get(I, H) andalso all_set(Mask, I1, (I+I1) band Mask, T).
 
 %% Adds element to set
 %%
@@ -175,10 +172,7 @@ add(Elem, #sbf{size=Size, r=R, s=S, b=[H|T]=Bs}=Sbf) ->
 hash_add(Hashes, #bloom{mb=Mb, a=A, size=Size} = B) ->
     Mask = 1 bsl Mb -1,
     {I1, I0} = make_indexes(Mask, Hashes),
-    case all_set(Mask, I1, I0, A) of
-        true -> B;
-        false -> B#bloom{size=Size+1, a=set_bits(Mask, I1, I0, A, [])}
-    end.
+    B#bloom{size=Size+1, a=set_bits(Mask, I1, I0, A, [])}.
 
 set_bits(_Mask, _I1, _I, [], Acc) -> lists:reverse(Acc);
 set_bits(Mask, I1, I, [H|T], Acc) ->
@@ -226,7 +220,9 @@ bitarray_set(I, A) ->
     AI = I div ?W,
     V = array:get(AI, A),
     V1 = V bor (1 bsl (I rem ?W)),
-    array:set(AI, V1, A).
+    if V =:= V1 -> A; % The bit is already set
+       true -> array:set(AI, V1, A)
+    end.
 
 bitarray_get(I, A) ->
     AI = I div ?W,
