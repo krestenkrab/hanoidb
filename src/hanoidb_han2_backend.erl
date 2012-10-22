@@ -50,6 +50,9 @@ close_batch_reader(Reader) ->
 open_batch_writer(Name, Options) ->
     hanoidb_writer:init([Name, Options]).
 
+write_next( {Key, Value, infinity}, Writer) ->
+    {noreply, Writer2} = hanoidb_writer:handle_cast({add, Key, Value}, Writer),
+    {ok, Writer2};
 write_next( {Key, Value, Expiry}, Writer) ->
     {noreply, Writer2} = hanoidb_writer:handle_cast({add, Key, {Value, Expiry}}, Writer),
     {ok, Writer2}.

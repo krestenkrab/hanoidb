@@ -57,7 +57,9 @@
                    max_level :: integer(),
                    config=[] :: [{atom(), term()}],
                    step=0 :: integer(),
-                   merge_done=0 :: integer()}).
+                   merge_done=0 :: integer(),
+                   backend = hanoidb_han2_backend :: atom()
+                 }).
 
 -type kventry() :: { key(), expvalue() } | [ kventry() ].
 -type key() :: binary().

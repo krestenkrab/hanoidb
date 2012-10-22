@@ -99,7 +99,7 @@ read_nursery_from_log(Directory, MaxLevel, Config) ->
 -spec do_add(#nursery{}, binary(), binary()|?TOMBSTONE, non_neg_integer() | infinity, pid()) -> {ok, #nursery{}} | {full, #nursery{}}.
 do_add(Nursery, Key, Value, infinity, Top) ->
     do_add(Nursery, Key, Value, 0, Top);
-do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config}, Key, Value, KeyExpiryTime, Top) ->
+do_add(Nursery=#nursery{log_file=File, cache=Cache, total_size=TotalSize, count=Count, config=Config}, Key, Value, KeyExpiryTime, Top) when is_integer(KeyExpiryTime) ->
     DatabaseExpiryTime = hanoidb:get_opt(expiry_secs, Config),
 
     {Data, Cache2} =
@@ -175,7 +175,7 @@ lookup(Key, #nursery{cache=Cache}) ->
 %% @end
 -spec finish(Nursery::#nursery{}, TopLevel::pid()) -> ok.
 finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, merge_done=DoneMerge,
-                 count=Count, config=Config }, TopLevel) ->
+                 count=Count, config=Config, backend=Backend }, TopLevel) ->
 
     hanoidb_util:ensure_expiry(Config),
 
@@ -189,16 +189,17 @@ finish(#nursery{ dir=Dir, cache=Cache, log_file=LogFile, merge_done=DoneMerge,
         N when N > 0 ->
             %% next, flush cache to a new BTree
             BTreeFileName = filename:join(Dir, "nursery.data"),
-            {ok, BT} = hanoidb_writer:open(BTreeFileName, [{size, ?BTREE_SIZE(?TOP_LEVEL)},
+            {ok, BT} = Backend:open_batch_writer(BTreeFileName, [{size, ?BTREE_SIZE(?TOP_LEVEL)},
                                                            {compress, none} | Config]),
-            try
-                ok = gb_trees_ext:fold(fun(Key, Value, Acc) ->
-                                               ok = hanoidb_writer:add(BT, Key, Value),
-                                               Acc
-                                       end, ok, Cache)
-            after
-                ok = hanoidb_writer:close(BT)
-            end,
+
+            BT3 = gb_trees_ext:fold(fun(Key, {Value,Expiry}, BT1) ->
+                                            {ok, BT2} = Backend:write_next({Key,Value,Expiry}, BT1),
+                                            BT2;
+                                       (Key, Value, BT1) ->
+                                            {ok, BT2} = Backend:write_next({Key,Value,infinity}, BT1),
+                                            BT2
+                                    end, BT, Cache),
+            ok = Backend:close_batch_writer(BT3),
 
             %% Inject the B-Tree (blocking RPC)
             ok = hanoidb_level:inject(TopLevel, BTreeFileName),
