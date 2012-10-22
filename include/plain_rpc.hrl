@@ -27,3 +27,5 @@
 -define(REPLY(Ref,Msg), {'$reply', Ref, Msg}).
 -define(CAST(From,Msg), {'$cast', From, Msg}).
 
+-type caller() :: { pid(), reference() }.
+

@@ -33,7 +33,7 @@
 -define(ASSERT_WHEN(X), when X).
 
 -export([open/1, open/2,close/1,lookup/2,fold/3,range_fold/4, destroy/1]).
--export([first_node/1,next_node/1]).
+-export([first_node/1,next_node/1,file_name/1]).
 -export([serialize/1, deserialize/1]).
 
 -record(node, {level       :: non_neg_integer(),
@@ -61,6 +61,7 @@ open(Name, Config) ->
             ReadBufferSize = hanoidb:get_opt(read_buffer_size, Config, 512 * 1024),
             case file:open(Name, [raw,read,{read_ahead, ReadBufferSize},binary]) of
                 {ok, File} ->
+                    {ok, Pos} = file:position(File, ?FIRST_BLOCK_POS),
                     {ok, #index{file=File, name=Name, config=Config}};
                 {error, _}=Err ->
                     Err
@@ -99,6 +100,9 @@ open(Name, Config) ->
             {ok, #index{file=File, root=Root, bloom=Bloom, name=Name, config=Config}}
     end.
 
+file_name(#index{name=Name}) ->
+    {ok, Name}.
+
 destroy(#index{file=File, name=Name}) ->
     ok = file:close(File),
     file:delete(Name).
@@ -130,7 +134,9 @@ fold1(File,Fun,Acc0) ->
         eof ->
             Acc0;
         {ok, Node} ->
-            fold0(File,Fun,Node,Acc0)
+            fold0(File,Fun,Node,Acc0);
+        {error,_}=Err ->
+            exit(Err)
     end.
 
 -spec range_fold(function(), any(), #index{}, #key_range{}) ->
@@ -193,7 +199,10 @@ do_range_fold(Fun, Acc0, File, Range, undefined) ->
                 {stopped, Result} -> Result;
                 {ok, Acc1} ->
                     do_range_fold(Fun, Acc1, File, Range, undefined)
-            end
+            end;
+
+        {error,_}=Err ->
+            Err
     end;
 
 do_range_fold(Fun, Acc0, File, Range, N0) ->
@@ -230,7 +239,10 @@ do_range_fold(Fun, Acc0, File, Range, N0) ->
                 {stopped, Result} -> Result;
                 {ok, {N2, Acc1}} ->
                     do_range_fold(Fun, Acc1, File, Range, N2)
-            end
+            end;
+
+        {error,_}=Err ->
+            Err
     end.
 
 lookup_node(_File,_FromKey,#node{level=0},Pos) ->
@@ -269,7 +281,10 @@ next_node(#index{file=File}=_Index) ->
 %        {ok, #node{level=N}} when N>0 ->
 %            next_node(Index);
         eof ->
-            end_of_data
+            end_of_data;
+
+        {error,_}=Err ->
+            Err
     end.
 
 close(#index{file=undefined}) ->
@@ -413,6 +428,8 @@ next_leaf_node(File) ->
             hanoidb_util:decode_index_node(0, Data);
         {ok, <<Len:32/unsigned, _:16/unsigned>>} ->
             {ok, _} = file:position(File, {cur,Len-2}),
-            next_leaf_node(File)
+            next_leaf_node(File);
+        {error,_}=Err ->
+            Err
     end.
 

@@ -51,9 +51,24 @@
 -include_lib("kernel/include/file.hrl").
 
 -record(state, {
-          a, b, c, next, dir, level, inject_done_ref, merge_pid, folding = [],
-          step_next_ref, step_caller, step_merge_ref,
-          opts = [], owner, work_in_progress=0, work_done=0, max_level=?TOP_LEVEL
+          a :: undefined | hanoidb_backend:random_reader(),
+          b :: undefined | hanoidb_backend:random_reader(),
+          c :: undefined | hanoidb_backend:random_reader(),
+          next :: pid() | undefined,
+          dir :: string(),
+          level :: non_neg_integer(),
+          inject_done_ref :: reference(),
+          merge_pid :: pid(),
+          folding = [] :: list( pid() ),
+          step_next_ref :: reference() | undefined,
+          step_caller :: plain_rpc:caller() | undefined,
+          step_merge_ref :: reference() | undefined,
+          opts = [] :: list(),
+          owner :: pid(),
+          work_in_progress=0 :: non_neg_integer(),
+          work_done=0 :: non_neg_integer(),
+          max_level=?TOP_LEVEL :: pos_integer(),
+          backend = hanoidb_han2_backend :: atom()
           }).
 
 
@@ -177,6 +192,8 @@ initialize2(State) ->
     file:delete(filename("BF",State)),
     file:delete(filename("CF",State)),
 
+    Mod = State#state.backend,
+
     case file:read_file_info(MFileName) of
         {ok, _} ->
 
@@ -188,12 +205,12 @@ initialize2(State) ->
             file:delete(BFileName),
             ok = file:rename(MFileName, AFileName),
 
-            {ok, IXA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
+            {ok, IXA} = Mod:open_random_reader(AFileName, [random|State#state.opts]),
 
             case file:read_file_info(CFileName) of
                 {ok, _} ->
                     file:rename(CFileName, BFileName),
-                    {ok, IXB} = hanoidb_reader:open(BFileName, [random|State#state.opts]),
+                    {ok, IXB} = Mod:open_random_reader(BFileName, [random|State#state.opts]),
                     check_begin_merge_then_loop0(init_state(State#state{ a= IXA, b=IXB }));
 
                 {error, enoent} ->
@@ -203,13 +220,13 @@ initialize2(State) ->
         {error, enoent} ->
             case file:read_file_info(BFileName) of
                 {ok, _} ->
-                    {ok, IXA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
-                    {ok, IXB} = hanoidb_reader:open(BFileName, [random|State#state.opts]),
+                    {ok, IXA} = Mod:open_random_reader(AFileName, [random|State#state.opts]),
+                    {ok, IXB} = Mod:open_random_reader(BFileName, [random|State#state.opts]),
 
                     IXC =
                         case file:read_file_info(CFileName) of
                             {ok, _} ->
-                                {ok, C} = hanoidb_reader:open(CFileName, [random|State#state.opts]),
+                                {ok, C} = Mod:open_random_reader(CFileName, [random|State#state.opts]),
                                 C;
                         {error, enoent} ->
                             undefined
@@ -224,7 +241,7 @@ initialize2(State) ->
 
                     case file:read_file_info(AFileName) of
                         {ok, _} ->
-                            {ok, IXA} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
+                            {ok, IXA} = Mod:open_random_reader(AFileName, [random|State#state.opts]),
                             main_loop(init_state(State#state{ a=IXA }));
 
                         {error, enoent} ->
@@ -263,28 +280,28 @@ check_begin_merge_then_loop(State=#state{a=IXA, b=IXB, merge_pid=undefined})
 check_begin_merge_then_loop(State) ->
     main_loop(State).
 
-main_loop(State = #state{ next=Next }) ->
+main_loop(State = #state{ next=Next, backend=Mod }) ->
     Parent = plain_fsm:info(parent),
     receive
         ?CALL(From, {lookup, Key})=Req ->
-            case do_lookup(Key, [State#state.c, State#state.b, State#state.a, Next]) of
-                not_found ->
+            case do_lookup(Mod, Key, [State#state.c, State#state.b, State#state.a]) of
+                not_found when Next =:= undefined ->
                     plain_rpc:send_reply(From, not_found);
                 {found, Result} ->
                     plain_rpc:send_reply(From, {ok, Result});
-                {delegate, DelegatePid} ->
-                    DelegatePid ! Req
+                not_found ->
+                    Next ! Req
             end,
             main_loop(State);
 
         ?CAST(_From, {lookup, Key, ReplyFun})=Req ->
-            case do_lookup(Key, [State#state.c, State#state.b, State#state.a, Next]) of
-                not_found ->
+            case do_lookup(Mod, Key, [State#state.c, State#state.b, State#state.a]) of
+                not_found when Next =:= undefined ->
                     ReplyFun(not_found);
                 {found, Result} ->
                     ReplyFun({ok, Result});
-                {delegate, DelegatePid} ->
-                    DelegatePid ! Req
+                not_found ->
+                    Next ! Req
             end,
             main_loop(State);
 
@@ -310,7 +327,7 @@ main_loop(State = #state{ next=Next }) ->
 
             plain_rpc:send_reply(From, ok),
 
-            case hanoidb_reader:open(ToFileName, [random|State#state.opts]) of
+            case Mod:open_random_reader(ToFileName, [random|State#state.opts]) of
                 {ok, BT} ->
                     if SetPos == #state.b ->
                             check_begin_merge_then_loop(setelement(SetPos, State, BT));
@@ -406,9 +423,9 @@ main_loop(State = #state{ next=Next }) ->
             main_loop(State2#state{ step_next_ref=undefined });
 
         ?CALL(From, close) ->
-            close_if_defined(State#state.a),
-            close_if_defined(State#state.b),
-            close_if_defined(State#state.c),
+            close_if_defined(Mod, State#state.a),
+            close_if_defined(Mod, State#state.b),
+            close_if_defined(Mod, State#state.c),
             [stop_if_defined(PID) || PID <- [State#state.merge_pid | State#state.folding]],
 
             %% this is synchronous all the way down, because our
@@ -422,9 +439,9 @@ main_loop(State = #state{ next=Next }) ->
             {ok, closing};
 
         ?CALL(From, destroy) ->
-            destroy_if_defined(State#state.a),
-            destroy_if_defined(State#state.b),
-            destroy_if_defined(State#state.c),
+            destroy_if_defined(Mod,State#state.a),
+            destroy_if_defined(Mod,State#state.b),
+            destroy_if_defined(Mod,State#state.c),
             [stop_if_defined(PID) || PID <- [State#state.merge_pid | State#state.folding]],
 
             %% this is synchronous all the way down, because our
@@ -496,27 +513,27 @@ main_loop(State = #state{ next=Next }) ->
 
                     {_, undefined, undefined} ->
                         ARef = erlang:make_ref(),
-                        ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
+                        ok = do_range_fold(Mod,State#state.a, WorkerPID, ARef, Range),
                         [ARef|List];
 
                     {_, _, undefined} ->
                         BRef = erlang:make_ref(),
-                        ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
+                        ok = do_range_fold(Mod,State#state.b, WorkerPID, BRef, Range),
 
                         ARef = erlang:make_ref(),
-                        ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
+                        ok = do_range_fold(Mod,State#state.a, WorkerPID, ARef, Range),
 
                         [ARef,BRef|List];
 
                     {_, _, _} ->
                         CRef = erlang:make_ref(),
-                        ok = do_range_fold(State#state.c, WorkerPID, CRef, Range),
+                        ok = do_range_fold(Mod,State#state.c, WorkerPID, CRef, Range),
 
                         BRef = erlang:make_ref(),
-                        ok = do_range_fold(State#state.b, WorkerPID, BRef, Range),
+                        ok = do_range_fold(Mod,State#state.b, WorkerPID, BRef, Range),
 
                         ARef = erlang:make_ref(),
-                        ok = do_range_fold(State#state.a, WorkerPID, ARef, Range),
+                        ok = do_range_fold(Mod,State#state.a, WorkerPID, ARef, Range),
 
                         [ARef,BRef,CRef|List]
                 end,
@@ -542,9 +559,9 @@ main_loop(State = #state{ next=Next }) ->
                 undefined ->
                     main_loop(State2#state{ merge_pid=undefined });
                 CFile ->
-                    ok = hanoidb_reader:close(CFile),
+                    ok = Mod:close_random_reader(CFile),
                     ok = file:rename(filename("C", State2), filename("A", State2)),
-                    {ok, AFile} = hanoidb_reader:open(filename("A", State2), [random|State#state.opts]),
+                    {ok, AFile} = Mod:open_random_reader(filename("A", State2), [random|State#state.opts]),
                     main_loop(State2#state{ a = AFile, c = undefined, merge_pid=undefined })
             end;
 
@@ -565,7 +582,7 @@ main_loop(State = #state{ next=Next }) ->
             % then, rename M to A, and open it
             AFileName = filename("A",State2),
             ok = file:rename(MFileName, AFileName),
-            {ok, AFile} = hanoidb_reader:open(AFileName, [random|State#state.opts]),
+            {ok, AFile} = Mod:open_random_reader(AFileName, [random|State#state.opts]),
 
             % iff there is a C file, then move it to B position
             % TODO: consider recovery for this
@@ -573,9 +590,9 @@ main_loop(State = #state{ next=Next }) ->
                 undefined ->
                     main_loop(State2#state{ a=AFile, b=undefined, merge_pid=undefined });
                 CFile ->
-                    ok = hanoidb_reader:close(CFile),
+                    ok = Mod:close_random_reader(CFile),
                     ok = file:rename(filename("C", State2), filename("B", State2)),
-                    {ok, BFile} = hanoidb_reader:open(filename("B", State2), [random|State#state.opts]),
+                    {ok, BFile} = Mod:open_random_reader(filename("B", State2), [random|State#state.opts]),
                     check_begin_merge_then_loop(State2#state{ a=AFile, b=BFile, c=undefined,
                                                               merge_pid=undefined })
             end;
@@ -722,9 +739,9 @@ reply_step_ok(State) ->
     case State#state.step_caller of
         undefined ->
             ok;
-        _ ->
-            ?log("step_ok -> ~p", [State#state.step_caller]),
-            plain_rpc:send_reply(State#state.step_caller, step_ok)
+        Caller ->
+            ?log("step_ok -> ~p", [Caller]),
+            plain_rpc:send_reply(Caller, step_ok)
     end,
     State#state{ step_caller=undefined }.
 
@@ -738,27 +755,28 @@ total_unmerged(State) ->
 
 
 
-do_lookup(_Key, []) ->
+do_lookup(_, _Key, []) ->
     not_found;
-do_lookup(_Key, [Pid]) when is_pid(Pid) ->
-    {delegate, Pid};
-do_lookup(Key, [undefined|Rest]) ->
-    do_lookup(Key, Rest);
-do_lookup(Key, [BT|Rest]) ->
-    case hanoidb_reader:lookup(BT, Key) of
+do_lookup(Mod, Key, [undefined|Rest]) ->
+    do_lookup(Mod, Key, Rest);
+do_lookup(Mod, Key, [BT|Rest]) ->
+    case Mod:lookup(Key, BT) of
         {ok, ?TOMBSTONE} ->
             not_found;
         {ok, Result} ->
             {found, Result};
         not_found ->
-            do_lookup(Key, Rest)
+            do_lookup(Mod,Key, Rest)
     end.
 
-close_if_defined(undefined) -> ok;
-close_if_defined(BT)        -> hanoidb_reader:close(BT).
+close_if_defined(_, undefined) -> ok;
+close_if_defined(Mod, BT)        -> Mod:close_random_reader(BT).
 
-destroy_if_defined(undefined) -> ok;
-destroy_if_defined(BT)        -> hanoidb_reader:destroy(BT).
+destroy_if_defined(_, undefined) -> ok;
+destroy_if_defined(Mod, BT) ->
+    {ok, Name} = Mod:file_name(BT),
+    Mod:close_random_reader(BT),
+    file:delete(Name).
 
 stop_if_defined(undefined) -> ok;
 stop_if_defined(MergePid) when is_pid(MergePid) ->
@@ -785,10 +803,12 @@ begin_merge(State) ->
          try
                        ?log("merge begun~n", []),
 
-                       {ok, OutCount} = hanoidb_merger:merge(AFileName, BFileName, XFileName,
-                                                           ?BTREE_SIZE(State#state.level + 1),
-                                                           State#state.next =:= undefined,
-                                                           State#state.opts ),
+                       {ok, OutCount} = hanoidb_backend:merge(
+                                          State#state.backend,
+                                          AFileName, BFileName, XFileName,
+                                          ?BTREE_SIZE(State#state.level + 1),
+                                          State#state.next =:= undefined,
+                                          State#state.opts ),
 
                        Owner ! ?CAST(self(),{merge_done, OutCount, XFileName})
          catch
@@ -805,9 +825,10 @@ begin_merge(State) ->
 close_and_delete_a_and_b(State) ->
     AFileName = filename("A",State),
     BFileName = filename("B",State),
+    Mod = State#state.backend,
 
-    ok = hanoidb_reader:close(State#state.a),
-    ok = hanoidb_reader:close(State#state.b),
+    ok = Mod:close_random_reader(State#state.a),
+    ok = Mod:close_random_reader(State#state.b),
 
     ok = file:delete(AFileName),
     ok = file:delete(BFileName),
@@ -821,14 +842,15 @@ filename(PFX, State) ->
 
 start_range_fold(FileName, WorkerPID, Range, State) ->
     Owner = self(),
+    Mod = State#state.backend,
     PID = proc_lib:spawn( fun() ->
           try
               ?log("start_range_fold ~p on ~p -> ~p", [self(), FileName, WorkerPID]),
               erlang:link(WorkerPID),
-              {ok, File} = hanoidb_reader:open(FileName, [folding|State#state.opts]),
-              do_range_fold2(File, WorkerPID, self(), Range),
+              {ok, File} = Mod:open_random_reader(FileName, [folding|State#state.opts]),
+              do_range_fold2(Mod,File, WorkerPID, self(), Range),
               erlang:unlink(WorkerPID),
-              hanoidb_reader:close(File),
+              Mod:close_random_reader(File),
 
               %% this will release the pinning of the fold file
               Owner  ! {range_fold_done, self(), FileName},
@@ -840,12 +862,13 @@ start_range_fold(FileName, WorkerPID, Range, State) ->
                           end ),
     {ok, PID}.
 
--spec do_range_fold(BT        :: hanoidb_reader:read_file(),
+-spec do_range_fold(Mod       :: atom(),
+                    BT        :: hanoidb_backend:random_reader(),
                     WorkerPID :: pid(),
                     SelfOrRef :: pid() | reference(),
                     Range     :: #key_range{} ) -> ok.
-do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
-    case hanoidb_reader:range_fold(fun(Key,Value,_) ->
+do_range_fold(Mod, BT, WorkerPID, SelfOrRef, Range) ->
+    case Mod:range_fold(fun(Key,Value,_) ->
                                              WorkerPID ! {level_result, SelfOrRef, Key, Value},
                                              ok
                                      end,
@@ -863,12 +886,13 @@ do_range_fold(BT, WorkerPID, SelfOrRef, Range) ->
 
 -define(FOLD_CHUNK_SIZE, 100).
 
--spec do_range_fold2(BT        :: hanoidb_reader:read_file(),
+-spec do_range_fold2(Mod      :: atom(),
+                    BT        :: hanoidb_reader:read_file(),
                     WorkerPID :: pid(),
                     SelfOrRef :: pid() | reference(),
                     Range     :: #key_range{} ) -> ok.
-do_range_fold2(BT, WorkerPID, SelfOrRef, Range) ->
-    try hanoidb_reader:range_fold(fun(Key,Value,{0,KVs}) ->
+do_range_fold2(Mod, BT, WorkerPID, SelfOrRef, Range) ->
+    try Mod:range_fold(fun(Key,Value,{0,KVs}) ->
                                          send(WorkerPID, SelfOrRef, [{Key,Value}|KVs]),
                                          {?FOLD_CHUNK_SIZE-1, []};
                                     (Key,Value,{N,KVs}) ->
