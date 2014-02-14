@@ -102,7 +102,7 @@ initialize(State, PrefixFolders) ->
         %% gen_fsm handling
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
-              From, Req, State, fun(S1) -> initialize(S1, PrefixFolders) end);
+              Req, From, State, fun(S1) -> initialize(S1, PrefixFolders) end);
 
         {'DOWN', MRef, _, _, _} when MRef =:= State#state.sendto_ref ->
             ok;
@@ -164,7 +164,7 @@ fill_from_inbox(State, Values, Queues, [PID|_]=PIDs, SavePIDs) ->
         %% gen_fsm handling
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
-              From, Req, State, fun(S1) -> fill_from_inbox(S1, Values, Queues, PIDs, SavePIDs) end);
+              Req, From, State, fun(S1) -> fill_from_inbox(S1, Values, Queues, PIDs, SavePIDs) end);
 
         {'DOWN', MRef, _, _, _} when MRef =:= State#state.sendto_ref ->
             ok;

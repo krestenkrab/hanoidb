@@ -632,7 +632,7 @@ main_loop(State = #state{ next=Next }) ->
         %% gen_fsm handling
         {system, From, Req} ->
             plain_fsm:handle_system_msg(
-              From, Req, State, fun(S1) -> main_loop(S1) end);
+              Req, From, State, fun(S1) -> main_loop(S1) end);
 
         {'EXIT', Parent, Reason} ->
             plain_fsm:parent_EXIT(Reason, State);
