@@ -41,7 +41,9 @@
 
 -define(W, 27).
 
--type bitmask() :: array() | any().
+-type bitmask() :: {sparse_bitmap, non_neg_integer(), list()}
+                 | hanoidb_dense_bitmap:bitmap()
+                 .
 
 -record(bloom, {
     e     :: float(),              % error probability
@@ -113,16 +115,19 @@ sbf(N, E, S, R) when is_number(N), N > 0,
 
 %% Returns number of elements
 %%
+-spec size( #bloom{} | #sbf{} ) -> non_neg_integer().
 size(#bloom{size=Size}) -> Size;
 size(#sbf{size=Size}) -> Size.
 
 %% Returns capacity
 %%
+-spec capacity( #bloom{} | #sbf{} ) -> non_neg_integer() | infinity.
 capacity(#bloom{n=N}) -> N;
 capacity(#sbf{}) -> infinity.
 
 %% Test for membership
 %%
+-spec member( any(), #bloom{} | #sbf{} ) -> boolean().
 member(Elem, #bloom{mb=Mb}=B) ->
     Hashes = make_hashes(Mb, Elem),
     hash_member(Hashes, B);
@@ -189,62 +194,42 @@ bitmask_new(LogN) ->
             hanoidb_dense_bitmap:new(1 bsl LogN)
     end.
 
+
 bitmask_set(I, BM) ->
     case element(1,BM) of
-        array -> bitarray_set(I, as_array(BM));
+%        array -> bitarray_set(I, as_array(BM));
         sparse_bitmap -> hanoidb_sparse_bitmap:set(I, BM);
         dense_bitmap_ets -> hanoidb_dense_bitmap:set(I, BM);
-        dense_bitmap ->
+        dense_bitmap_term ->
             %% Surprise - we need to mutate a built representation:
             hanoidb_dense_bitmap:set(I, hanoidb_dense_bitmap:unbuild(BM))
     end.
 
 %%% Convert to external form.
+-spec bitmask_build( bitmask() ) -> {sparse_bitmap, non_neg_integer(), list()}
+                                  | {dense_bitmap_term, tuple()}.
+
 bitmask_build(BM) ->
     case element(1,BM) of
-        array -> BM;
-        sparse_bitmap -> BM;
-        dense_bitmap_ets -> hanoidb_dense_bitmap:build(BM)
+        dense_bitmap_ets -> hanoidb_dense_bitmap:build(BM);
+        _ -> BM
     end.
 
+-spec bitmask_get( non_neg_integer(), bitmask() ) -> boolean().
 bitmask_get(I, BM) ->
     case element(1,BM) of
-        array -> bitarray_get(I, as_array(BM));
-        sparse_bitmap -> hanoidb_sparse_bitmap:member(I, BM);
-        dense_bitmap_ets -> hanoidb_dense_bitmap:member(I, BM);
-        dense_bitmap     -> hanoidb_dense_bitmap:member(I, BM)
+        sparse_bitmap    -> hanoidb_sparse_bitmap:member(I, BM);
+        dense_bitmap_ets  -> hanoidb_dense_bitmap:member(I, BM);
+        dense_bitmap_term -> hanoidb_dense_bitmap:member(I, BM)
     end.
-
--spec as_array(bitmask()) -> array().
-as_array(BM) ->
-    case array:is_array(BM) of
-        true -> BM
-    end.
-
-%%%========== Bitarray representation - suitable for sparse arrays ==========
-bitarray_new(N) -> array:new((N-1) div ?W + 1, {default, 0}).
-
--spec bitarray_set( non_neg_integer(), array() ) -> array().
-bitarray_set(I, A1) ->
-    A = as_array(A1),
-    AI = I div ?W,
-    V = array:get(AI, A),
-    V1 = V bor (1 bsl (I rem ?W)),
-    if V =:= V1 -> A; % The bit is already set
-       true -> array:set(AI, V1, A)
-    end.
-
--spec bitarray_get( non_neg_integer(), array() ) -> boolean().
-bitarray_get(I, A) ->
-    AI = I div ?W,
-    V = array:get(AI, A),
-    (V band (1 bsl (I rem ?W))) =/= 0.
 
 %%%^^^^^^^^^^ Bitarray representation - suitable for sparse arrays ^^^^^^^^^^
 
+-spec encode( #bloom{} | #sbf{} ) -> binary().
 encode(Bloom) ->
     zlib:gzip(term_to_binary(bloom_build(Bloom))).
 
+-spec decode( binary() ) -> #bloom{} | #sbf{}.
 decode(Bin) ->
     binary_to_term(zlib:gunzip(Bin)).
 

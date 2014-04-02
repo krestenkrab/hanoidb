@@ -46,6 +46,7 @@
                 config=[]  :: term() }).
 
 -type read_file() :: #index{}.
+-export_type([read_file/0]).
 
 -spec open(Name::string()) -> {ok, read_file()} | {error, any()}.
 open(Name) ->

@@ -5,6 +5,11 @@
 
 -define(REPR_NAME, dense_bitmap).
 
+-type bitmap() :: {dense_bitmap_ets, non_neg_integer()|undefined, non_neg_integer()|undefined, ets:tid()}
+                | {dense_bitmap_term, tuple() }.
+-export_type([ bitmap/0 ]).
+
+-spec new( non_neg_integer() ) -> bitmap().
 new(N) ->
     Tab = ets:new(dense_bitmap, [private, set]),
     Width = 1 + (N-1) div ?BITS_PER_CELL,
@@ -28,14 +33,18 @@ set(I, {dense_bitmap_ets, _,_, Tab}=DBM) ->
 build({dense_bitmap_ets, _, _, Tab}) ->
     [Row] = ets:lookup(Tab, ?REPR_NAME),
     ets:delete(Tab),
-    Row.
+    {dense_bitmap_term, Row};
+build({dense_bitmap_term, _}=Value) ->
+    Value.
 
-unbuild(Row) when element(1,Row)==?REPR_NAME ->
+-spec unbuild( {dense_bitmap_term, any()} ) -> bitmap().
+unbuild({dense_bitmap_term, Row}) when element(1,Row)==?REPR_NAME ->
     Tab = ets:new(dense_bitmap, [private, set]),
     ets:insert(Tab, Row),
     {dense_bitmap_ets, undefined, undefined, Tab}.
 
-member(I, Row) when element(1,Row)==?REPR_NAME ->
+-spec member( non_neg_integer(), bitmap() ) -> boolean().
+member(I, {dense_bitmap_term, Row}) when element(1,Row)==?REPR_NAME ->
     Cell = 2 + I div ?BITS_PER_CELL,
     BitInCell = I rem ?BITS_PER_CELL,
     CellValue = element(Cell, Row),
