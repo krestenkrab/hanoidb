@@ -209,7 +209,7 @@ do_range_fold(Fun, Acc0, File, Range, N0) ->
                                     ({Key,?TOMBSTONE}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
                                          {continue, {N1, Fun(Key, ?TOMBSTONE, Acc)}};
                                     ({Key,{?TOMBSTONE,TStamp}}, {N1,Acc}) when ?KEY_IN_FROM_RANGE(Key,Range) ->
-                                         case hanoidb_utils:has_expired(TStamp) of
+                                         case hanoidb_util:has_expired(TStamp) of
                                              true ->
                                                  {continue, {N1,Acc}};
                                              false ->
