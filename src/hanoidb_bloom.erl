@@ -204,6 +204,7 @@ bitmask_build(BM) ->
     case element(1,BM) of
         array -> BM;
         sparse_bitmap -> BM;
+        dense_bitmap -> BM;
         dense_bitmap_ets -> hanoidb_dense_bitmap:build(BM)
     end.
 
