@@ -403,6 +403,7 @@ main_loop(State = #state{ next=Next }) ->
             %% and we have finished the incremental merge at this level
 
             State2 = reply_step_ok(State),
+            erlang:demonitor(MRef, [flush]),
             main_loop(State2#state{ step_next_ref=undefined });
 
         ?CALL(From, close) ->
