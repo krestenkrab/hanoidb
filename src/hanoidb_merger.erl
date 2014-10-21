@@ -58,8 +58,8 @@ merge(A,B,C, Size, IsLastLevel, Options) ->
     scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, {0, none}).
 
 terminate(Out) ->
-    {ok, Count, _} = hanoidb_writer:handle_call(count, self(), Out),
-    {stop, normal, ok, _} = hanoidb_writer:handle_call(close, self(), Out),
+    {ok, Count, Out1} = hanoidb_writer:handle_call(count, self(), Out),
+    {stop, normal, ok, _Out2} = hanoidb_writer:handle_call(close, self(), Out1),
     {ok, Count}.
 
 step(S) ->

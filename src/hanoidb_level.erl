@@ -794,8 +794,8 @@ begin_merge(State) ->
                        Owner ! ?CAST(self(),{merge_done, OutCount, XFileName})
          catch
             C:E ->
-                 error_logger:error_msg("merge failed ~p:~p ~p~n",
-                                        [C,E,erlang:get_stacktrace()]),
+                 error_logger:error_msg("~p: merge failed ~p:~p ~p -> ~s~n",
+                                        [self(), C,E,erlang:get_stacktrace(), XFileName]),
                  erlang:raise(C,E,erlang:get_stacktrace())
          end
                end),

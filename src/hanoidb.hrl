@@ -50,7 +50,7 @@
 
 -record(nursery, { log_file :: file:fd(),
                    dir :: string(),
-                   cache :: gb_tree(),
+                   cache :: gb_trees:tree(binary(), binary()),
                    total_size=0 :: integer(),
                    count=0 :: integer(),
                    last_sync=now() :: erlang:timestamp(),
@@ -68,4 +68,23 @@
 -type expvalue() :: { value(), expiry() }
                   | value()
                   | filepos().
+
+
+-ifdef(USE_SCALABLE_BLOOM).
+
+-define(BLOOM_NEW(Size),            {ok, hanoidb_bloom:bloom(Size, 0.01)}).
+-define(BLOOM_TO_BIN(Bloom),        hanoidb_bloom:encode(Bloom)). %% -> Binary
+-define(BIN_TO_BLOOM(Bin),          {ok, hanoidb_bloom:decode(Bin)}).
+-define(BLOOM_INSERT(Bloom, Key),   {ok, hanoidb_bloom:add(Key,Bloom)}).
+-define(BLOOM_CONTAINS(Bloom, Key), hanoidb_bloom:member(Bloom, Key)). %% -> 'true' | 'false'
+
+-else.
+
+-define(BLOOM_NEW(Size),          begin ebloom:new(Size, 0.01, Size) end).
+-define(BLOOM_TO_BIN(Bloom),      begin ebloom:serialize(Bloom) end). %% -> Binary
+-define(BIN_TO_BLOOM(Bin),        begin ebloom:deserialize(Bin) end).
+-define(BLOOM_INSERT(Bloom, Key), begin ok=ebloom:insert(Bloom, Key), {ok, Bloom} end).
+-define(BLOOM_CONTAINS(Bloom, Key), begin ebloom:member(Bloom, Key) end). %% -> 'true' | 'false'
+
+-endif.
 
