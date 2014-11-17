@@ -6,12 +6,13 @@ DIALYZER=	dialyzer
 
 all: compile
 
-deps: get-deps
+deps: get-deps compile
 
 get-deps:
 	@$(REBAR) get-deps
 
 compile:
+	get-deps 
 	@$(REBAR) compile
 
 clean:
