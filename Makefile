@@ -4,7 +4,7 @@ DIALYZER=	dialyzer
 
 .PHONY: plt analyze all deps compile get-deps clean
 
-all: get-deps compile test
+all: get-deps compile
 
 deps: get-deps compile
 
