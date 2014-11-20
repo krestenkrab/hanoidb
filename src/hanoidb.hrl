@@ -76,7 +76,7 @@
 -define(BLOOM_TO_BIN(Bloom),        hanoidb_bloom:encode(Bloom)). %% -> Binary
 -define(BIN_TO_BLOOM(Bin),          {ok, hanoidb_bloom:decode(Bin)}).
 -define(BLOOM_INSERT(Bloom, Key),   {ok, hanoidb_bloom:add(Key,Bloom)}).
--define(BLOOM_CONTAINS(Bloom, Key), hanoidb_bloom:member(Bloom, Key)). %% -> 'true' | 'false'
+-define(BLOOM_CONTAINS(Bloom, Key), hanoidb_bloom:member(Key, Bloom)). %% -> 'true' | 'false'
 
 -else.
 
