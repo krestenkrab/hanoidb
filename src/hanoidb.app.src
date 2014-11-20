@@ -29,7 +29,8 @@
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib
+                  stdlib,
+                  plain_fsm
                  ]},
   {mod, {hanoidb_app, []}},
   {env, []}
