@@ -24,8 +24,6 @@
 
 -module(hanoidb_tests).
 
--ifdef(QC_PROPER).
-
 -include("include/hanoidb.hrl").
 -include("src/hanoidb.hrl").
 
@@ -63,15 +61,23 @@ full_test_() ->
       ?_test(test_tree_simple_5())
      ]}.
 
-longer_test_() ->
+longer_tree_test_() ->
     {setup,
-     spawn,
-     fun () -> ok end,
-     fun (_) -> ok end,
-     [
-       {timeout, 300, ?_test(test_tree())},
-       {timeout, 120, ?_test(test_qc())}
-     ]}.
+        spawn,
+        fun () -> ok end,
+        fun (_) -> ok end,
+        [
+            {timeout, 300, ?_test(test_tree())}
+        ]}.
+
+longer_qc_test_() ->
+    {setup,
+        spawn,
+        fun () -> ok end,
+        fun (_) -> ok end,
+        [
+            {timeout, 120, ?_test(test_qc())}
+        ]}.
 
 -ifdef(TRIQ).
 test_qc() ->
@@ -428,4 +434,3 @@ dict_range_query(Dict, Range) ->
     [{K, V} || {K, V} <- dict:to_list(Dict),
                ?KEY_IN_RANGE(K, Range)].
 
--endif. %% -ifdef(QC_PROPER).

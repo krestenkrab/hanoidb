@@ -25,8 +25,6 @@
 %% @doc Drive a set of LSM BTrees
 -module(hanoidb_drv).
 
--ifdef(QC_PROPER).
-
 -behaviour(gen_server).
 
 %% API
@@ -143,4 +141,3 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
--endif. %% -ifdef(QC_PROPER).

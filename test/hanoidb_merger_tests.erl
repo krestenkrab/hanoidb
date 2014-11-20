@@ -24,8 +24,6 @@
 
 -module(hanoidb_merger_tests).
 
--ifdef(QC_PROPER).
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -63,4 +61,3 @@ merge_test() ->
 
     ok.
 
--endif. %% -ifdef(QC_PROPER).

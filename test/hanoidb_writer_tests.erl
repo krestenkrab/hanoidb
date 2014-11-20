@@ -24,8 +24,6 @@
 
 -module(hanoidb_writer_tests).
 
--ifdef(QC_PROPER).
-
 -ifdef(TEST).
 -ifdef(TEST).
 -ifdef(TRIQ).
@@ -118,4 +116,3 @@ simple1_test() ->
 
     ok = hanoidb_reader:close(IN).
 
--endif. %% -ifdef(QC_PROPER).

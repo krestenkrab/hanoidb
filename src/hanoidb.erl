@@ -443,6 +443,8 @@ do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, State#state{ nursery=Nursery2 }}.
 
 start_app() ->
+    application:start(syntax_tools),
+    application:start(plain_fsm),
     case application:start(?MODULE) of
         ok ->
             ok;
