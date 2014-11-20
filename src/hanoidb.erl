@@ -70,6 +70,7 @@
                        | {sync_strategy, none | sync | {seconds, pos_integer()}}
                        | {expiry_secs, non_neg_integer()}
                        | {spawn_opt, list()}
+                       | {top_level, pos_integer()}
                        .
 
 %% @doc
@@ -278,24 +279,26 @@ init([Dir, Opts0]) ->
         end,
     hanoidb_util:ensure_expiry(Opts),
 
-    {Nursery, MaxLevel, TopLevel} =
+    {Top, Nur, Max} =
         case file:read_file_info(Dir) of
             {ok, #file_info{ type=directory }} ->
-                {ok, TL, ML} = open_levels(Dir, Opts),
-                {ok, N0} = hanoidb_nursery:recover(Dir, TL, ML, Opts),
-                {N0, ML, TL};
+                {ok, TopLevel, MinLevel, MaxLevel} = open_levels(Dir, Opts),
+                {ok, Nursery} = hanoidb_nursery:recover(Dir, TopLevel, MinLevel, MaxLevel, Opts),
+                {TopLevel, Nursery, MaxLevel};
             {error, E} when E =:= enoent ->
                 ok = file:make_dir(Dir),
-                {ok, TL} = hanoidb_level:open(Dir, ?TOP_LEVEL, undefined, Opts, self()),
-                ML = ?TOP_LEVEL,
-                {ok, N0} = hanoidb_nursery:new(Dir, ML, Opts),
-                {N0, ML, TL}
-            end,
-    {ok, #state{ top=TopLevel, dir=Dir, nursery=Nursery, opt=Opts, max_level=MaxLevel }}.
+                MinLevel = get_opt(top_level, Opts0, ?TOP_LEVEL),
+                {ok, TopLevel} = hanoidb_level:open(Dir, MinLevel, undefined, Opts, self()),
+                MaxLevel = MinLevel,
+                {ok, Nursery} = hanoidb_nursery:new(Dir, MinLevel, MaxLevel, Opts),
+                {TopLevel, Nursery, MaxLevel}
+        end,
+    {ok, #state{ top=Top, dir=Dir, nursery=Nur, opt=Opts, max_level=Max }}.
 
 
 open_levels(Dir, Options) ->
     {ok, Files} = file:list_dir(Dir),
+    TopLevel0 = get_opt(top_level, Options, ?TOP_LEVEL),
 
     %% parse file names and find max level
     {MinLevel, MaxLevel} =
@@ -308,7 +311,7 @@ open_levels(Dir, Options) ->
                                     {MinLevel, MaxLevel}
                             end
                     end,
-                    {?TOP_LEVEL, ?TOP_LEVEL},
+                    {TopLevel0, TopLevel0},
                     Files),
 
     %% remove old nursery data file
@@ -323,17 +326,17 @@ open_levels(Dir, Options) ->
                             {Level, MergeWork}
                     end,
                     {undefined, 0},
-                    lists:seq(MaxLevel, min(?TOP_LEVEL, MinLevel), -1)),
-    WorkPerIter = (MaxLevel - MinLevel + 1) * ?BTREE_SIZE(?TOP_LEVEL),
+                    lists:seq(MaxLevel, MinLevel, -1)),
+    WorkPerIter = (MaxLevel - MinLevel + 1) * ?BTREE_SIZE(MinLevel),
 %    error_logger:info_msg("do_merge ... {~p,~p,~p}~n", [TopLevel, WorkPerIter, MaxMerge]),
-    do_merge(TopLevel, WorkPerIter, MaxMerge),
-    {ok, TopLevel, MaxLevel}.
+    do_merge(TopLevel, WorkPerIter, MaxMerge, MinLevel),
+    {ok, TopLevel, MinLevel, MaxLevel}.
 
-do_merge(TopLevel, _Inc, N) when N =< 0 ->
+do_merge(TopLevel, _Inc, N, _MinLevel) when N =< 0 ->
     ok = hanoidb_level:await_incremental_merge(TopLevel);
-do_merge(TopLevel, Inc, N) ->
-    ok = hanoidb_level:begin_incremental_merge(TopLevel, ?BTREE_SIZE(?TOP_LEVEL)),
-    do_merge(TopLevel, Inc, N-Inc).
+do_merge(TopLevel, Inc, N, MinLevel) ->
+    ok = hanoidb_level:begin_incremental_merge(TopLevel, ?BTREE_SIZE(MinLevel)),
+    do_merge(TopLevel, Inc, N-Inc, MinLevel).
 
 
 parse_level(FileName) ->
@@ -413,7 +416,8 @@ handle_call(close, _From, State=#state{ nursery=undefined }) ->
 handle_call(close, _From, State=#state{ nursery=Nursery, top=Top, dir=Dir, max_level=MaxLevel, opt=Config }) ->
     try
         ok = hanoidb_nursery:finish(Nursery, Top),
-        {ok, Nursery2} = hanoidb_nursery:new(Dir, MaxLevel, Config),
+        MinLevel = hanoidb_level:level(Top),
+        {ok, Nursery2} = hanoidb_nursery:new(Dir, MinLevel, MaxLevel, Config),
         ok = hanoidb_level:close(Top),
         {stop, normal, ok, State#state{ nursery=Nursery2 }}
     catch
@@ -423,9 +427,10 @@ handle_call(close, _From, State=#state{ nursery=Nursery, top=Top, dir=Dir, max_l
     end;
 
 handle_call(destroy, _From, State=#state{top=Top, nursery=Nursery }) ->
+    TopLevelNumber = hanoidb_level:level(Top),
     ok = hanoidb_nursery:destroy(Nursery),
     ok = hanoidb_level:destroy(Top),
-    {stop, normal, ok, State#state{ top=undefined, nursery=undefined, max_level=?TOP_LEVEL }}.
+    {stop, normal, ok, State#state{ top=undefined, nursery=undefined, max_level=TopLevelNumber }}.
 
 -spec do_put(key(), value(), expiry(), #state{}) -> {ok, #state{}}.
 do_put(Key, Value, Expiry, State=#state{ nursery=Nursery, top=Top }) when Nursery =/= undefined ->

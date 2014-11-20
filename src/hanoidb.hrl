@@ -23,8 +23,8 @@
 %% ----------------------------------------------------------------------------
 
 
-%% smallest levels are 256 entries
--define(TOP_LEVEL, 8).
+%% smallest levels are 1024 entries
+-define(TOP_LEVEL, 10).
 -define(BTREE_SIZE(Level), (1 bsl (Level))).
 -define(FILE_FORMAT, <<"HAN2">>).
 -define(FIRST_BLOCK_POS, byte_size(?FILE_FORMAT)).
@@ -54,6 +54,7 @@
                    total_size=0 :: integer(),
                    count=0 :: integer(),
                    last_sync=now() :: erlang:timestamp(),
+                   min_level :: integer(),
                    max_level :: integer(),
                    config=[] :: [{atom(), term()}],
                    step=0 :: integer(),
