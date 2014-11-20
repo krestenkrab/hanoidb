@@ -1,5 +1,7 @@
 # HanoiDB Indexed Key/Value Storage
 
+[![Build Status](https://travis-ci.org/krestenkrab/hanoidb.svg?branch=master)](https://travis-ci.org/krestenkrab/hanoidb)
+
 HanoiDB implements an indexed, key/value storage engine.  The primary index is
 a log-structured merge tree (LSM-BTree) implemented using "doubling sizes"
 persistent ordered sets of key/value pairs, similar is some regards to
