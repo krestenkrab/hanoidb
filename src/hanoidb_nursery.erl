@@ -51,7 +51,7 @@ new(Directory, MinLevel, MaxLevel, Config) ->
 
 
 recover(Directory, TopLevel, MinLevel, MaxLevel, Config)
-  when MinLevel < MaxLevel, is_integer(MinLevel), is_integer(MaxLevel) ->
+  when MinLevel =< MaxLevel, is_integer(MinLevel), is_integer(MaxLevel) ->
     hanoidb_util:ensure_expiry(Config),
     case file:read_file_info(?LOGFILENAME(Directory)) of
         {ok, _} ->
