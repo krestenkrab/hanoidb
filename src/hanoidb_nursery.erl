@@ -50,20 +50,21 @@ new(Directory, MinLevel, MaxLevel, Config) ->
                    min_level=MinLevel, max_level=MaxLevel, config=Config }}.
 
 
-recover(Directory, TopLevel, MinLevel, MaxLevel, Config) ->
+recover(Directory, TopLevel, MinLevel, MaxLevel, Config)
+  when MinLevel < MaxLevel, is_integer(MinLevel), is_integer(MaxLevel) ->
     hanoidb_util:ensure_expiry(Config),
     case file:read_file_info(?LOGFILENAME(Directory)) of
         {ok, _} ->
-            ok = do_recover(Directory, TopLevel, MaxLevel, Config),
+            ok = do_recover(Directory, TopLevel, MinLevel, MaxLevel, Config),
             new(Directory, MinLevel, MaxLevel, Config);
         {error, enoent} ->
             new(Directory, MinLevel, MaxLevel, Config)
     end.
 
-do_recover(Directory, TopLevel, MaxLevel, Config) ->
+do_recover(Directory, TopLevel, MinLevel, MaxLevel, Config) ->
     %% repair the log file; storing it in nursery2
     LogFileName = ?LOGFILENAME(Directory),
-    {ok, Nursery} = read_nursery_from_log(Directory, MaxLevel, Config),
+    {ok, Nursery} = read_nursery_from_log(Directory, MinLevel, MaxLevel, Config),
     ok = finish(Nursery, TopLevel),
     %% assert log file is gone
     {error, enoent} = file:read_file_info(LogFileName),
@@ -81,7 +82,7 @@ fill_cache(Transactions, Cache)
   when is_list(Transactions) ->
     lists:foldl(fun fill_cache/2, Cache, Transactions).
 
-read_nursery_from_log(Directory, MaxLevel, Config) ->
+read_nursery_from_log(Directory, MinLevel, MaxLevel, Config) ->
     {ok, LogBinary} = file:read_file(?LOGFILENAME(Directory)),
     Cache =
         case hanoidb_util:decode_crc_data(LogBinary, [], []) of
@@ -91,7 +92,7 @@ read_nursery_from_log(Directory, MaxLevel, Config) ->
                 error_logger:info_msg("ignoring undecypherable bytes in ~p~n", [?LOGFILENAME(Directory)]),
                 fill_cache(KVs, gb_trees:empty())
         end,
-    {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), max_level=MaxLevel, config=Config }}.
+    {ok, #nursery{ dir=Directory, cache=Cache, count=gb_trees:size(Cache), min_level=MinLevel, max_level=MaxLevel, config=Config }}.
 
 %% @doc Add a Key/Value to the nursery
 %% @end
