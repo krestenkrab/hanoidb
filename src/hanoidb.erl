@@ -448,9 +448,12 @@ do_transact(TransactionSpec, State=#state{ nursery=Nursery, top=Top }) ->
     {ok, State#state{ nursery=Nursery2 }}.
 
 start_app() ->
-    application:start(syntax_tools),
-    application:start(plain_fsm),
-    case application:start(?MODULE) of
+    ok = ensure_started(syntax_tools),
+    ok = ensure_started(plain_fsm),
+    ok = ensure_started(?MODULE).
+
+ensure_started(Application) ->
+    case application:start(Application) of
         ok ->
             ok;
         {error, {already_started, _}} ->
