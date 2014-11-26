@@ -182,7 +182,7 @@ deserialize(Binary) ->
 do_open(Name, Options, OpenOpts) ->
     WriteBufferSize = hanoidb:get_opt(write_buffer_size, Options, 512 * 1024),
     file:open(hanoidb_util:index_file_name(Name),
-              [raw, append, {delayed_write, WriteBufferSize, 2000}, exclusive | OpenOpts]).
+              [raw, append, {delayed_write, WriteBufferSize, 2000} | OpenOpts]).
 
 
 %% @doc flush pending nodes and write trailer
