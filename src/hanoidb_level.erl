@@ -784,31 +784,18 @@ begin_merge(State) ->
     AFileName = filename("A",State),
     BFileName = filename("B",State),
     XFileName = filename("X",State),
-    Owner = self(),
 
     ?log("starting merge~n", []),
 
     file:delete(XFileName),
 
-    MergePID = proc_lib:spawn_link(fun() ->
-         try
-                       ?log("merge begun~n", []),
-
-                       {ok, OutCount} = hanoidb_merger:merge(AFileName, BFileName, XFileName,
-                                                           ?BTREE_SIZE(State#state.level + 1),
-                                                           State#state.next =:= undefined,
-                                                           State#state.opts ),
-
-                       Owner ! ?CAST(self(),{merge_done, OutCount, XFileName})
-         catch
-            C:E ->
-                 error_logger:error_msg("~p: merge failed ~p:~p ~p -> ~s~n",
-                                        [self(), C,E,erlang:get_stacktrace(), XFileName]),
-                 erlang:raise(C,E,erlang:get_stacktrace())
-         end
-               end),
+    MergePID = hanoidb_merger:start(AFileName, BFileName, XFileName,
+        ?BTREE_SIZE(State#state.level + 1),
+        State#state.next =:= undefined,
+        State#state.opts),
 
     {ok, MergePID}.
+
 
 
 close_and_delete_a_and_b(State) ->
