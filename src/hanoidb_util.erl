@@ -38,7 +38,16 @@
          , tstamp/0
          , expiry_time/1
          , has_expired/1
-         , ensure_expiry/1 ]).
+         , ensure_expiry/1
+
+         , bloom_type/1
+         , bloom_new/2
+         , bloom_to_bin/1
+         , bin_to_bloom/1
+         , bin_to_bloom/2
+         , bloom_insert/2
+         , bloom_contains/2
+ ]).
 
 -include("src/hanoidb.hrl").
 
@@ -265,4 +274,43 @@ ensure_expiry(Opts) ->
             ok
     end.
 
+bloom_type({ebloom, _}) ->
+    ebloom;
+bloom_type({sbloom, _}) ->
+    sbloom.
+
+bloom_new(Size, sbloom) ->
+    {ok, {sbloom, hanoidb_bloom:bloom(Size, 0.01)}};
+bloom_new(Size, ebloom) ->
+    {ok, Bloom} = ebloom:new(Size, 0.01, Size),
+    {ok, {ebloom, Bloom}}.
+
+bloom_to_bin({sbloom, Bloom}) ->
+    hanoidb_bloom:encode(Bloom);
+bloom_to_bin({ebloom, Bloom}) ->
+    ebloom:serialize(Bloom).
+
+bin_to_bloom(GZiped  = <<16#1F, 16#8B, _/binary>>) ->
+    bin_to_bloom(GZiped, sbloom);
+bin_to_bloom(TermBin = <<131, _/binary>>) ->
+    erlang:term_to_binary(TermBin);
+bin_to_bloom(Blob) ->
+    bin_to_bloom(Blob, ebloom).
+
+bin_to_bloom(Binary, sbloom) ->
+    {ok, {sbloom, hanoidb_bloom:decode(Binary)}};
+bin_to_bloom(Binary, ebloom) ->
+    {ok, Bloom} = ebloom:deserialize(Binary),
+    {ok, {ebloom, Bloom}}.
+
+bloom_insert({sbloom, Bloom}, Key) ->
+    {ok, {sbloom, hanoidb_bloom:add(Key, Bloom)}};
+bloom_insert({ebloom, Bloom}, Key) ->
+    ok = ebloom:insert(Bloom, Key),
+    {ok, {ebloom, Bloom}}.
+
+bloom_contains({sbloom, Bloom}, Key) ->
+    hanoidb_bloom:member(Key, Bloom);
+bloom_contains({ebloom, Bloom}, Key) ->
+    ebloom:contains(Bloom, Key).
 

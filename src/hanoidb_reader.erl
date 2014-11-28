@@ -85,7 +85,7 @@ open(Name, Config) ->
             {ok, <<RootPos:64/unsigned>>} = file:pread(File, FileInfo#file_info.size - 8, 8),
             {ok, <<BloomSize:32/unsigned>>} = file:pread(File, FileInfo#file_info.size - 12, 4),
             {ok, BloomData} = file:pread(File, (FileInfo#file_info.size - 12 - BloomSize), BloomSize),
-            {ok, Bloom} = ?BIN_TO_BLOOM(BloomData),
+            {ok, Bloom} = hanoidb_util:bin_to_bloom(BloomData),
 
             %% read in the root node
             Root =

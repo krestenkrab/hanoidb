@@ -55,9 +55,9 @@
 
                 name                     :: string(),
 
-                bloom                    :: term(),
+                bloom                    :: {ebloom, term()} | {sbloom, term()},
                 block_size = ?NODE_SIZE  :: integer(),
-                compress  = none         :: none | snappy | gzip, % | lz4,
+                compress  = none         :: none | snappy | gzip | lz4,
                 opts = []                :: list(any()),
 
                 value_count = 0          :: integer(),
@@ -170,11 +170,11 @@ serialize(#state{ bloom=Bloom, index_file=File, index_file_pos=Position }=State)
             exit({bad_position, Position, WrongPosition})
     end,
     ok = file:close(File),
-    erlang:term_to_binary( { State#state{ index_file=undefined, bloom=undefined }, ?BLOOM_TO_BIN(Bloom) } ).
+    erlang:term_to_binary( { State#state{ index_file=undefined, bloom=undefined }, ?BLOOM_TO_BIN(Bloom), hanoidb_util:bloom_type(Bloom) } ).
 
 deserialize(Binary) ->
-    {State, Bin} = erlang:binary_to_term(Binary),
-    {ok, Bloom} = ?BIN_TO_BLOOM(Bin),
+    {State, Bin, Type} = erlang:binary_to_term(Binary),
+    {ok, Bloom} = ?BIN_TO_BLOOM(Bin, Type),
     {ok, IdxFile} = do_open(State#state.name, State#state.opts, []),
     State#state{ bloom=Bloom, index_file=IdxFile }.
 
@@ -200,7 +200,7 @@ archive_nodes(#state{ nodes=[], last_node_pos=LastNodePos, last_node_size=_LastN
             _ ->
                 LastNodePos
         end,
-    Trailer = << 0:32/unsigned, BloomBin/binary, BloomSize:32/unsigned,  RootPos:64/unsigned >>,
+    Trailer = [ << 0:32/unsigned>> , BloomBin, << BloomSize:32/unsigned,  RootPos:64/unsigned >> ],
 
     ok = file:write(IdxFile, Trailer),
     ok = file:datasync(IdxFile),
