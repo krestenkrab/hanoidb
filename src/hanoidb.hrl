@@ -82,3 +82,13 @@
 -define(BLOOM_INSERT(Bloom, Key),   hanoidb_util:bloom_insert(Bloom, Key)).
 -define(BLOOM_CONTAINS(Bloom, Key), hanoidb_util:bloom_contains(Bloom, Key)).
 
+%% tags used in the on-disk representation
+-define(TAG_KV_DATA,  16#80).
+-define(TAG_DELETED,  16#81).
+-define(TAG_POSLEN32, 16#82).
+-define(TAG_TRANSACT, 16#83).
+-define(TAG_KV_DATA2, 16#84).
+-define(TAG_DELETED2, 16#85).
+-define(TAG_END,      16#FF).
+
+

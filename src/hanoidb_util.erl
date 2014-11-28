@@ -53,14 +53,10 @@
 
 -define(ERLANG_ENCODED,  131).
 -define(CRC_ENCODED,     127).
+-define(BISECT_ENCODED,  126).
 
--define(TAG_KV_DATA,  16#80).
--define(TAG_DELETED,  16#81).
--define(TAG_POSLEN32, 16#82).
--define(TAG_TRANSACT, 16#83).
--define(TAG_KV_DATA2, 16#84).
--define(TAG_DELETED2, 16#85).
--define(TAG_END,      16#FF).
+
+-define(FILE_ENCODING, bisect).
 
 -compile({inline, [crc_encapsulate/1, crc_encapsulate_kv_entry/2 ]}).
 
@@ -143,18 +139,47 @@ uncompress(<<?GZIP_COMPRESSION, Data/binary>>) ->
     zlib:gunzip(Data).
 
 encode_index_node(KVList, Method) ->
-    TermData = [ ?TAG_END |
-                 lists:map(fun ({Key,Value}) ->
-                                   crc_encapsulate_kv_entry(Key, Value)
-                           end,
-                           KVList) ],
+    TermData =
+    case ?FILE_ENCODING of
+        bisect ->
+            Binary = vbisect:from_orddict(lists:map(fun binary_encode_kv/1, KVList)),
+            CRC = erlang:crc32(Binary),
+            [?BISECT_ENCODED, <<CRC:32>>, Binary];
+        hanoi2 ->
+            [ ?TAG_END |
+              lists:map(fun ({Key,Value}) ->
+                                crc_encapsulate_kv_entry(Key, Value)
+                        end,
+                        KVList) ]
+    end,
     {MethodName, OutData} = compress(Method, TermData),
     {ok, [MethodName | OutData]}.
 
 decode_index_node(Level, Data) ->
     TermData = uncompress(Data),
-    {ok, KVList} = decode_kv_list(TermData),
-    {ok, {node, Level, KVList}}.
+    case decode_kv_list(TermData) of
+        {ok, KVList} ->
+            {ok, {node, Level, KVList}};
+        {bisect, Binary} ->
+%            io:format("[page level=~p~n", [Level]),
+%            vbisect:foldl(fun(K,V,_) -> io:format(" ~p -> ~p,~n", [K,V]) end, 0, Binary),
+%            io:format("]~n",[]),
+            {ok, {node, Level, Binary}}
+    end.
+
+
+binary_encode_kv({Key, {Value,infinity}}) ->
+    binary_encode_kv({Key,Value});
+binary_encode_kv({Key, {?TOMBSTONE, TStamp}}) ->
+    {Key, <<?TAG_DELETED2, TStamp:32>>};
+binary_encode_kv({Key, ?TOMBSTONE}) ->
+    {Key, <<?TAG_DELETED>>};
+binary_encode_kv({Key, {Value, TStamp}}) when is_binary(Value) ->
+    {Key, <<?TAG_KV_DATA2, TStamp:32, Value/binary>>};
+binary_encode_kv({Key, Value}) when is_binary(Value)->
+    {Key, <<?TAG_KV_DATA, Value/binary>>};
+binary_encode_kv({Key, {Pos, Len}}) when Len < 16#ffffffff ->
+    {Key, <<?TAG_POSLEN32, Pos:64/unsigned, Len:32/unsigned>>}.
 
 
 -spec crc_encapsulate_kv_entry(binary(), expvalue()) -> iolist().
@@ -193,7 +218,14 @@ decode_kv_list(<<?TAG_END, Custom/binary>>) ->
 decode_kv_list(<<?ERLANG_ENCODED, _/binary>>=TermData) ->
     {ok, erlang:term_to_binary(TermData)};
 decode_kv_list(<<?CRC_ENCODED, Custom/binary>>) ->
-    decode_crc_data(Custom, [], []).
+    decode_crc_data(Custom, [], []);
+decode_kv_list(<<?BISECT_ENCODED, CRC:32/unsigned, Binary/binary>>) ->
+    CRCTest = erlang:crc32( Binary ),
+    if CRC == CRCTest ->
+            {bisect, Binary};
+       true ->
+            {bisect, vbisect:from_orddict([])}
+    end.
 
 -spec decode_crc_data(binary(), list(), list()) -> {ok, [kventry()]} | {partial, [kventry()], iolist()}.
 decode_crc_data(<<>>, [], Acc) ->

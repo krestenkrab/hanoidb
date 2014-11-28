@@ -37,24 +37,23 @@
 -export([serialize/1, deserialize/1]).
 
 -record(node, {level       :: non_neg_integer(),
-               members=[]  :: list(any()) }).
+               members=[]  :: list(any()) | binary() }).
 
 -record(index, {file       :: file:io_device(),
-                root       :: #node{} | none,
+                root= none :: #node{} | none,
                 bloom      :: term(),
                 name       :: string(),
                 config=[]  :: term() }).
 
 -type read_file() :: #index{}.
+-export_type([read_file/0]).
 
 -spec open(Name::string()) -> {ok, read_file()} | {error, any()}.
 open(Name) ->
     open(Name, [random]).
 
 -type config() :: [sequential | folding | random | {atom(), term()}].
-
 -spec open(Name::string(), config()) -> {ok, read_file()}  | {error, any()}.
-
 open(Name, Config) ->
     case proplists:get_bool(sequential, Config) of
         true ->
@@ -115,11 +114,15 @@ deserialize({seq_read_file, Index, Position}) ->
 
 
 
+
 fold(Fun, Acc0, #index{file=File}) ->
     {ok, Node} = read_node(File,?FIRST_BLOCK_POS),
     fold0(File,fun({K,V},Acc) -> Fun(K,V,Acc) end,Node,Acc0).
 
-fold0(File,Fun,#node{level=0, members=List},Acc0) ->
+fold0(File,Fun,#node{level=0, members=BinPage},Acc0) when is_binary(BinPage) ->
+    Acc1 = vbisect:foldl(fun(K, V, Acc2) -> Fun({K, decode_binary_value(V)}, Acc2) end,Acc0,BinPage),
+    fold1(File,Fun,Acc1);
+fold0(File,Fun,#node{level=0, members=List},Acc0) when is_list(List) ->
     Acc1 = lists:foldl(Fun,Acc0,List),
     fold1(File,Fun,Acc1);
 fold0(File,Fun,_InnerNode,Acc0) ->
@@ -133,22 +136,39 @@ fold1(File,Fun,Acc0) ->
             fold0(File,Fun,Node,Acc0)
     end.
 
--spec range_fold(function(), any(), #index{}, #key_range{}) ->
+-spec range_fold(fun((binary(),binary(),any()) -> any()), any(), #index{}, #key_range{}) ->
                         {limit, any(), binary()} | {done, any()}.
 range_fold(Fun, Acc0, #index{file=File,root=Root}, Range) ->
-    case lookup_node(File,Range#key_range.from_key,Root,?FIRST_BLOCK_POS) of
-        {ok, {Pos,_}} ->
-            {ok, _} = file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
-        {ok, Pos} ->
-            {ok, _} = file:position(File, Pos),
-            do_range_fold(Fun, Acc0, File, Range, Range#key_range.limit);
-        none ->
-            {done, Acc0}
+    case Range#key_range.from_key =< first_key(Root) of
+        true ->
+            {ok, _} = file:position(File, ?FIRST_BLOCK_POS),
+            range_fold_from_here(Fun, Acc0, File, Range, Range#key_range.limit);
+        false ->
+            case find_leaf_node(File,Range#key_range.from_key,Root,?FIRST_BLOCK_POS) of
+                {ok, {Pos,_}} ->
+                    {ok, _} = file:position(File, Pos),
+                    range_fold_from_here(Fun, Acc0, File, Range, Range#key_range.limit);
+                {ok, Pos} ->
+                    {ok, _} = file:position(File, Pos),
+                    range_fold_from_here(Fun, Acc0, File, Range, Range#key_range.limit);
+                none ->
+                    {done, Acc0}
+            end
     end.
 
-fold_until_stop(Fun,Acc,List) ->
-    fold_until_stop2(Fun, {continue, Acc}, List).
+first_key(#node{members=Dict}) ->
+    {_,FirstKey} = fold_until_stop(fun({K,_},_) -> {stop, K} end, none, Dict),
+    FirstKey.
+
+fold_until_stop(Fun,Acc,List) when is_list(List) ->
+    fold_until_stop2(Fun, {continue, Acc}, List);
+fold_until_stop(Fun,Acc0,Bin) when is_binary(Bin) ->
+    vbisect:fold_until_stop(fun({Key,VBin},Acc1) ->
+%                                    io:format("-> DOING ~p,~p~n", [Key,Acc1]),
+                                    Fun({Key, decode_binary_value(VBin)}, Acc1)
+                            end,
+                            Acc0,
+                            Bin).
 
 fold_until_stop2(_Fun,{stop,Result},_) ->
     {stopped, Result};
@@ -170,7 +190,8 @@ get_value({Value, _TStamp}) ->
 get_value(Value) ->
     Value.
 
-do_range_fold(Fun, Acc0, File, Range, undefined) ->
+range_fold_from_here(Fun, Acc0, File, Range, undefined) ->
+%    io:format("RANGE_FOLD_FROM_HERE(~p,~p)~n", [Acc0,File]),
     case next_leaf_node(File) of
         eof ->
             {done, Acc0};
@@ -185,18 +206,19 @@ do_range_fold(Fun, Acc0, File, Range, undefined) ->
                                              false ->
                                                  {continue, Fun(Key, get_value(Value), Acc)}
                                          end;
-                                    (_, Acc) ->
+                                    (_Huh, Acc) ->
+%                                         io:format("SKIPPING ~p~n", [_Huh]),
                                          {continue, Acc}
                                  end,
                                  Acc0,
                                  Members) of
                 {stopped, Result} -> Result;
                 {ok, Acc1} ->
-                    do_range_fold(Fun, Acc1, File, Range, undefined)
+                    range_fold_from_here(Fun, Acc1, File, Range, undefined)
             end
     end;
 
-do_range_fold(Fun, Acc0, File, Range, N0) ->
+range_fold_from_here(Fun, Acc0, File, Range, N0) ->
     case next_leaf_node(File) of
         eof ->
             {done, Acc0};
@@ -226,51 +248,73 @@ do_range_fold(Fun, Acc0, File, Range, N0) ->
                                          {continue, Acc}
                                  end,
                                  {N0, Acc0},
-                                 Members) of
-                {stopped, Result} -> Result;
+                                 Members)
+             of
+                {stopped, Result} ->
+                    Result;
                 {ok, {N2, Acc1}} ->
-                    do_range_fold(Fun, Acc1, File, Range, N2)
+                    range_fold_from_here(Fun, Acc1, File, Range, N2)
             end
     end.
 
-lookup_node(_File,_FromKey,#node{level=0},Pos) ->
+find_leaf_node(_File,_FromKey,#node{level=0},Pos) ->
     {ok, Pos};
-lookup_node(File,FromKey,#node{members=Members,level=N},_) ->
+find_leaf_node(File,FromKey,#node{members=Members,level=N},_) when is_list(Members) ->
     case find_start(FromKey, Members) of
-        {ok, ChildPos} when N==1 ->
-            {ok, ChildPos};
         {ok, ChildPos} ->
-            case read_node(File,ChildPos) of
-                {ok, ChildNode} ->
-                    lookup_node(File,FromKey,ChildNode,ChildPos);
-                eof ->
-                    none
-            end;
+            recursive_find(File, FromKey, N, ChildPos);
         not_found ->
             none
     end;
-lookup_node(_,_,none,_) ->
+find_leaf_node(File,FromKey,#node{members=Members,level=N},_) when is_binary(Members) ->
+    case vbisect:find_geq(FromKey,Members) of
+        {ok, _, <<?TAG_POSLEN32, Pos:64/unsigned, Len:32/unsigned>>} ->
+%            io:format("** FIND_LEAF_NODE(~p,~p) -> {~p,~p}~n", [FromKey, N, Pos,Len]),
+            recursive_find(File, FromKey, N, {Pos,Len});
+        none ->
+%            io:format("** FIND_LEAF_NODE(~p,~p) -> none~n", [FromKey, N]),
+            none
+    end;
+find_leaf_node(_,_,none,_) ->
     none.
 
+recursive_find(_File,_FromKey,1,ChildPos) ->
+    {ok, ChildPos};
+recursive_find(File,FromKey,N,ChildPos) when N>1 ->
+    case read_node(File,ChildPos) of
+        {ok, ChildNode} ->
+            find_leaf_node(File, FromKey,ChildNode,ChildPos);
+        eof ->
+            none
+    end.
 
 
+%% used by the merger, needs list value
 first_node(#index{file=File}) ->
     case read_node(File, ?FIRST_BLOCK_POS) of
         {ok, #node{level=0, members=Members}} ->
-            {node, Members};
+            {kvlist, decode_member_list(Members)};
         eof->
             none
     end.
 
+%% used by the merger, needs list value
 next_node(#index{file=File}=_Index) ->
     case next_leaf_node(File) of
         {ok, #node{level=0, members=Members}} ->
-            {node, Members};
-%        {ok, #node{level=N}} when N>0 ->
-%            next_node(Index);
+            {kvlist, decode_member_list(Members)};
         eof ->
             end_of_data
     end.
+
+decode_member_list(List) when is_list(List) ->
+    List;
+decode_member_list(BinDict) when is_binary(BinDict) ->
+    vbisect:foldr( fun(Key,Value,Acc) ->
+                           [{Key, decode_binary_value(Value) }|Acc]
+                   end,
+                   [],
+                   BinDict).
 
 close(#index{file=undefined}) ->
     ok;
@@ -297,11 +341,20 @@ lookup(#index{file=File, root=Node, bloom=Bloom}, Key) ->
     end.
 
 lookup_in_node(_File,#node{level=0,members=Members}, Key) ->
-    case lists:keyfind(Key,1,Members) of
-        false ->
-            not_found;
-        {_,Value} ->
-            {ok, Value}
+    find_in_leaf(Key,Members);
+
+lookup_in_node(File,#node{members=Members},Key) when is_binary(Members) ->
+    case vbisect:find_geq(Key,Members) of
+        {ok, _Key, <<?TAG_POSLEN32, Pos:64, Size:32>>} ->
+%            io:format("FOUND ~p @ ~p~n", [_Key, {Pos,Size}]),
+            case read_node(File,{Pos,Size}) of
+                {ok, Node} ->
+                    lookup_in_node(File, Node, Key);
+                eof ->
+                    not_found
+            end;
+        none ->
+            not_found
     end;
 
 lookup_in_node(File,#node{members=Members},Key) ->
@@ -416,3 +469,29 @@ next_leaf_node(File) ->
             next_leaf_node(File)
     end.
 
+
+find_in_leaf(Key,Bin) when is_binary(Bin) ->
+    case vbisect:find(Key,Bin) of
+        {ok, BinValue} ->
+            {ok, decode_binary_value(BinValue)};
+        error ->
+            not_found
+    end;
+find_in_leaf(Key,List) when is_list(List) ->
+    case lists:keyfind(Key, 1, List) of
+        {_, Value} ->
+            {ok, Value};
+        false ->
+            not_found
+    end.
+
+decode_binary_value(<<?TAG_KV_DATA, Value/binary>>) ->
+    Value;
+decode_binary_value(<<?TAG_KV_DATA2, TStamp:32, Value/binary>>) ->
+    {Value, TStamp};
+decode_binary_value(<<?TAG_DELETED>>) ->
+    ?TOMBSTONE;
+decode_binary_value(<<?TAG_DELETED2, TStamp:32>>) ->
+    {?TOMBSTONE, TStamp};
+decode_binary_value(<<?TAG_POSLEN32, Pos:64, Len:32>>) ->
+    {Pos, Len}.

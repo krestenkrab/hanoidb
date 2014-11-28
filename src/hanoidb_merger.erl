@@ -69,12 +69,12 @@ merge(A,B,C, Size, IsLastLevel, Options) ->
     {ok, Out} = hanoidb_writer:init([C, [{size, Size} | Options]]),
     AKVs =
         case hanoidb_reader:first_node(IXA) of
-            {node, AKV} -> AKV;
+            {kvlist, AKV} -> AKV;
             none -> []
         end,
     BKVs =
         case hanoidb_reader:first_node(IXB) of
-            {node, BKV} ->BKV;
+            {kvlist, BKV} ->BKV;
             none -> []
         end,
     scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, {0, none}).
@@ -177,7 +177,7 @@ scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, {N, FromPID}) when N < 1, AKVs =/= 
 
 scan(IXA, IXB, Out, IsLastLevel, [], BKVs, Step) ->
     case hanoidb_reader:next_node(IXA) of
-        {node, AKVs} ->
+        {kvlist, AKVs} ->
             scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, Step);
         end_of_data ->
             hanoidb_reader:close(IXA),
@@ -186,7 +186,7 @@ scan(IXA, IXB, Out, IsLastLevel, [], BKVs, Step) ->
 
 scan(IXA, IXB, Out, IsLastLevel, AKVs, [], Step) ->
     case hanoidb_reader:next_node(IXB) of
-        {node, BKVs} ->
+        {kvlist, BKVs} ->
             scan(IXA, IXB, Out, IsLastLevel, AKVs, BKVs, Step);
         end_of_data ->
             hanoidb_reader:close(IXB),
@@ -248,7 +248,7 @@ scan_only(IX, Out, IsLastLevel, KVs, {N, FromPID}) when N < 1, KVs =/= [] ->
 
 scan_only(IX, Out, IsLastLevel, [], {_, FromPID}=Step) ->
     case hanoidb_reader:next_node(IX) of
-        {node, KVs} ->
+        {kvlist, KVs} ->
             scan_only(IX, Out, IsLastLevel, KVs, Step);
         end_of_data ->
             case FromPID of
