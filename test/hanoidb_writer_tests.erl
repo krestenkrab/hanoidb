@@ -62,9 +62,9 @@ simple_test() ->
 simple1_test() ->
 
     file:delete("testdata"),
-    {ok, BT} = hanoidb_writer:open("testdata", [{block_size, 1024},{expiry_secs, 0}]),
+    {ok, BT} = hanoidb_writer:open("testdata", [{block_size, 102},{expiry_secs, 0}]),
 
-    Max = 1024,
+    Max = 102,
     Seq = lists:seq(0, Max),
 
     {Time1,_} = timer:tc(
@@ -78,15 +78,16 @@ simple1_test() ->
                   end,
                   []),
 
-%    error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
+    error_logger:info_msg("time to insert: ~p/sec~n", [1000000/(Time1/Max)]),
 
     {ok, IN} = hanoidb_reader:open("testdata", [{expiry_secs,0}]),
     Middle = Max div 2,
+    io:format("LOOKING UP ~p~n", [<<Middle:128>>]),
     {ok, <<"valuevalue/", Middle:128>>} = hanoidb_reader:lookup(IN, <<Middle:128>>),
 
 
     {Time2,Count} = timer:tc(
-                      fun() -> hanoidb_reader:fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
+                      fun() -> hanoidb_reader:fold(fun(_Key, <<"valuevalue/", N:128>>, N) ->
                                                          N+1
                                                  end,
                                                  0,
@@ -94,12 +95,13 @@ simple1_test() ->
                       end,
                       []),
 
-%    error_logger:info_msg("time to scan: ~p/sec~n", [1000000/(Time2/Max)]),
+    io:format("time to scan: ~p/sec~n", [1000000/(Time2 div Max)]),
 
     Max = Count-1,
 
     {Time3,{done,Count2}} = timer:tc(
-                      fun() -> hanoidb_reader:range_fold(fun(Key, <<"valuevalue/", Key/binary>>, N) ->
+                      fun() -> hanoidb_reader:range_fold(fun(_Key, <<"valuevalue/", N:128>>, N) ->
+%                                                                 io:format("[~p]~n", N),
                                                                N+1
                                                        end,
                                                        0,
@@ -108,9 +110,11 @@ simple1_test() ->
                       end,
                       []),
 
-%    error_logger:info_msg("time to range_fold: ~p/sec~n", [1000000/(Time3/Max)]),
 
-%    error_logger:info_msg("count2=~p~n", [Count2]),
+
+    %error_logger:info_msg("time to range_fold: ~p/sec~n", [1000000/(Time3 div Max)]),
+
+    io:format("count2=~p~n", [Count2]),
 
     Max = Count2-1,
 

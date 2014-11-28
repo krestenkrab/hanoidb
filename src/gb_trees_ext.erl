@@ -5,7 +5,7 @@
 
 % author: http://erlang.2086793.n4.nabble.com/gb-trees-fold-td2228614.html
 
--spec fold(fun((term(), term(), term()) -> term()), term(), gb_tree()) -> term().
+-spec fold(fun((term(), term(), term()) -> term()), term(), gb_trees:tree()) -> term().
 fold(F, A, {_, T})
   when is_function(F, 3) ->
     fold_1(F, A, T).
