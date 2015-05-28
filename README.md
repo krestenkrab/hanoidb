@@ -1,5 +1,7 @@
 # HanoiDB Indexed Key/Value Storage
 
+[![Join the chat at https://gitter.im/krestenkrab/hanoidb](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/krestenkrab/hanoidb?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 [![Build Status](https://travis-ci.org/krestenkrab/hanoidb.svg?branch=master)](https://travis-ci.org/krestenkrab/hanoidb)
 
 HanoiDB implements an indexed, key/value storage engine.  The primary index is
