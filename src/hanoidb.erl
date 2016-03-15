@@ -33,7 +33,8 @@
 
 -export([open/1, open/2, open/3, open_link/1, open_link/2, open_link/3,
          transact/2, close/1, get/2, lookup/2, delete/2, put/3, put/4,
-         fold/3, fold_range/4, destroy/1]).
+         fold/3, fold_range/4, destroy/1,
+         iterate/2]).
 
 -export([get_opt/2, get_opt/3]).
 
@@ -59,7 +60,7 @@
 
 
 %% PUBLIC API
-
+-type move()    :: start | {next,binary() }.
 -type hanoidb() :: pid().
 -type key_range() :: #key_range{}.
 -type config_option() :: {compress, none | gzip | snappy | lz4}
@@ -194,6 +195,34 @@ fold_range(Ref,Fun,Acc0,#key_range{limit=Limit}=Range) ->
     Result = receive_fold_range(MRef, FoldWorkerPID, Fun, Acc0, Limit),
     ?log("fold_range done: self:~p, result=~p~n", [self(), Result]),
     Result.
+
+
+-spec iterate(hanoidb(), move() ) -> {ok, binary(), binary(), move()} | {end_of_table,move()}.
+iterate(Ref,Move) ->
+    Fun   = 
+          fun( Key0 , Val0 , _Acc0) ->
+            {ok,Key0,Val0,{next,Key0}}
+          end,
+    
+    Range =
+          case Move of 
+            {next,Key} -> #key_range{ from_key       = Key
+                                    , from_inclusive = false
+                                    , to_key         = undefined
+                                    , to_inclusive   = true
+                                    , limit          = 1
+                                    };
+
+            start      -> #key_range{ from_key       = <<"">>
+                                    , from_inclusive = true
+                                    , to_key         = undefined
+                                    , to_inclusive   = true
+                                    , limit          = 1
+                                    }
+          end,
+    
+    fold_range(Ref,Fun,{end_of_table,start},Range).
+
 
 receive_fold_range(MRef,PID,_,Acc0, 0) ->
     erlang:exit(PID, shutdown),
