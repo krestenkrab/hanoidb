@@ -48,12 +48,19 @@
 -define(KEY_IN_RANGE(Key,Range),
         (?KEY_IN_FROM_RANGE(Key,Range) andalso ?KEY_IN_TO_RANGE(Key,Range))).
 
+
+-ifdef(pre18).
+-define(TIMESTAMP, now()).
+-else.
+-define(TIMESTAMP, erlang:timestamp()).
+-endif.
+
 -record(nursery, { log_file :: file:fd(),
                    dir :: string(),
                    cache :: gb_trees:tree(binary(), binary()),
                    total_size=0 :: integer(),
                    count=0 :: integer(),
-                   last_sync=now() :: erlang:timestamp(),
+                   last_sync=?TIMESTAMP :: erlang:timestamp(),
                    min_level :: integer(),
                    max_level :: integer(),
                    config=[] :: [{atom(), term()}],

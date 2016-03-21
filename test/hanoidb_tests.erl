@@ -47,9 +47,15 @@
          next_state/3, postcondition/3,
          precondition/2]).
 
--record(tree, { elements = dict:new() :: dict() }).
--record(state, { open    = dict:new() :: dict(),
-                 closed  = dict:new() :: dict()}).
+-ifdef(pre18).
+-define(OTP_DICT, dict()).
+-else.
+-define(OTP_DICT, dict:dict()).
+-endif.
+
+-record(tree, { elements = dict:new() :: ?OTP_DICT }).
+-record(state, { open    = dict:new() :: ?OTP_DICT,
+                 closed  = dict:new() :: ?OTP_DICT}).
 -define(SERVER, hanoidb_drv).
 
 full_test_() ->
